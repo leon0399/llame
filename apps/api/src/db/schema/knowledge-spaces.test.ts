@@ -17,6 +17,7 @@ describe('knowledge_spaces schema', () => {
       name: { notNull: true },
       created_at: { notNull: true, precision: 3 },
       updated_at: { notNull: true, precision: 3 },
+      archived_at: { notNull: false, precision: 3 },
     });
     expect(columns).not.toHaveProperty('root');
     expect(columns).not.toHaveProperty('path');

@@ -1,6 +1,12 @@
 /** Real HTTP + Postgres coverage for the multi-space Knowledge API. */
 
-import { lstatSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -155,6 +161,7 @@ d('Knowledge Spaces REST API', () => {
     expect(secondSpace.name).toBe('Personal');
     expect(firstSpace.id).not.toBe(secondSpace.id);
     expect(Object.keys(firstBody).sort()).toEqual([
+      'archivedAt',
       'createdAt',
       'id',
       'name',
@@ -233,6 +240,7 @@ d('Knowledge Spaces REST API', () => {
 
         expect(readSpaceResponse(body).id).toBe(firstId);
         expect(Object.keys(body).sort()).toEqual([
+          'archivedAt',
           'createdAt',
           'id',
           'name',
@@ -298,6 +306,127 @@ d('Knowledge Spaces REST API', () => {
       .get('/api/v1/knowledge-spaces/not-a-uuid')
       .set('Cookie', cookieA)
       .expect(400);
+  });
+
+  it('archives without deleting the child and hides the space from the default list', async () => {
+    const created = await request(http)
+      .post('/api/v1/knowledge-spaces')
+      .set('Cookie', cookieA)
+      .send({ name: 'Notes' })
+      .expect(201);
+
+    const createdBody: unknown = created.body;
+
+    if (!isRecord(createdBody)) {
+      throw new Error('Expected a Knowledge Space response object');
+    }
+
+    const space = readSpaceResponse(createdBody);
+    const note = path.join(root, space.id, 'note.md');
+    writeFileSync(note, 'keep\n');
+
+    const archived = await request(http)
+      .patch(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieA)
+      .send({ archived: true })
+      .expect(200);
+
+    const archivedBody: unknown = archived.body;
+
+    if (!isRecord(archivedBody) || !isString(archivedBody.archivedAt)) {
+      throw new Error('Expected an archived Knowledge Space');
+    }
+
+    expect(archivedBody).toMatchObject({ id: space.id, name: 'Notes' });
+    expect(archivedBody.archivedAt.length).toBeGreaterThan(0);
+    expect(readFileSync(note, 'utf8')).toBe('keep\n');
+    expect(lstatSync(path.join(root, space.id)).isDirectory()).toBe(true);
+
+    const active = await request(http)
+      .get('/api/v1/knowledge-spaces')
+      .set('Cookie', cookieA)
+      .expect(200);
+
+    const activeBody: unknown = active.body;
+
+    if (!isRecord(activeBody)) {
+      throw new Error('Expected a Knowledge Space list object');
+    }
+
+    expect(
+      readSpaceListResponse(activeBody).items.map((item) => item.id),
+    ).not.toContain(space.id);
+
+    const onlyArchived = await request(http)
+      .get('/api/v1/knowledge-spaces')
+      .query({ archived: 'only' })
+      .set('Cookie', cookieA)
+      .expect(200);
+
+    const onlyBody: unknown = onlyArchived.body;
+
+    if (!isRecord(onlyBody)) {
+      throw new Error('Expected a Knowledge Space list object');
+    }
+
+    expect(
+      readSpaceListResponse(onlyBody).items.map((item) => item.id),
+    ).toEqual([space.id]);
+
+    await request(http)
+      .get(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieA)
+      .expect(200);
+
+    await request(http)
+      .patch(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieA)
+      .send({ name: 'Renamed while archived' })
+      .expect(409);
+
+    await request(http)
+      .patch(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieA)
+      .send({ name: 'Renamed', archived: false })
+      .expect(400);
+
+    const missing = await request(http)
+      .patch(`/api/v1/knowledge-spaces/${crypto.randomUUID()}`)
+      .set('Cookie', cookieB)
+      .send({ archived: true })
+      .expect(404);
+
+    const otherOwner = await request(http)
+      .patch(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieB)
+      .send({ archived: true })
+      .expect(404);
+
+    expect(otherOwner.body).toEqual(missing.body);
+
+    const restored = await request(http)
+      .patch(`/api/v1/knowledge-spaces/${space.id}`)
+      .set('Cookie', cookieA)
+      .send({ archived: false })
+      .expect(200);
+
+    expect(restored.body).toMatchObject({ id: space.id, archivedAt: null });
+    expect(readFileSync(note, 'utf8')).toBe('keep\n');
+
+    const afterRestore = await request(http)
+      .get('/api/v1/knowledge-spaces')
+      .set('Cookie', cookieA)
+      .expect(200);
+
+    const afterBody: unknown = afterRestore.body;
+
+    if (!isRecord(afterBody)) {
+      throw new Error('Expected a Knowledge Space list object');
+    }
+
+    expect(
+      readSpaceListResponse(afterBody).items.map((item) => item.id),
+    ).toContain(space.id);
   });
 
   it('returns a safe unavailable response when the configured root disappears', async () => {

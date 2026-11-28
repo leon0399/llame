@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { type KnowledgeSpace } from '../db/schema/knowledge-spaces';
@@ -17,6 +17,7 @@ import {
   toKnowledgeSpaceApiProjection,
   toKnowledgeSpaceBindingProjection,
   type KnowledgeSpaceApiProjection,
+  type KnowledgeSpaceArchiveScope,
   type KnowledgeSpaceBindingProjection,
 } from './knowledge-space.repository';
 import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
@@ -60,7 +61,11 @@ function nextKnowledgeSpaceCursor(
 /** The HTTP and owner-scoped management capability exposed by this service. */
 export type KnowledgeSpaceManagement = Pick<
   KnowledgeSpaceService,
-  'provisionForOwner' | 'listForOwner' | 'getForOwner' | 'renameForOwner'
+  | 'provisionForOwner'
+  | 'listForOwner'
+  | 'getForOwner'
+  | 'renameForOwner'
+  | 'setArchiveForOwner'
 >;
 
 /** Trusted worker-side binding resolution, never an HTTP response shape. */
@@ -126,6 +131,7 @@ export class KnowledgeSpaceService {
     options: {
       limit?: number;
       after?: string;
+      archived?: 'only' | 'with';
     } = {},
   ): Promise<{
     items: Array<KnowledgeSpaceApiProjection>;
@@ -143,6 +149,7 @@ export class KnowledgeSpaceService {
         ownerUserId,
         limit,
         after,
+        archiveScope(options.archived),
       ),
     );
 
@@ -177,11 +184,44 @@ export class KnowledgeSpaceService {
   ): Promise<KnowledgeSpaceApiProjection | undefined> {
     const name = normalizeKnowledgeSpaceName(input.name);
 
-    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new KnowledgeSpaceRepository(tx).updateName(
+    const space = await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new KnowledgeSpaceRepository(tx);
+
+      const current = await repository.findByIdForOwner(
         knowledgeSpaceId,
         ownerUserId,
-        name,
+      );
+
+      if (current === undefined) return undefined;
+
+      if (current.archivedAt !== null) {
+        throw new ConflictException(
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+        );
+      }
+
+      return repository.updateName(knowledgeSpaceId, ownerUserId, name);
+    });
+
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
+  }
+
+  /**
+   * Archive or unarchive one owned Space. The stable-ID child stays on disk.
+   * A missing or other-owner id returns undefined, the same as rename.
+   */
+  async setArchiveForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+    archived: boolean,
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).setArchived(
+        knowledgeSpaceId,
+        ownerUserId,
+        archived,
       ),
     );
 
@@ -225,7 +265,7 @@ export class KnowledgeSpaceService {
       ),
     );
 
-    if (space === undefined) return undefined;
+    if (space === undefined || space.archivedAt !== null) return undefined;
 
     const canonicalRoot = this.localResolver.resolveRoot();
 
@@ -248,7 +288,14 @@ export class KnowledgeSpaceService {
         ownerUserId,
         limit,
         after,
+        'active',
       ),
     );
   }
+}
+
+function archiveScope(
+  archived: 'only' | 'with' | undefined,
+): KnowledgeSpaceArchiveScope {
+  return archived ?? 'active';
 }

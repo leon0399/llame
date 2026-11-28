@@ -130,6 +130,7 @@ export * from "./listChatsArchived";
 export * from "./listChatsParams";
 export * from "./listChatsPinned";
 export * from "./listCheckoutsParams";
+export * from "./listKnowledgeSpacesArchived";
 export * from "./listKnowledgeSpacesParams";
 export * from "./listMediaParams";
 export * from "./listProjectsArchived";

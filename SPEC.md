@@ -540,8 +540,10 @@ never accepts a caller-selected binding path or alternate source. Chat search is
 not a Knowledge Space.
 
 The authenticated `/api/v1/knowledge-spaces` REST collection supports named
-creation plus cursor-paginated list, retrieve, and rename operations. It exposes
+creation plus cursor-paginated list, retrieve, rename, and archive. It exposes
 no delete operation or owner, root, child path, source, or content field.
+Archive sets `archivedAt` and leaves the stable-ID directory in place. The
+default list omits archived Spaces.
 Provisioning creates and validates the generated stable-ID child before the
 authority row commits; a database failure may leave an unauthoritative child,
 which recovery does not delete or claim. The root is not probed while loading
@@ -551,8 +553,8 @@ Missing or unusable mounts fail closed, with no fallback to another owner or
 host path.
 
 When configured and allowlisted, `knowledge_search` remains callable even when
-the owner has no current space. Every invocation resolves the owner's current
-access under RLS. Search accepts an optional stable ID and an opaque live
+the owner has no current space. An archived Space is not current. Every
+invocation resolves the owner's current access under RLS. Search accepts an optional stable ID and an opaque live
 cursor; without an ID it traverses every current space in deterministic
 keyset pages under one shared operation budget. Search is a case-insensitive
 literal scan of admitted Markdown, capped at 1 MiB per file, and returns
@@ -568,7 +570,7 @@ specified by `knowledge-tools`. The cursor is a live keyset continuation, not a
 filesystem snapshot or revision receipt.
 
 `kb://<space-id>/<path>[:selector]` resolves through the trusted Run owner's
-current access on every call under RLS, outside Machine authority. An absent, removed, malformed, or other-owner
+current access on every call under RLS, outside Machine authority. An absent, archived, removed, malformed, or other-owner
 identifier returns `knowledge_space_not_found`; an unresolvable root or
 stable-ID child returns `knowledge_space_unavailable`. `kb://` reads carry no
 Markdown-only suffix rule and no 1 MiB size cap — a Space is a directory of
@@ -587,9 +589,10 @@ immutable; the tool itself is deleted, and no attempt admits it.
 Git history, versioned publication, accepted revisions, and synchronization are
 not part of this capability. No Knowledge index or embedding projection,
 heading-aware search, table of contents, generated synopsis, stable citation or
-Git revision contract, OKF/OpenWiki behavior, management UI, upload/import flow,
-delete lifecycle, portable resource schemes, Workspace, Sandbox, local Node, or
-Personal Realm synchronization ships here.
+Git revision contract, OKF/OpenWiki behavior, upload or import flow,
+file deletion, portable resource schemes, Workspace, Sandbox, local Node, or
+Personal Realm synchronization ships here. The owner can list, create, rename,
+and archive Spaces from the Brain page.
 
 The configured root and all child directories are trusted-writer-only. The
 filesystem boundary rejects traversal and symlink components and opens final

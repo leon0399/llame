@@ -156,22 +156,22 @@ export const getKnowledgeSpace = async (
   return data;
 };
 
-export type renameKnowledgeSpaceError = void | void | void | void;
+export type updateKnowledgeSpaceError = void | void | void | void | void;
 
-export const getRenameKnowledgeSpaceUrl = (id: string) => {
+export const getUpdateKnowledgeSpaceUrl = (id: string) => {
   return `/api/v1/knowledge-spaces/${id}`;
 };
 
 /**
- * @summary Rename one current owner Knowledge Space
+ * @summary Rename or archive one owner Knowledge Space
  */
-export const renameKnowledgeSpace = async (
+export const updateKnowledgeSpace = async (
   id: string,
-  updateKnowledgeSpaceDto: UpdateKnowledgeSpaceDto,
+  updateKnowledgeSpaceDto: UpdateKnowledgeSpaceDto | undefined = undefined,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<KnowledgeSpaceResponse> => {
-  const res = await fetchFn(getRenameKnowledgeSpaceUrl(id), {
+  const res = await fetchFn(getUpdateKnowledgeSpaceUrl(id), {
     ...options,
     method: "PATCH",
     headers: { "Content-Type": "application/json", ...options?.headers },
@@ -181,12 +181,12 @@ export const renameKnowledgeSpace = async (
   const body = [204, 205, 304].includes(res.status) ? null : await res.text();
   if (!res.ok) {
     const err: globalThis.Error & {
-      info?: renameKnowledgeSpaceError;
+      info?: updateKnowledgeSpaceError;
       status?: number;
     } = new globalThis.Error(
-      `PATCH ${getRenameKnowledgeSpaceUrl(id)} failed (${res.status})`,
+      `PATCH ${getUpdateKnowledgeSpaceUrl(id)} failed (${res.status})`,
     );
-    const data: renameKnowledgeSpaceError = (() => {
+    const data: updateKnowledgeSpaceError = (() => {
       try {
         return body ? JSON.parse(body) : {};
       } catch {

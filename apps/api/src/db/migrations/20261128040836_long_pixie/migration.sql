@@ -1,0 +1,1 @@
+ALTER TABLE "knowledge_spaces" ADD COLUMN "archived_at" timestamp(3) with time zone;

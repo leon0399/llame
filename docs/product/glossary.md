@@ -75,8 +75,10 @@ _Avoid_: folder
 A user's ranked marker that keeps a Chat or Project at the head of their list.
 
 **Archive**:
-The reversible, owner-set state that removes a Chat or Project from the working
-list and blocks changes to it. It is neither deletion nor unsharing.
+The reversible, owner-set state that removes a Chat, Project, or Knowledge
+Space from the working list and blocks changes to it. It is neither deletion
+nor unsharing. An archived Knowledge Space also leaves search. Its files stay
+on disk.
 
 **Public share**:
 The public, read-only view of a Chat. It shows text only and omits the owner's

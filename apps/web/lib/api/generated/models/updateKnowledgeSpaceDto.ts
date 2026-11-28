@@ -20,5 +20,7 @@ export interface UpdateKnowledgeSpaceDto {
     -
 -
   　﻿]*$ */
-  name: string;
+  name?: string;
+  /** Archive (true) or unarchive (false) the Knowledge Space. Omit to leave it unchanged. */
+  archived?: boolean;
 }

@@ -1,0 +1,42 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ff81886c-d161-4e2c-bc27-fd8761ccad95",
+  "prevIds": ["891590cb-d80b-4e1e-bcee-2e77934bfef5"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "knowledge_spaces",
+        "archived_at"
+      ],
+      "writes": [
+        "s|col|public.knowledge_spaces.archived_at",
+        "n|col|public.knowledge_spaces.archived_at",
+        "e|col|public.knowledge_spaces.archived_at"
+      ],
+      "reads": ["n|tbl|public.knowledge_spaces", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "knowledge_spaces",
+        "name": "archived_at",
+        "type": "timestamp(3) with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

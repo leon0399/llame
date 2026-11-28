@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { ListKnowledgeSpacesArchived } from "./listKnowledgeSpacesArchived";
 
 export type ListKnowledgeSpacesParams = {
   /**
@@ -17,4 +18,8 @@ export type ListKnowledgeSpacesParams = {
    * @pattern ^[A-Za-z0-9_-]+$
    */
   after?: string;
+  /**
+   * Archive filter. Omit to exclude archived Spaces. `only` returns archived Spaces. `with` returns both.
+   */
+  archived?: ListKnowledgeSpacesArchived;
 };

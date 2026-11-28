@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import {
   CreateKnowledgeSpaceDto,
+  ListKnowledgeSpacesQueryDto,
   UpdateKnowledgeSpaceDto,
 } from './knowledge-space.dto';
 
@@ -150,6 +151,24 @@ describe('Knowledge Space DTOs', () => {
       pipe.transform(
         { name: null },
         { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts an archive flag without a name', async () => {
+    const result: unknown = await pipe.transform(
+      { archived: true },
+      { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
+    );
+
+    expect(result).toMatchObject({ archived: true });
+  });
+
+  it('rejects an unknown archive filter', async () => {
+    await expect(
+      pipe.transform(
+        { archived: 'none' },
+        { type: 'query', metatype: ListKnowledgeSpacesQueryDto, data: '' },
       ),
     ).rejects.toMatchObject({ status: 400 });
   });

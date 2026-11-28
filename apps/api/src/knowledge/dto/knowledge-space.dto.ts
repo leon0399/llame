@@ -1,7 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDefined,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -9,6 +11,7 @@ import {
   Max,
   Min,
   Validate,
+  ValidateIf,
   ValidatorConstraint,
   type ValidatorConstraintInterface,
 } from 'class-validator';
@@ -77,12 +80,21 @@ export class CreateKnowledgeSpaceDto {
 }
 
 export class UpdateKnowledgeSpaceDto {
-  @ApiProperty({ pattern: NAME_PATTERN })
+  @ApiPropertyOptional({ pattern: NAME_PATTERN })
+  @ValidateIf((dto: UpdateKnowledgeSpaceDto) => dto.archived === undefined)
   @IsDefined()
   @IsString()
   @Transform(({ value }) => (isString(value) ? value.trim() : undefined))
   @Validate(KnowledgeSpaceNameConstraint)
-  name!: string;
+  name?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Archive (true) or unarchive (false) the Knowledge Space. Omit to leave it unchanged.',
+  })
+  @ValidateIf((dto: UpdateKnowledgeSpaceDto) => dto.archived !== undefined)
+  @IsBoolean()
+  archived?: boolean;
 }
 
 export class ListKnowledgeSpacesQueryDto {
@@ -107,6 +119,15 @@ export class ListKnowledgeSpacesQueryDto {
   @IsString()
   @Matches(/^[A-Za-z0-9_-]+$/u)
   after?: string;
+
+  @ApiPropertyOptional({
+    enum: ['only', 'with'],
+    description:
+      'Archive filter. Omit to exclude archived Spaces. `only` returns archived Spaces. `with` returns both.',
+  })
+  @IsOptional()
+  @IsIn(['only', 'with'])
+  archived?: 'only' | 'with';
 }
 
 export class KnowledgeSpaceResponse {
@@ -121,6 +142,9 @@ export class KnowledgeSpaceResponse {
 
   @ApiProperty({ format: 'date-time' })
   updatedAt!: Date;
+
+  @ApiProperty({ type: Date, format: 'date-time', nullable: true })
+  archivedAt!: Date | null;
 }
 
 export class KnowledgeSpaceCollectionResponse {
@@ -153,6 +177,7 @@ export function toKnowledgeSpaceResponse(
     name: normalizeKnowledgeSpaceName(projection.name),
     createdAt: projection.createdAt,
     updatedAt: projection.updatedAt,
+    archivedAt: projection.archivedAt,
   };
 }
 

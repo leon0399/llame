@@ -65,6 +65,10 @@ A search hit never triggers an instruction file. `knowledge_search` is a
 bounded Markdown scanner, not an index, an embeddings store, or a Git revision
 contract.
 
+An archived Knowledge Space is not current. An unscoped search skips it. An
+explicit id for an archived Space returns `knowledge_space_not_found`. The
+Space directory stays on disk.
+
 ## Bounds
 
 - `limit` is 1-10.

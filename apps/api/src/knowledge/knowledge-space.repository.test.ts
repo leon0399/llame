@@ -87,6 +87,7 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
       name: 'Personal',
       createdAt: NOW,
       updatedAt: NOW,
+      archivedAt: null,
     };
 
     const onConflict = vi.fn();
@@ -109,6 +110,7 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
       name: 'Personal',
       createdAt: NOW,
       updatedAt: NOW,
+      archivedAt: null,
     };
 
     const onConflict = vi.fn();

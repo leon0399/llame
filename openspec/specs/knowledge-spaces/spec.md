@@ -8,54 +8,88 @@ Defines self-service owner-scoped personal Knowledge Spaces, stable identity, tr
 
 ### Requirement: An owner can manage multiple personal Knowledge Spaces
 
-The system SHALL expose authenticated owner-scoped Knowledge Space resources at `/api/v1/knowledge-spaces`. `POST /api/v1/knowledge-spaces` SHALL accept only `{ "name": string }`, return `201 Created` with a `Location` header, and allocate a new globally stable opaque identifier. `GET /api/v1/knowledge-spaces` SHALL return a cursor-paginated owner inventory. `GET /api/v1/knowledge-spaces/:id` SHALL retrieve one owned resource. `PATCH /api/v1/knowledge-spaces/:id` SHALL accept only `{ "name": string }`. This capability SHALL expose no `PUT` or `DELETE` operation.
+The system MUST expose owner-scoped Knowledge Space resources at `/api/v1/knowledge-spaces`. The owner identity MUST come only from the authenticated request. `POST /api/v1/knowledge-spaces` MUST accept only `{ "name": string }`. A successful create MUST return `201 Created` and a `Location` header. The create MUST allocate a new globally stable opaque identifier. `GET /api/v1/knowledge-spaces` MUST return a cursor-paginated owner inventory. `GET /api/v1/knowledge-spaces/:id` MUST return one owned resource, archived or active. `PATCH /api/v1/knowledge-spaces/:id` MUST accept a name or an archive flag, and not both. The capability MUST expose no `PUT` or `DELETE` operation.
 
-The owner identity SHALL come only from the authenticated request context. Each representation SHALL contain exactly `id`, `name`, `createdAt`, and `updatedAt`; it SHALL expose no owner identifier, root, child path, source locator, or content. Names SHALL be trimmed, contain 1 through 100 Unicode code points, reject control, format, line-separator, and paragraph-separator characters, and MAY duplicate another owned space's name. Stable identifiers, not names, SHALL drive authorization, local binding, tool selection, and attribution. The system SHALL impose no per-owner Knowledge Space count cap in this iteration.
+Each representation MUST contain exactly `id`, `name`, `createdAt`, `updatedAt`, and `archivedAt`. The representation MUST NOT expose an owner identifier, root, child path, source locator, or content. `archivedAt` MUST be `null` while the Space is active. A name MUST be trimmed. A name MUST contain 1 through 100 Unicode code points. A name MUST NOT contain a control, format, line-separator, or paragraph-separator character. A name can duplicate another owned Space name. Stable identifiers MUST drive authorization, local binding, tool selection, and attribution. This iteration MUST NOT impose a per-owner Knowledge Space count cap.
 
-The inventory SHALL be stored in tenant-owned PostgreSQL state with row-level security ENABLED and FORCED against the current authenticated owner. Application queries SHALL retain explicit owner predicates as defense-in-depth. Missing and other-owner item identifiers SHALL return the same `404` response.
+The inventory MUST live in tenant-owned PostgreSQL. Row-level security MUST be enabled and forced for the current authenticated owner. Application queries MUST keep explicit owner predicates. A missing identifier and another owner's identifier MUST return the same `404` response.
 
-List requests SHALL accept an integer `limit` from 1 through 100, default it to 50 when omitted, and accept an optional opaque `after` cursor. They SHALL order by `(createdAt, id)` and return `{ "items": [...], "nextCursor": string | null }`. The Knowledge capability SHALL implement the cursor as validated base64url-encoded `createdAt` and `id` keyset values. A malformed cursor or out-of-range limit SHALL return `400`. This iteration SHALL NOT introduce a reusable pagination framework, signed cursors, total counts, or offset pagination.
+A list request MUST accept an integer `limit` from 1 through 100. An omitted `limit` MUST default to 50. A list request can accept an optional opaque `after` cursor. The list MUST order rows by `(createdAt, id)`. The list MUST return `{ "items": [...], "nextCursor": string | null }`. The cursor MUST be validated base64url-encoded `createdAt` and `id` values. A malformed cursor or an out-of-range limit MUST return `400`. This iteration MUST NOT add a reusable pagination framework, signed cursors, total counts, or offset pagination.
+
+An omitted archive filter MUST exclude archived Spaces. `archived=only` MUST return only archived Spaces. `archived=with` MUST return active and archived Spaces. An unknown archive filter MUST return `400`.
 
 #### Scenario: One owner creates same-named spaces
 
 - **WHEN** one authenticated owner creates two Knowledge Spaces with the same valid name
-- **THEN** both requests create distinct stable identifiers and filesystem children
-- **AND** both resources remain independently addressable by identifier
+- **THEN** the system creates two distinct stable identifiers and two filesystem children
+- **AND** each resource stays addressable by its own identifier
 
 #### Scenario: Inventory has no artificial total cap
 
-- **WHEN** an owner creates another valid Knowledge Space after already creating many spaces
-- **THEN** creation is not refused solely because of an owner-level count limit
-- **AND** list operations remain page-bounded
+- **WHEN** an owner creates another valid Knowledge Space after many existing Spaces
+- **THEN** the system does not refuse that create only for an owner count
+- **AND** each list response stays inside its page bound
 
 #### Scenario: Cursor ordering is deterministic
 
-- **WHEN** multiple owned spaces share a creation timestamp and a client follows `nextCursor`
-- **THEN** `(createdAt, id)` provides a deterministic tie-breaker
-- **AND** the client can traverse the inventory without offset ordering ambiguity
+- **WHEN** owned Spaces share one `createdAt` and the client follows `nextCursor`
+- **THEN** `(createdAt, id)` orders those Spaces with a stable tie-break
+- **AND** the client reads the full inventory without offset pagination
 
 #### Scenario: Malformed cursor fails closed
 
-- **WHEN** a client supplies an `after` cursor that is not valid base64url or does not decode to the expected `createdAt` and `id` keyset shape
+- **WHEN** an `after` cursor is not valid base64url or does not decode to `createdAt` and `id`
 - **THEN** the API returns `400`
-- **AND** it does not fall back to offset pagination or partially trusted cursor state
+- **AND** the API does not use offset pagination or a partial cursor
 
 #### Scenario: Caller cannot select owner or location
 
-- **WHEN** a caller adds an owner identifier, resource identifier, directory name, source key, path, or other excess field to create or rename
-- **THEN** closed request validation rejects the request
-- **AND** trusted code remains the only identity and location authority
+- **WHEN** a create or rename body adds an owner, identifier, path, or other extra field
+- **THEN** request validation rejects the body
+- **AND** only trusted code sets identity and location
 
 #### Scenario: Another owner's item is indistinguishable from missing
 
-- **WHEN** an authenticated caller retrieves or renames another owner's guessed identifier
-- **THEN** the API returns the same `404` shape as for an absent identifier
-- **AND** no existence or metadata signal is disclosed
+- **WHEN** an authenticated caller reads, renames, or archives another owner's identifier
+- **THEN** the API returns the same `404` as for an absent identifier
+- **AND** the response discloses no existence or metadata
 
 #### Scenario: Missing identity fails closed
 
-- **WHEN** Knowledge Space metadata is queried without a current authenticated tenant identity
-- **THEN** no row is visible or mutable
+- **WHEN** a query has no current authenticated tenant identity
+- **THEN** no Knowledge Space row is visible or mutable
+
+### Requirement: Archive keeps the Knowledge Space directory
+
+An owner MUST be able to archive and unarchive an owned Knowledge Space. Archive MUST set `archivedAt` to the current time. Unarchive MUST set `archivedAt` to `null`. Archive and unarchive MUST NOT create, change, or delete a file under the Knowledge root. A rename of an archived Space MUST return `409`.
+
+#### Scenario: Archive leaves the directory in place
+
+- **WHEN** an owner archives a Knowledge Space that has a file in its child directory
+- **THEN** `archivedAt` is set and that file stays in the stable-ID child
+- **AND** the default list omits that Space
+
+#### Scenario: Unarchive restores the working list
+
+- **WHEN** an owner unarchives an archived Knowledge Space
+- **THEN** `archivedAt` is `null`
+- **AND** the default list includes that Space
+
+#### Scenario: Rename of an archived Space is refused
+
+- **WHEN** an owner renames an archived Knowledge Space
+- **THEN** the API returns `409`
+- **AND** the name and the child directory stay unchanged
+
+### Requirement: Archived Spaces are not current Knowledge access
+
+An archived Space MUST NOT count as a current Knowledge Space. Unscoped `knowledge_search` MUST skip every archived Space. An explicit `kb://` target for an archived Space MUST return `knowledge_space_not_found`. That result MUST match the result for an absent identifier.
+
+#### Scenario: Search skips an archived Space
+
+- **WHEN** an owner archives a Space and then runs unscoped `knowledge_search`
+- **THEN** the search does not read that Space
+- **AND** a direct `kb://` target for it returns `knowledge_space_not_found`
 
 ### Requirement: Provisioning allocates one safe child beneath the configured root
 

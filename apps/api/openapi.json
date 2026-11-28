@@ -3070,6 +3070,16 @@
               "pattern": "^[A-Za-z0-9_-]+$",
               "type": "string"
             }
+          },
+          {
+            "name": "archived",
+            "required": false,
+            "in": "query",
+            "description": "Archive filter. Omit to exclude archived Spaces. `only` returns archived Spaces. `with` returns both.",
+            "schema": {
+              "type": "string",
+              "enum": ["only", "with"]
+            }
           }
         ],
         "responses": {
@@ -3149,7 +3159,7 @@
         "tags": ["knowledge"]
       },
       "patch": {
-        "operationId": "renameKnowledgeSpace",
+        "operationId": "updateKnowledgeSpace",
         "parameters": [
           {
             "name": "id",
@@ -3162,7 +3172,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3183,13 +3193,16 @@
             }
           },
           "400": {
-            "description": "Malformed id or name"
+            "description": "Malformed id, or not exactly one of name or archived"
           },
           "401": {
             "description": ""
           },
           "404": {
             "description": ""
+          },
+          "409": {
+            "description": "The Knowledge Space is archived and the update renames it."
           },
           "413": {
             "description": "The request body is larger than the server accepts."
@@ -3203,7 +3216,7 @@
             "bearer": []
           }
         ],
-        "summary": "Rename one current owner Knowledge Space",
+        "summary": "Rename or archive one owner Knowledge Space",
         "tags": ["knowledge"]
       }
     },
@@ -7868,9 +7881,14 @@
           "updatedAt": {
             "format": "date-time",
             "type": "string"
+          },
+          "archivedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
           }
         },
-        "required": ["id", "name", "createdAt", "updatedAt"]
+        "required": ["id", "name", "createdAt", "updatedAt", "archivedAt"]
       },
       "KnowledgeSpaceUnavailableResponse": {
         "type": "object",
@@ -7913,9 +7931,12 @@
           "name": {
             "type": "string",
             "pattern": "^(?![\\s\\S]*(?:𑂽|𑃍|𓐰|𓐱|𓐲|𓐳|𓐴|𓐵|𓐶|𓐷|𓐸|𓐹|𓐺|𓐻|𓐼|𓐽|𓐾|𓐿|𛲠|𛲡|𛲢|𛲣|𝅳|𝅴|𝅵|𝅶|𝅷|𝅸|𝅹|𝅺|󠀁|󠀠|󠀡|󠀢|󠀣|󠀤|󠀥|󠀦|󠀧|󠀨|󠀩|󠀪|󠀫|󠀬|󠀭|󠀮|󠀯|󠀰|󠀱|󠀲|󠀳|󠀴|󠀵|󠀶|󠀷|󠀸|󠀹|󠀺|󠀻|󠀼|󠀽|󠀾|󠀿|󠁀|󠁁|󠁂|󠁃|󠁄|󠁅|󠁆|󠁇|󠁈|󠁉|󠁊|󠁋|󠁌|󠁍|󠁎|󠁏|󠁐|󠁑|󠁒|󠁓|󠁔|󠁕|󠁖|󠁗|󠁘|󠁙|󠁚|󠁛|󠁜|󠁝|󠁞|󠁟|󠁠|󠁡|󠁢|󠁣|󠁤|󠁥|󠁦|󠁧|󠁨|󠁩|󠁪|󠁫|󠁬|󠁭|󠁮|󠁯|󠁰|󠁱|󠁲|󠁳|󠁴|󠁵|󠁶|󠁷|󠁸|󠁹|󠁺|󠁻|󠁼|󠁽|󠁾|󠁿))[\t-\r    -  -   　﻿]*[^\t-\r    -  -   　﻿\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB](?:[^\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB]{0,98}[^\t-\r    -  -   　﻿\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u180E\\u200B-\\u200F\\u2028-\\u202E\\u2060-\\u2064\\u2066-\\u206F\\uFEFF\\uFFF9-\\uFFFB])?[\t-\r    -  -   　﻿]*$"
+          },
+          "archived": {
+            "type": "boolean",
+            "description": "Archive (true) or unarchive (false) the Knowledge Space. Omit to leave it unchanged."
           }
         },
-        "required": ["name"],
         "additionalProperties": false
       },
       "SkillCatalogEntryResponse": {

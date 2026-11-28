@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
@@ -13,6 +14,7 @@ const SPACE = {
   name: 'Personal',
   createdAt: new Date('2026-08-23T12:00:00.000Z'),
   updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+  archivedAt: null,
 };
 
 function fakeDb(): Db {
@@ -78,6 +80,7 @@ describe('KnowledgeSpaceService', () => {
       name: 'Personal',
       createdAt: SPACE.createdAt,
       updatedAt: SPACE.updatedAt,
+      archivedAt: null,
     });
     expect(localResolver.ensureChild).toHaveBeenCalledWith(
       '/srv/knowledge',
@@ -110,16 +113,19 @@ describe('KnowledgeSpaceService', () => {
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
 
-    vi.spyOn(
-      KnowledgeSpaceRepository.prototype,
-      'listForOwnerPage',
-    ).mockResolvedValue([SPACE, second]);
+    const list = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'listForOwnerPage')
+      .mockResolvedValue([SPACE, second]);
 
     const result = await service.listForOwner('owner-a', { limit: 1 });
     expect(result.items).toEqual([
       expect.objectContaining({ id: SPACE_ID, name: 'Personal' }),
     ]);
     expect(result.nextCursor).not.toBeNull();
+    expect(list).toHaveBeenCalledWith('owner-a', 1, undefined, 'active');
+
+    await service.listForOwner('owner-a', { limit: 1, archived: 'only' });
+    expect(list).toHaveBeenCalledWith('owner-a', 1, undefined, 'only');
   });
 
   it('resolves compatibility bindings from the earliest deterministic row', async () => {
@@ -154,6 +160,7 @@ describe('KnowledgeSpaceService', () => {
       name: 'Personal',
       createdAt: SPACE.createdAt,
       updatedAt: SPACE.updatedAt,
+      archivedAt: null,
     });
     expect(localResolver.ensureChild).toHaveBeenCalledWith(
       '/srv/knowledge',
@@ -161,5 +168,69 @@ describe('KnowledgeSpaceService', () => {
     );
     expect(create).not.toHaveBeenCalled();
     expect(events).toEqual(['root', 'db:owner-a', 'child']);
+  });
+
+  it('refuses to rename an archived space and does not touch the directory', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwner',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    const updateName = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    );
+
+    await expect(
+      service.renameForOwner('owner-a', SPACE_ID, { name: 'Renamed' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect(updateName).not.toHaveBeenCalled();
+    expect(localResolver.ensureChild).not.toHaveBeenCalled();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
+  });
+
+  it('archives without resolving or creating a directory', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    const archivedAt = new Date('2026-08-24T00:00:00.000Z');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'setArchived',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt,
+    });
+
+    await expect(
+      service.setArchiveForOwner('owner-a', SPACE_ID, true),
+    ).resolves.toEqual({
+      id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+      archivedAt,
+    });
+    expect(localResolver.resolveRoot).not.toHaveBeenCalled();
+    expect(localResolver.ensureChild).not.toHaveBeenCalled();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
+  });
+
+  it('omits an archived space from explicit binding resolution', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwner',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    await expect(
+      service.resolveBindingForOwnerById('owner-a', SPACE_ID),
+    ).resolves.toBeUndefined();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -112,6 +113,7 @@ export class KnowledgeSpaceController {
         await this.knowledgeSpace.listForOwner(ownerUserId, {
           limit: query.limit,
           after: query.after,
+          archived: query.archived,
         }),
       );
     } catch (error) {
@@ -149,20 +151,26 @@ export class KnowledgeSpaceController {
 
   @Patch(':id')
   @ApiOperation({
-    operationId: 'renameKnowledgeSpace',
-    summary: 'Rename one current owner Knowledge Space',
+    operationId: 'updateKnowledgeSpace',
+    summary: 'Rename or archive one owner Knowledge Space',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: KnowledgeSpaceResponse })
-  @ApiBadRequestResponse({ description: 'Malformed id or name' })
+  @ApiBadRequestResponse({
+    description: 'Malformed id, or not exactly one of name or archived',
+  })
+  @ApiConflictResponse({
+    description: 'The Knowledge Space is archived and the update renames it.',
+  })
   @ApiNotFoundResponse()
   @ApiUnauthorizedResponse()
-  async renameKnowledgeSpace(
+  async updateKnowledgeSpace(
     @CurrentUser() ownerUserId: string,
     @Param('id', ParseUUIDPipe) knowledgeSpaceId: string,
     @Body() input: UpdateKnowledgeSpaceDto,
   ): Promise<KnowledgeSpaceResponse> {
-    const space = await this.knowledgeSpace.renameForOwner(
+    const space = await applyKnowledgeSpaceUpdate(
+      this.knowledgeSpace,
       ownerUserId,
       knowledgeSpaceId,
       input,
@@ -172,6 +180,29 @@ export class KnowledgeSpaceController {
 
     return toKnowledgeSpaceResponse(space);
   }
+}
+
+function applyKnowledgeSpaceUpdate(
+  knowledgeSpace: KnowledgeSpaceManagement,
+  ownerUserId: string,
+  knowledgeSpaceId: string,
+  input: UpdateKnowledgeSpaceDto,
+) {
+  if (input.name !== undefined && input.archived === undefined) {
+    return knowledgeSpace.renameForOwner(ownerUserId, knowledgeSpaceId, {
+      name: input.name,
+    });
+  }
+
+  if (input.archived !== undefined && input.name === undefined) {
+    return knowledgeSpace.setArchiveForOwner(
+      ownerUserId,
+      knowledgeSpaceId,
+      input.archived,
+    );
+  }
+
+  throw new BadRequestException('Provide exactly one of name or archived.');
 }
 
 function knowledgeSpaceNotFound(): NotFoundException {

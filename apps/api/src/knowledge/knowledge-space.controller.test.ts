@@ -12,6 +12,7 @@ const SPACE = {
   name: 'Personal',
   createdAt: new Date('2026-08-23T12:00:00.000Z'),
   updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+  archivedAt: null,
 };
 
 const noOp = vi.fn();
@@ -40,6 +41,7 @@ describe('KnowledgeSpaceController', () => {
       listForOwner: noOp,
       getForOwner: noOp,
       renameForOwner: noOp,
+      setArchiveForOwner: noOp,
     });
 
     const response = { setHeader: vi.fn() };
@@ -71,6 +73,7 @@ describe('KnowledgeSpaceController', () => {
       listForOwner,
       getForOwner: noOp,
       renameForOwner: noOp,
+      setArchiveForOwner: noOp,
     });
 
     await expect(
@@ -82,6 +85,7 @@ describe('KnowledgeSpaceController', () => {
     expect(listForOwner).toHaveBeenCalledWith('session-owner', {
       limit: 50,
       after: 'opaque-cursor',
+      archived: undefined,
     });
   });
 
@@ -93,6 +97,7 @@ describe('KnowledgeSpaceController', () => {
       listForOwner: noOp,
       getForOwner,
       renameForOwner: noOp,
+      setArchiveForOwner: noOp,
     });
 
     for (const owner of ['session-owner', 'other-owner']) {
@@ -105,6 +110,45 @@ describe('KnowledgeSpaceController', () => {
     }
   });
 
+  it('archives through the owner update and rejects a mixed body', async () => {
+    const setArchiveForOwner = vi.fn().mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    const renameForOwner = vi.fn();
+
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner: noOp,
+      listForOwner: noOp,
+      getForOwner: noOp,
+      renameForOwner,
+      setArchiveForOwner,
+    });
+
+    const archived = await controller.updateKnowledgeSpace(
+      'session-owner',
+      SPACE.id,
+      { archived: true },
+    );
+
+    expect(archived.id).toBe(SPACE.id);
+    expect(archived.archivedAt).toBeInstanceOf(Date);
+    expect(setArchiveForOwner).toHaveBeenCalledWith(
+      'session-owner',
+      SPACE.id,
+      true,
+    );
+    expect(renameForOwner).not.toHaveBeenCalled();
+
+    await expect(
+      controller.updateKnowledgeSpace('session-owner', SPACE.id, {
+        name: 'Personal',
+        archived: false,
+      }),
+    ).rejects.toMatchObject({ status: HttpStatus.BAD_REQUEST });
+  });
+
   it('maps local provisioning failures to the safe 503 response', async () => {
     const controller = new KnowledgeSpaceController({
       provisionForOwner: vi
@@ -113,6 +157,7 @@ describe('KnowledgeSpaceController', () => {
       listForOwner: noOp,
       getForOwner: noOp,
       renameForOwner: noOp,
+      setArchiveForOwner: noOp,
     });
 
     try {
