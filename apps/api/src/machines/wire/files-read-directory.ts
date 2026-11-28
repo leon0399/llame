@@ -1,4 +1,5 @@
 import {
+  isWalkFixedName,
   renderCollectedDirectoryParts,
   type ChildDir,
   type DirEntry,
@@ -144,7 +145,9 @@ async function collectChildDirectories(
   let budget = MAX_TREE_ENTRIES - root.entries.length;
 
   for (const entry of root.entries) {
-    if (entry.kind !== EntryKind.DIRECTORY) continue;
+    // A walk-policy fixed-set entry renders without children.
+    if (entry.kind !== EntryKind.DIRECTORY || isWalkFixedName(entry.name))
+      continue;
 
     const collected = await collectChildDirectory(session, {
       path,
