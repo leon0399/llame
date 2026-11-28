@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type RefObject,
+} from "react";
 import { Maximize2Icon, Minimize2Icon } from "lucide-react";
 
 import {
@@ -46,12 +52,55 @@ export type ComposerExpand = {
   ) => (event: FormEvent<HTMLFormElement>) => void;
 };
 
-/** The expand state, and its shortcut while the composer is usable. */
-export function useComposerExpand(enabled: boolean): ComposerExpand {
+/** Plays a height change the auto-resize hook already applied, from the
+ *  height measured before it, so the field grows and shrinks rather than
+ *  jumping. Skipped for reduced motion. */
+function playHeightChange(field: HTMLTextAreaElement, from: number) {
+  const to = field.offsetHeight;
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (reduce || from === to) return;
+
+  field.animate(
+    [{ height: `${String(from)}px` }, { height: `${String(to)}px` }],
+    {
+      duration: 200,
+      easing: "cubic-bezier(0.2, 0, 0, 1)",
+    },
+  );
+}
+
+/** The expand state, and its shortcut while the composer is usable. `area`
+ *  holds the message field, whose height change is animated. */
+export function useComposerExpand(
+  enabled: boolean,
+  area: RefObject<HTMLElement | null>,
+): ComposerExpand {
   const [height, setHeight] = useState<number | undefined>(undefined);
+  // The field's height before a change, played once the change lands.
+  const fromRef = useRef<number | null>(null);
+
+  const field = () => area.current?.querySelector("textarea") ?? null;
+
+  const change = (
+    next: (current: number | undefined) => number | undefined,
+  ) => {
+    fromRef.current = field()?.offsetHeight ?? null;
+    setHeight(next);
+  };
+
+  // Runs after the textarea's own resize, which is a layout effect too.
+  useLayoutEffect(() => {
+    const from = fromRef.current;
+    const element = field();
+
+    fromRef.current = null;
+
+    if (from !== null && element !== null) playHeightChange(element, from);
+  });
 
   const toggle = () =>
-    setHeight((current) =>
+    change((current) =>
       current === undefined ? expandedComposerHeight() : undefined,
     );
 
@@ -61,14 +110,16 @@ export function useComposerExpand(enabled: boolean): ComposerExpand {
     height,
     toggle,
     collapseAfter: (onSubmit) => (event) => {
-      setHeight(undefined);
+      change(() => undefined);
       onSubmit(event);
     },
   };
 }
 
-/** The toolbar toggle beside Send: shown once the message is long, or while
- *  expanded; the shortcut works at any length. */
+/** The toggle in the input's top-right corner: shown once the message is
+ *  long, or while expanded; the shortcut works at any length. Its slot is
+ *  always reserved (see `ComposerMessageField`), so the text never reflows
+ *  when it appears. */
 export function ComposerExpandToggle({
   expand,
   input,
@@ -90,7 +141,7 @@ export function ComposerExpandToggle({
       render={
         <PromptInputButton
           variant="ghost"
-          size="icon"
+          size="icon-sm"
           aria-label={label}
           aria-pressed={expanded}
           aria-keyshortcuts={hint.aria}

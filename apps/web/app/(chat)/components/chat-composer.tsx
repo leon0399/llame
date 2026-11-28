@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 
 import type { ChatStatus } from "ai";
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
@@ -210,8 +210,6 @@ type ChatComposerToolbarProps = Pick<
 > & {
   /** The whole composer is locked: no upload, by menu or by shortcut. */
   locked: boolean;
-  expand: ComposerExpand;
-  input: string;
 };
 
 /** The toolbar under the textarea: `+` to attach on the left, then the model
@@ -224,8 +222,6 @@ function ChatComposerToolbar({
   pendingStop,
   attachments,
   locked,
-  expand,
-  input,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
@@ -236,7 +232,6 @@ function ChatComposerToolbar({
       />
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <ComposerRunSettings />
-        <ComposerExpandToggle expand={expand} input={input} />
         <ChatComposerSendButton
           runActive={runActive}
           onStop={onStop}
@@ -277,10 +272,15 @@ function ComposerMessageField({
   expand: ComposerExpand;
 }) {
   return (
-    <>
+    // The expand toggle sits over the field's top-right corner and stays
+    // put while the text scrolls; the field reserves its width at every
+    // length, so the text never reflows when it shows, and the scrollbar
+    // runs along the card's right edge.
+    <div className="relative">
       {/* Remount on unlock so autofocus applies (attr updates do not). */}
       <PromptInputTextarea
         key={disabled ? "locked" : "ready"}
+        data-corner-action
         name="message"
         value={input}
         onChange={(e) => onInputChange(e.target.value)}
@@ -294,7 +294,10 @@ function ComposerMessageField({
         // oxlint-disable-next-line jsx-a11y/no-autofocus
         autoFocus={!disabled}
       />
-    </>
+      <div className="absolute top-1 right-3">
+        <ComposerExpandToggle expand={expand} input={input} />
+      </div>
+    </div>
   );
 }
 
@@ -310,11 +313,13 @@ function ChatComposerForm({
   location,
   ...toolbar
 }: ChatComposerFormProps) {
-  const expand = useComposerExpand(!disabled);
+  const fieldArea = useRef<HTMLFormElement>(null);
+  const expand = useComposerExpand(!disabled, fieldArea);
 
   return (
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
       <PromptInput
+        ref={fieldArea}
         onSubmit={preventWhenDisabled(disabled, expand.collapseAfter(onSubmit))}
         {...dropFilesInto(attachments.add)}
       >
@@ -331,8 +336,6 @@ function ChatComposerForm({
           {...toolbar}
           attachments={attachments}
           locked={disabled}
-          expand={expand}
-          input={input}
         />
       </PromptInput>
       <ChatComposerEnvironmentRow {...{ chatId, project, location }} />

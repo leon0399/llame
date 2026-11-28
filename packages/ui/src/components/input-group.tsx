@@ -203,7 +203,9 @@ function InputGroupTextarea({
     <Textarea
       data-slot="input-group-control"
       className={cn(
-        "flex-1 resize-none rounded-none border-0 bg-transparent py-2 shadow-none ring-0 focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 dark:bg-transparent dark:disabled:bg-transparent",
+        // `data-corner-action`: a control overlays the top-right corner, so
+        // the text keeps clear of it while the scrollbar stays at the edge.
+        "flex-1 resize-none rounded-none border-0 bg-transparent py-2 shadow-none ring-0 scrollbar-thin focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 data-corner-action:pr-11 dark:bg-transparent dark:disabled:bg-transparent",
         className,
       )}
       {...props}
