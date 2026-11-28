@@ -451,14 +451,16 @@ export type GitRepositoryRemote = {
 
 /**
  * A git refusal or failure. `invalid_input` is refused before git starts, and
- * carries the reason; every other type comes from a started process and
- * carries the bounded, redacted standard error. On a Machine, each
+ * carries the reason. `copy_failed` is a failed environment copy after the
+ * worktree exists, and carries a fixed reason phrase plus at most one bounded
+ * relative path, never standard error. Every other type comes from a started
+ * process and carries the bounded, redacted standard error. On a Machine, each
  * registered-root prefix in that text is a locator by the time it arrives.
  */
 export type GitFailure =
   | {
       readonly status: "error";
-      readonly type: "invalid_input";
+      readonly type: "invalid_input" | "copy_failed";
       readonly message: string;
     }
   | {
@@ -589,6 +591,11 @@ export type GitWorktreeAddParams = {
   readonly branch: string;
   /** The commit-ish the branch starts from; absent means the source's HEAD. */
   readonly baseRef?: string;
+  /**
+   * The selected Checkout root whose `.worktreeinclude` files the daemon copies
+   * into the new worktree. Distinct from `source`, the main Checkout.
+   */
+  readonly copySource: string;
   readonly directory: string;
   readonly options: NativeDisplayOptions;
 };

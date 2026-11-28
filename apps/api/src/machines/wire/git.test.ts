@@ -279,6 +279,7 @@ describe('Git wire handlers', () => {
         source: '/srv/repo',
         branch: 'feature',
         baseRef: '-option',
+        copySource: '/srv/repo',
         directory: '/srv/worktree',
         options,
       },
@@ -294,5 +295,45 @@ describe('Git wire handlers', () => {
       type: 'invalid_input',
       message: 'base must not start with -',
     });
+  });
+
+  it('sends copySource and maps COPY_FAILED to a message-only failure', async () => {
+    const createWorktree = vi.fn().mockResolvedValue({
+      result: {
+        case: 'failure',
+        value: {
+          reason: GitFailureReason.COPY_FAILED,
+          message: 'copy failed: config/secret.env',
+          stderr: 'SYNTHETIC_SECRET_VALUE',
+        },
+      },
+    });
+
+    const result = await gitHandlers['git.worktreeAdd'](
+      sessionWith({ createWorktree }),
+      {
+        envelope,
+        source: '/srv/repo',
+        branch: 'feature',
+        copySource: 'machine://host-a/srv/linked',
+        directory: '/srv/worktree',
+        options,
+      },
+      {},
+    );
+
+    expect(createWorktree).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repository: '/srv/repo',
+        copySource: '/srv/linked',
+      }),
+      {},
+    );
+    expect(result).toEqual({
+      status: 'error',
+      type: 'copy_failed',
+      message: 'copy failed: config/secret.env',
+    });
+    expect(JSON.stringify(result)).not.toContain('SYNTHETIC_SECRET_VALUE');
   });
 });
