@@ -19,7 +19,13 @@ import { z } from "zod";
 
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 
-import { ariaKeyShortcut, formatChord, matchChord, type Chord } from "./chord";
+import {
+  ariaKeyShortcut,
+  formatChord,
+  isBindableChord,
+  matchChord,
+  type Chord,
+} from "./chord";
 import {
   SHORTCUT_IDS,
   SHORTCUTS,
@@ -52,7 +58,8 @@ const UsageSchema = z.object({
 });
 
 /** Stored entries for shortcuts that no longer exist are dropped, and so are
- *  bindings for fixed ones, rather than trusted. */
+ *  bindings for fixed ones and chords no binding may use, rather than
+ *  trusted. */
 const BindingsSchema = z
   .partialRecord(z.enum(SHORTCUT_IDS), ChordSchema)
   .transform((stored) => {
@@ -61,7 +68,9 @@ const BindingsSchema = z
     for (const def of SHORTCUTS) {
       const chord = stored[def.id];
 
-      if (def.rebindable && chord !== undefined) bindings[def.id] = chord;
+      if (def.rebindable && chord !== undefined && isBindableChord(chord)) {
+        bindings[def.id] = chord;
+      }
     }
 
     return bindings;

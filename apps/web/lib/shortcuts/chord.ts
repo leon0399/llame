@@ -63,6 +63,14 @@ export function chordFromEvent(event: KeyState, isMac: boolean): Chord | null {
   };
 }
 
+/** Whether a recorded chord may become a binding. Bindings are global, so a
+ *  chord without the primary modifier (a bare letter, Shift+letter) would
+ *  fire, and be swallowed, while the owner types; function keys type
+ *  nothing and are allowed bare. */
+export function isBindableChord(chord: Chord): boolean {
+  return chord.mod === true || /^F([1-9]|1[0-2])$/.test(chord.key);
+}
+
 /** A canonical id, equal for equal chords: `mod+shift+o`. */
 export function chordId(chord: Chord): string {
   return [
