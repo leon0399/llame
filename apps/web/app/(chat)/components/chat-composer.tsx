@@ -28,6 +28,11 @@ import {
 } from "./composer-delivery-send";
 import type { ComposerProject } from "./composer-project";
 import { ComposerControlSize } from "./composer-control-size";
+import {
+  ComposerExpandToggle,
+  useComposerExpand,
+  type ComposerExpand,
+} from "./composer-expand";
 import { ComposerStartRow } from "./composer-start-row";
 import { ComposerTooltip } from "./composer-tooltip";
 import type { ComposerAttachments } from "./use-composer-attachments";
@@ -205,6 +210,8 @@ type ChatComposerToolbarProps = Pick<
 > & {
   /** The whole composer is locked: no upload, by menu or by shortcut. */
   locked: boolean;
+  expand: ComposerExpand;
+  input: string;
 };
 
 /** The toolbar under the textarea: `+` to attach on the left, then the model
@@ -217,6 +224,8 @@ function ChatComposerToolbar({
   pendingStop,
   attachments,
   locked,
+  expand,
+  input,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
@@ -227,6 +236,7 @@ function ChatComposerToolbar({
       />
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <ComposerRunSettings />
+        <ComposerExpandToggle expand={expand} input={input} />
         <ChatComposerSendButton
           runActive={runActive}
           onStop={onStop}
@@ -249,6 +259,45 @@ function queueOnModEnter({
   return runActive ? () => onDeliver("queue") : undefined;
 }
 
+/** The message textarea, at its resting size or grown in place (see
+ *  `useComposerExpand`). */
+function ComposerMessageField({
+  input,
+  onInputChange,
+  attachments,
+  onModEnter,
+  disabled,
+  expand,
+}: {
+  input: string;
+  onInputChange: (value: string) => void;
+  attachments: ComposerAttachments;
+  onModEnter: (() => void) | undefined;
+  disabled: boolean;
+  expand: ComposerExpand;
+}) {
+  return (
+    <>
+      {/* Remount on unlock so autofocus applies (attr updates do not). */}
+      <PromptInputTextarea
+        key={disabled ? "locked" : "ready"}
+        name="message"
+        value={input}
+        onChange={(e) => onInputChange(e.target.value)}
+        onPaste={pasteFilesInto(attachments.add)}
+        onModEnter={onModEnter}
+        placeholder="Describe a task or ask a question"
+        disabled={disabled}
+        minHeight={expand.height}
+        maxHeight={expand.height}
+        // Deliberate: chat page sole purpose is this composer.
+        // oxlint-disable-next-line jsx-a11y/no-autofocus
+        autoFocus={!disabled}
+      />
+    </>
+  );
+}
+
 /** Prompt chrome locked via fieldset while markdown chunks load. */
 function ChatComposerForm({
   input,
@@ -261,31 +310,29 @@ function ChatComposerForm({
   location,
   ...toolbar
 }: ChatComposerFormProps) {
+  const expand = useComposerExpand(!disabled);
+
   return (
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
       <PromptInput
-        onSubmit={preventWhenDisabled(disabled, onSubmit)}
+        onSubmit={preventWhenDisabled(disabled, expand.collapseAfter(onSubmit))}
         {...dropFilesInto(attachments.add)}
       >
         <ComposerAttachmentRow attachments={attachments} />
-        {/* Remount on unlock so autofocus applies (attr updates do not). */}
-        <PromptInputTextarea
-          key={disabled ? "locked" : "ready"}
-          name="message"
-          value={input}
-          onChange={(e) => onInputChange(e.target.value)}
-          onPaste={pasteFilesInto(attachments.add)}
+        <ComposerMessageField
+          input={input}
+          onInputChange={onInputChange}
+          attachments={attachments}
           onModEnter={queueOnModEnter(toolbar)}
-          placeholder="Describe a task or ask a question"
           disabled={disabled}
-          // Deliberate: chat page sole purpose is this composer.
-          // oxlint-disable-next-line jsx-a11y/no-autofocus
-          autoFocus={!disabled}
+          expand={expand}
         />
         <ChatComposerToolbar
           {...toolbar}
           attachments={attachments}
           locked={disabled}
+          expand={expand}
+          input={input}
         />
       </PromptInput>
       <ChatComposerEnvironmentRow {...{ chatId, project, location }} />
