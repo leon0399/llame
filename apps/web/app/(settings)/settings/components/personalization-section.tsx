@@ -13,13 +13,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Skeleton } from "@workspace/ui/components/skeleton";
@@ -28,6 +21,7 @@ import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { submitOnEnter, submitOnModEnter } from "@/components/mod-enter-submit";
+import { SettingField } from "@/components/setting-field";
 import { useUpdatePersonalizationMutation } from "@/lib/services/personalization/mutations";
 import { PERSONALIZATION_CAPS } from "@/lib/services/personalization/types";
 import type { PersonalizationTextField } from "@/lib/services/personalization/types";
@@ -79,9 +73,9 @@ function CharacterCount({ value, cap }: { value: string; cap: number }) {
   if (remaining > cap * COUNTER_VISIBLE_WITHIN) return null;
 
   return (
-    <span
+    <p
       className={cn(
-        "shrink-0 tabular-nums transition-colors",
+        "text-end text-sm tabular-nums transition-colors",
         remaining < 0 ? "text-destructive" : "text-muted-foreground",
       )}
       aria-live="polite"
@@ -89,7 +83,7 @@ function CharacterCount({ value, cap }: { value: string; cap: number }) {
       {remaining < 0
         ? `${String(-remaining)} over the limit`
         : `${String(remaining)} left`}
-    </span>
+    </p>
   );
 }
 
@@ -189,27 +183,22 @@ function PersonalizationTextFieldRow({
   const invalid = value.length > cap;
 
   return (
-    <Field orientation="responsive" data-disabled={!enabled}>
-      <FieldContent>
-        <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
-        <FieldDescription>{field.description}</FieldDescription>
-        <FieldDescription>
-          <CharacterCount value={value} cap={cap} />
-        </FieldDescription>
-      </FieldContent>
-      {/* The control takes the wider column: what the owner types matters
-          more than the label it answers. */}
-      <div className="@md/field-group:shrink-0 @md/field-group:basis-3/5">
-        <PersonalizationFieldControl
-          field={field}
-          value={value}
-          enabled={enabled}
-          invalid={invalid}
-          onChange={onChange}
-          onSubmit={onSubmit}
-        />
-      </div>
-    </Field>
+    <SettingField
+      id={field.id}
+      label={field.label}
+      description={field.description}
+      disabled={!enabled}
+      feedback={<CharacterCount value={value} cap={cap} />}
+    >
+      <PersonalizationFieldControl
+        field={field}
+        value={value}
+        enabled={enabled}
+        invalid={invalid}
+        onChange={onChange}
+        onSubmit={onSubmit}
+      />
+    </SettingField>
   );
 }
 
@@ -229,18 +218,20 @@ function PersonalizationToggleField({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <Field orientation="horizontal" data-disabled={disabled}>
-      <FieldContent>
-        <FieldLabel htmlFor={id}>{label}</FieldLabel>
-        <FieldDescription>{description}</FieldDescription>
-      </FieldContent>
-      <Switch
-        id={id}
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onCheckedChange}
-      />
-    </Field>
+    <SettingField
+      id={id}
+      label={label}
+      description={description}
+      disabled={disabled}
+      action={
+        <Switch
+          id={id}
+          checked={checked}
+          disabled={disabled}
+          onCheckedChange={onCheckedChange}
+        />
+      }
+    />
   );
 }
 
@@ -252,31 +243,20 @@ function PersonalizationPreviewToggle({
   onToggle: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div className="min-w-0 space-y-0.5">
-        <p className="text-sm leading-none font-medium">
-          What the assistant receives
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Exactly as it is sent, including your unsaved edits.
-        </p>
-      </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="shrink-0"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls="personalization-preview"
-      >
-        {open ? (
-          <EyeOffIcon className="size-4" />
-        ) : (
-          <EyeIcon className="size-4" />
-        )}
-        {open ? "Hide" : "Show"}
-      </Button>
-    </div>
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-controls="personalization-preview"
+    >
+      {open ? (
+        <EyeOffIcon className="size-4" />
+      ) : (
+        <EyeIcon className="size-4" />
+      )}
+      {open ? "Hide" : "Show"}
+    </Button>
   );
 }
 
@@ -317,17 +297,22 @@ function PersonalizationPreviewPanel({
   preview: PersonalizationPreview | undefined;
 }) {
   return (
-    <div className="space-y-3">
-      <PersonalizationPreviewToggle open={open} onToggle={onToggle} />
+    <SettingField
+      label="What the assistant receives"
+      description="Exactly as it is sent, including your unsaved edits."
+      action={<PersonalizationPreviewToggle open={open} onToggle={onToggle} />}
+      feedback={
+        // Honest about the limit of this preview: an operator can replace
+        // the prompt file, and a replacement that omits these paths makes
+        // the switches above do nothing, silently.
+        <p className="text-xs text-muted-foreground">
+          Based on the prompt llame ships. If this instance uses a custom system
+          prompt, what it sends may differ — or it may send none of this.
+        </p>
+      }
+    >
       {open ? <PersonalizationPreviewBody preview={preview} /> : null}
-      {/* Honest about the limit of this preview: an operator can replace the
-          prompt file, and a replacement that omits these paths makes the
-          switches above do nothing, silently. */}
-      <p className="text-xs text-muted-foreground">
-        Based on the prompt llame ships. If this instance uses a custom system
-        prompt, what it sends may differ — or it may send none of this.
-      </p>
-    </div>
+    </SettingField>
   );
 }
 
@@ -387,7 +372,7 @@ function PersonalizationProfileCard({
         onEnabledChange={(checked) => state.update.mutate({ enabled: checked })}
       />
       <CardContent>
-        <FieldGroup>
+        <div className="space-y-6">
           {TEXT_FIELDS.map((field) => (
             <PersonalizationTextFieldRow
               key={field.key}
@@ -398,7 +383,7 @@ function PersonalizationProfileCard({
               onSubmit={submit}
             />
           ))}
-        </FieldGroup>
+        </div>
       </CardContent>
       <CardFooter>
         <PersonalizationSaveRow
