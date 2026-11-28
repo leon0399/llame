@@ -12,6 +12,7 @@ import {
 } from "@workspace/ui/components/dialog";
 import { Input } from "@workspace/ui/components/input";
 
+import { submitOnEnter } from "@/components/mod-enter-submit";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import { useDeleteChat, useRenameChat } from "@/lib/services/chat/management";
@@ -37,12 +38,7 @@ function RenameChatField({
     <Input
       value={title}
       onChange={(e) => onTitleChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onSubmit();
-        }
-      }}
+      onKeyDown={submitOnEnter(onSubmit)}
       maxLength={TITLE_MAX}
       aria-label="Chat title"
       // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on

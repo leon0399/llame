@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState } from "react";
 import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -14,12 +14,15 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { FieldError } from "@workspace/ui/components/field";
-import { Kbd } from "@workspace/ui/components/kbd";
-import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
+import {
+  ModEnterKbd,
+  submitOnModEnter,
+  useModEnterAria,
+} from "@/components/mod-enter-submit";
 import { useUpdateProject } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 
@@ -171,15 +174,7 @@ function useEditorDraft(props: InstructionsEditorProps) {
     tooLong,
     canSave,
     save,
-    onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Enter that confirms an IME composition is not a save.
-      if (event.nativeEvent.isComposing) return;
-
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        save();
-      }
-    },
+    onKeyDown: submitOnModEnter(save),
   };
 }
 
@@ -215,21 +210,15 @@ function SaveButton({
   disabled: boolean;
   onSave: () => void;
 }) {
-  const modifierKey = usePrimaryModifierKey();
-
   return (
     <Button
       onClick={onSave}
       disabled={disabled}
-      aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Enter`}
+      aria-keyshortcuts={useModEnterAria()}
     >
       {pending ? <Spinner data-icon="inline-start" /> : null}
       Save
-      {/* Announced through `aria-keyshortcuts`, not the button's name. */}
-      <Kbd aria-hidden="true">
-        {modifierKey}
-        <span>↵</span>
-      </Kbd>
+      <ModEnterKbd />
     </Button>
   );
 }
