@@ -110,7 +110,9 @@ export function useComposerExpand(
     height,
     toggle,
     collapseAfter: (onSubmit) => (event) => {
-      change(() => undefined);
+      // Only an expanded field collapses: recording a start height with no
+      // change to follow would animate the next unrelated resize.
+      if (height !== undefined) change(() => undefined);
       onSubmit(event);
     },
   };

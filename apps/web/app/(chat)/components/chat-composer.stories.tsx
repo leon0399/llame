@@ -1328,6 +1328,30 @@ export const ExpandGrowsAndSendCollapses: Story = {
 };
 
 /**
+ * Sending from the resting size animates nothing: the next line typed grows
+ * the input at once, as typing always does.
+ *
+ * @summary a send at rest leaves typing growth instant
+ */
+export const SendAtRestLeavesTypingInstant: Story = {
+  tags: ["ai-generated"],
+  args: { onSubmit: preventSubmit },
+  render: (args) => <TypingComposer {...args} initialInput="Short note" />,
+  play: async ({ canvas, userEvent }) => {
+    const textarea = canvas.getByRole<HTMLTextAreaElement>("textbox");
+
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+    await expect(preventSubmit).toHaveBeenCalled();
+
+    await userEvent.click(textarea);
+    await userEvent.keyboard("{Shift>}{Enter}{Enter}{/Shift}");
+    await afterResize();
+
+    await expect(textarea.getAnimations()).toHaveLength(0);
+  },
+};
+
+/**
  * Ctrl+Shift+E expands and collapses the composer at any length, though the
  * toggle shows only for a long message.
  *
