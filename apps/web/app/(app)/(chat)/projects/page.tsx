@@ -20,7 +20,8 @@ function PhoneProjectList() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-4">
+    // Its own scroll: the inset above it is a fixed-height, clipped column.
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
       <Button variant="outline" onClick={() => setCreating(true)}>
         <FolderPlusIcon aria-hidden />
         New project
