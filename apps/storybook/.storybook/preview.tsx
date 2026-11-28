@@ -3,6 +3,8 @@ import { type ReactNode, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { sb } from "storybook/test";
 
+import { ShortcutsProvider } from "../../web/lib/shortcuts/shortcuts-context.tsx";
+
 import "./preview.css";
 
 // Register module mocks (project-level only, per Storybook "Mocking modules").
@@ -96,9 +98,13 @@ const preview: Preview = {
   decorators: [
     (Story, context) => (
       <QueryClientProvider client={queryClient}>
-        <ThemeClass theme={context.globals.theme}>
-          <Story />
-        </ThemeClass>
+        {/* The app's root providers mount it, and every keyboard shortcut
+            (Search, New chat, Attach, Esc to stop) registers through it. */}
+        <ShortcutsProvider>
+          <ThemeClass theme={context.globals.theme}>
+            <Story />
+          </ThemeClass>
+        </ShortcutsProvider>
       </QueryClientProvider>
     ),
   ],

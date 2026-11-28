@@ -1,12 +1,8 @@
 "use client";
 
-import { type RefObject, useEffect, useRef, useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import { PlusIcon } from "lucide-react";
 
-import {
-  detectPrimaryModifier,
-  usePrimaryModifierKey,
-} from "@workspace/ui/hooks/use-modifier-key";
 import {
   MediaThumbnailRow,
   type MediaThumbnailItem,
@@ -17,6 +13,10 @@ import {
   mediaCaption,
 } from "@workspace/ui/components/custom/media-lightbox";
 
+import {
+  useShortcut,
+  useShortcutHint,
+} from "@/lib/shortcuts/shortcuts-context";
 import { ATTACHABLE_PDF_TYPE } from "@/lib/services/media/uploads";
 import { storedImageSources } from "@/lib/services/media/urls";
 import { ComposerTooltip } from "./composer-tooltip";
@@ -103,8 +103,6 @@ export function ComposerAttachmentRow({
   );
 }
 
-const UPLOAD_SHORTCUT_KEY = "u";
-
 /** The `+` button: opens the file picker at once. Filing the chat and its
  *  working directory live in the row under the input, where they read as
  *  choices made before the first send, not actions for later. */
@@ -115,12 +113,12 @@ function AttachButton({
   disabled: boolean;
   onUpload: () => void;
 }) {
-  const modifierKey = usePrimaryModifierKey();
+  const hint = useShortcutHint("composer.attach");
 
   return (
     <ComposerTooltip
       label="Attach photos & files"
-      shortcut={`${modifierKey}+${UPLOAD_SHORTCUT_KEY.toUpperCase()}`}
+      shortcut={hint.label}
       render={
         <PromptInputButton
           variant="ghost"
@@ -129,11 +127,7 @@ function AttachButton({
           disabled={disabled}
           onClick={onUpload}
           // Only announced while the shortcut is live.
-          aria-keyshortcuts={
-            disabled
-              ? undefined
-              : `${modifierKey === "⌘" ? "Meta" : "Control"}+U`
-          }
+          aria-keyshortcuts={disabled ? undefined : hint.aria}
         />
       }
     >
@@ -142,31 +136,14 @@ function AttachButton({
   );
 }
 
-/** ⌘U on Apple platforms, Ctrl+U elsewhere (no extra modifiers) opens the
- *  file picker from anywhere on the page while the model accepts uploads.
- *  It overrides the browser's view-source binding, as chat apps do. */
+/** The attach chord (⌘U / Ctrl+U by default) opens the file picker from
+ *  anywhere on the page while the model accepts uploads. It overrides the
+ *  browser's view-source binding, as chat apps do. */
 function useUploadShortcut(
   inputRef: RefObject<HTMLInputElement | null>,
   enabled: boolean,
 ) {
-  useEffect(() => {
-    if (!enabled) return;
-    const isMac = detectPrimaryModifier() === "⌘";
-
-    const onKey = (e: KeyboardEvent) => {
-      const modifier = isMac ? e.metaKey : e.ctrlKey;
-
-      if (e.repeat || !modifier || e.shiftKey || e.altKey) return;
-
-      if (e.key.toLowerCase() !== UPLOAD_SHORTCUT_KEY) return;
-      e.preventDefault();
-      inputRef.current?.click();
-    };
-
-    document.addEventListener("keydown", onKey);
-
-    return () => document.removeEventListener("keydown", onKey);
-  }, [inputRef, enabled]);
+  useShortcut("composer.attach", () => inputRef.current?.click(), enabled);
 }
 
 /** The toolbar's `+`. It opens a hidden multi-file input limited to the

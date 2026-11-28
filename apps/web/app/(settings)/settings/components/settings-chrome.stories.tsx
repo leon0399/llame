@@ -66,11 +66,9 @@ export const Desktop: Story = {
     await expect(
       canvas.getByRole("link", { name: "Account & security" }),
     ).not.toHaveAttribute("data-active");
-    // Keyboard shortcuts is not built on this layer: a disabled "soon" row
-    // (aria-disabled, so it stays focusable and its tooltip reachable).
     await expect(
-      canvas.getByText("Keyboard shortcuts").closest("button"),
-    ).toHaveAttribute("aria-disabled", "true");
+      canvas.getByRole("link", { name: "Keyboard shortcuts" }),
+    ).toHaveAttribute("href", "/settings/shortcuts");
 
     const trail = canvas.getByRole("navigation", { name: "breadcrumb" });
 
