@@ -137,7 +137,9 @@ test.describe("stop from submission", () => {
       throw new Error(`Could not extract chat id from ${page.url()}`);
     }
 
-    await expect(page.getByText("Thinking…")).toBeVisible({
+    await expect(
+      page.getByRole("status", { name: "Thinking", exact: true }),
+    ).toBeVisible({
       timeout: 15_000,
     });
     const stop = page.getByRole("button", { name: "Stop generation" });

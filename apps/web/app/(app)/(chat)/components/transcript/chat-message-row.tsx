@@ -29,6 +29,7 @@ import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
 import { ProgressLine } from "./progress-line";
+import { ThinkingLine } from "./thinking-line";
 import { PromptImportsPart } from "./prompt-imports-part";
 import { RegenerateNoticePart } from "./regenerate-notice-part";
 import {
@@ -412,7 +413,7 @@ function MessageBubble({
   retry?: string;
 }) {
   if (mode === "pending") {
-    return <ProgressLine>{retry ?? "Thinking…"}</ProgressLine>;
+    return retry ? <ProgressLine>{retry}</ProgressLine> : <ThinkingLine />;
   }
 
   if (!hasVisibleContent(parts)) return null;

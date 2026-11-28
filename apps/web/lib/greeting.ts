@@ -1,3 +1,10 @@
+import {
+  slotOf,
+  specialDayOf,
+  type Slot,
+  type SpecialDayId,
+} from "./calendar-day";
+
 /*
  * The new-chat greeting. The day splits into hour slots; each slot has a few
  * lines for any day, the weekday adds its own (weekends read differently
@@ -8,18 +15,6 @@
  * line without it; a line that cannot drop it that way carries a nameless
  * twin.
  */
-
-type Slot = "night" | "early" | "morning" | "afternoon" | "evening" | "late";
-
-/** Each slot runs until this local hour (exclusive), in order. */
-const SLOT_ENDS: ReadonlyArray<readonly [Slot, number]> = [
-  ["night", 5],
-  ["early", 9],
-  ["morning", 12],
-  ["afternoon", 18],
-  ["evening", 22],
-  ["late", 24],
-];
 
 type Lines = Partial<Record<Slot, ReadonlyArray<string>>>;
 
@@ -109,232 +104,187 @@ const special = (
   questions: ReadonlyArray<string>,
 ): Special => ({ lines, questions });
 
-/** Special days by calendar date, `MM-DD`. */
-const BY_DATE = new Map<string, Special>([
+/** Each special day's own greetings and questions. */
+const SPECIALS = new Map<SpecialDayId, Special>([
   [
-    "01-01",
+    "new-year",
     special(
       ["Happy New Year, {name}", "Fresh year, {name}. Where to?"],
       ["What's first this year, {name}?"],
     ),
   ],
   [
-    "02-02",
+    "groundhog",
     special(
       ["Again, {name}? Happy Groundhog Day"],
       ["Same as yesterday, or something new?"],
     ),
   ],
   [
-    "02-14",
+    "valentine",
     special(["Happy Valentine's Day, {name}"], ["Love letter, or code?"]),
   ],
   [
-    "02-29",
+    "leap-day",
     special(
       ["A leap day, {name}. Make it count"],
       ["What will you do with the extra day, {name}?"],
     ),
   ],
   [
-    "03-08",
+    "womens-day",
     special(["Happy Women's Day, {name}"], ["What are we working on today?"]),
   ],
   [
-    "03-14",
+    "pi-day",
     special(["Happy Pi Day, {name}"], ["What are we computing today, {name}?"]),
   ],
   [
-    "04-01",
+    "april-fools",
     special(
       ["No pranks today, {name}. Mostly"],
       ["Honest question: what are we doing today?"],
     ),
   ],
   [
-    "04-22",
+    "earth-day",
     special(["Happy Earth Day, {name}"], ["What are we growing today?"]),
   ],
   [
-    "05-04",
+    "star-wars",
     special(
       ["May the Fourth be with you, {name}"],
       ["What shall we build, young Padawan?"],
     ),
   ],
   [
-    "05-25",
+    "towel-day",
     special(
       ["Happy Towel Day, {name}. Don't panic"],
       ["Got your towel, {name}?"],
     ),
   ],
   [
-    "09-19",
+    "pirate",
     special(
       ["Ahoy, {name}! Talk Like a Pirate Day"],
       ["What be we plunderin' today?"],
     ),
   ],
   [
-    "09-22",
+    "hobbit",
     special(
       ["Second breakfast, {name}? Happy Hobbit Day"],
       ["What's on the menu for elevenses?"],
     ),
   ],
   [
-    "10-21",
+    "back-to-the-future",
     special(
       ["Great Scott, {name}! Back to the Future Day"],
       ["Where are we going today, {name}?"],
     ),
   ],
   [
-    "10-22",
+    "caps-lock",
     special(["Happy Caps Lock Day, {name}"], ["What are we building, {name}?"]),
   ],
   [
-    "10-23",
+    "mole-day",
     special(["Happy Mole Day, {name}"], ["What are we measuring today?"]),
   ],
   [
-    "10-31",
+    "halloween",
     special(
       ["Happy Halloween, {name}", "Spooky season, {name}?"],
       ["Trick or treat: what's the task?", "Any bugs hiding in the dark?"],
     ),
   ],
   [
-    "12-24",
+    "christmas-eve",
     special(
       ["Merry Christmas Eve, {name}"],
       ["What's on your wish list, {name}?"],
     ),
   ],
   [
-    "12-25",
+    "christmas",
     special(
       ["Merry Christmas, {name}", "Happy holidays, {name}"],
       ["What's on your wish list, {name}?", "Anything to unwrap today?"],
     ),
   ],
   [
-    "12-31",
+    "new-years-eve",
     special(
       ["Last one of the year, {name}?", "Wrapping up the year, {name}?"],
       ["What's left to wrap up this year?"],
     ),
   ],
-]);
-
-/** Solstices and equinoxes, on the day they most often fall; the true date
- *  drifts by a day across years and time zones. */
-const EQUINOX = special(
-  ["Equinox today, {name}. Day and night even"],
-  ["A balanced day: what's the plan?"],
-);
-
-const SOLSTICE = special(
-  ["Solstice today, {name}"],
-  ["A turning point of the year: what's next?"],
-);
-
-const SKY_DAYS = new Map<string, Special>([
-  ["03-20", EQUINOX],
-  ["06-21", SOLSTICE],
-  ["09-23", EQUINOX],
-  ["12-21", SOLSTICE],
-]);
-
-const DAY_MS = 86_400_000;
-
-function monthDay(date: Date): string {
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${month}-${day}`;
-}
-
-function dayOfYear(date: Date): number {
-  const start = new Date(date.getFullYear(), 0, 0, date.getHours());
-
-  // Whole local days; rounding absorbs a daylight-saving hour in between.
-  return Math.round((date.getTime() - start.getTime()) / DAY_MS);
-}
-
-/** The local day's clock change, if it has one: the offset at its first and
- *  last hour differ. A smaller offset means the clocks went forward. */
-function clockChange(date: Date): "forward" | "back" | null {
-  const y = date.getFullYear();
-  const m = date.getMonth();
-  const d = date.getDate();
-  const first = new Date(y, m, d, 0).getTimezoneOffset();
-  const last = new Date(y, m, d, 23).getTimezoneOffset();
-
-  if (first === last) return null;
-
-  return last < first ? "forward" : "back";
-}
-
-/** A Unix-time round number (a multiple of 100,000,000 seconds) that the
- *  local day passes, if any. */
-function unixMilestone(date: Date): number | null {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const from = start.getTime() / 1000;
-  const next = Math.ceil(from / 1e8) * 1e8;
-
-  return next < from + DAY_MS / 1000 ? next : null;
-}
-
-/** The special day a date is, if any, rarest event first. */
-function specialDay(date: Date): Special | undefined {
-  const change = clockChange(date);
-
-  if (change === "forward") {
-    return special(
+  [
+    "equinox",
+    special(
+      ["Equinox today, {name}. Day and night even"],
+      ["A balanced day: what's the plan?"],
+    ),
+  ],
+  [
+    "solstice",
+    special(
+      ["Solstice today, {name}"],
+      ["A turning point of the year: what's next?"],
+    ),
+  ],
+  [
+    "clocks-forward",
+    special(
       ["Lost an hour of sleep, {name}?"],
       ["What can we get done in fewer hours?"],
-    );
-  }
-
-  if (change === "back") {
-    return special(
+    ),
+  ],
+  [
+    "clocks-back",
+    special(
       ["Enjoy the extra hour, {name}"],
       ["What will you do with the extra hour?"],
-    );
-  }
-
-  const milestone = unixMilestone(date);
-
-  if (milestone !== null) {
-    return special(
-      [`Unix time hits ${milestone.toLocaleString("en-US")} today, {name}`],
+    ),
+  ],
+  [
+    "unix-milestone",
+    special(
+      ["Unix time hits {milestone} today, {name}"],
       ["Shall we count the seconds?"],
-    );
-  }
-
-  if (dayOfYear(date) === 256) {
-    return special(
+    ),
+  ],
+  [
+    "programmers-day",
+    special(
       ["Happy Programmers' Day, {name}"],
       ["What are we shipping today, {name}?"],
-    );
-  }
-
-  if (date.getDay() === 5 && date.getDate() === 13) {
-    return special(
+    ),
+  ],
+  [
+    "friday-13",
+    special(
       ["Friday the 13th, {name}. Nothing to fear"],
       ["Feeling lucky, {name}?"],
-    );
-  }
+    ),
+  ],
+]);
 
-  const key = monthDay(date);
+/** The special day a date is, with its lines, if any. */
+function specialDay(date: Date): Special | undefined {
+  const day = specialDayOf(date);
+  const found = day === null ? undefined : SPECIALS.get(day.id);
 
-  return BY_DATE.get(key) ?? SKY_DAYS.get(key);
-}
+  if (day?.milestone === undefined || found === undefined) return found;
 
-function slotOf(hour: number): Slot {
-  return (SLOT_ENDS.find(([, end]) => hour < end) ?? SLOT_ENDS[0])[0];
+  const milestone = day.milestone.toLocaleString("en-US");
+
+  return special(
+    found.lines.map((line) => line.replace("{milestone}", milestone)),
+    found.questions,
+  );
 }
 
 /** Questions for any day, by slot. */
@@ -498,7 +448,7 @@ export function drawGreeting(
     : pick(greetingLines(date), rolls.line);
 
   const named = name !== null && line.includes("{name}");
-  const shout = monthDay(date) === "10-22";
+  const shout = specialDayOf(date)?.id === "caps-lock";
   const cased = (value: string) => (shout ? value.toUpperCase() : value);
   const text = cased(fill(line, name));
 
