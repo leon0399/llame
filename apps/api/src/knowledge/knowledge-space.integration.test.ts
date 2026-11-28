@@ -249,7 +249,7 @@ d('Knowledge Spaces REST API', () => {
       });
   });
 
-  it('renames by stable ID and rejects empty or excess bodies', async () => {
+  it('renames by stable ID, keeps an empty patch, and rejects excess fields', async () => {
     const renamed = await request(http)
       .patch(`/api/v1/knowledge-spaces/${firstId}`)
       .set('Cookie', cookieA)
@@ -264,10 +264,24 @@ d('Knowledge Spaces REST API', () => {
 
     expect(readSpaceResponse(renamedBody).name).toBe('Archive');
 
-    await request(http)
+    const unchanged = await request(http)
       .patch(`/api/v1/knowledge-spaces/${firstId}`)
       .set('Cookie', cookieA)
       .send({})
+      .expect(200);
+
+    const unchangedBody: unknown = unchanged.body;
+
+    if (!isRecord(unchangedBody)) {
+      throw new Error('Expected a Knowledge Space response object');
+    }
+
+    expect(readSpaceResponse(unchangedBody).name).toBe('Archive');
+
+    await request(http)
+      .patch(`/api/v1/knowledge-spaces/${firstId}`)
+      .set('Cookie', cookieA)
+      .send({ name: 'Archive', root: '/tmp/attacker' })
       .expect(400);
     await request(http)
       .post('/api/v1/knowledge-spaces')
