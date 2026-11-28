@@ -80,8 +80,9 @@ fn failed_at(phrase: &'static str, path: &[u8]) -> SeedError {
 /// destination whose real path differs from the requested one receives nothing and fails, so no
 /// caller binds an unseeded Worktree.
 pub async fn seed(source: &Path, destination: &Path, deadline: Instant) -> Result<(), SeedError> {
-    let source_root = rustix::fs::open(source, directory_flags(), Mode::empty())
-        .map_err(|_| failed("copy source cannot be opened"))?;
+    let Some(source_root) = bind_root(source)? else {
+        return Err(failed("copy source moved"));
+    };
     let Some(matcher) = read_manifest(&source_root, source)? else {
         return Ok(());
     };
@@ -109,18 +110,19 @@ fn directory_flags() -> OFlags {
     OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
 }
 
-/// Opens the new worktree root without following a link and requires its real path to equal the
-/// requested one. `None` is a moved root; a root whose real path cannot be established fails.
+/// Opens a checked root (the copy source or the new worktree) without following a link and requires
+/// its real path to equal the checked one, so a component swapped after the check cannot redirect
+/// reads or writes. `None` is a moved root; a root whose real path cannot be established fails.
 fn bind_root(destination: &Path) -> Result<Option<OwnedFd>, SeedError> {
     let root = match rustix::fs::open(destination, directory_flags(), Mode::empty()) {
         Ok(root) => root,
         Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => return Ok(None),
-        Err(_) => return Err(failed("worktree root cannot be opened")),
+        Err(_) => return Err(failed("root cannot be opened")),
     };
     // ponytail: /proc/self/fd is Linux procfs; macOS would need F_GETPATH. Upgrade when the
     // daemon targets a non-Linux platform.
     let real = rustix::fs::readlink(format!("/proc/self/fd/{}", root.as_raw_fd()), Vec::new())
-        .map_err(|_| failed("worktree root cannot be resolved"))?;
+        .map_err(|_| failed("root cannot be resolved"))?;
     Ok((Path::new(OsStr::from_bytes(real.to_bytes())) == destination).then_some(root))
 }
 
@@ -772,5 +774,22 @@ mod tests {
         *crate::GIT_PATH_OVERRIDE.lock().unwrap() = None;
         assert!(matches!(result, Err(SeedError::TimedOut)), "{result:?}");
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[tokio::test]
+    async fn a_source_reached_through_a_link_fails_and_reads_nothing() {
+        let f = fixture();
+        fs::write(f.source.join(".worktreeinclude"), ".env\n").unwrap();
+        fs::write(f.source.join(".env"), "SECRET=1\n").unwrap();
+        let parent_link = f.outside.join("source-parent");
+        symlink(f.source.parent().unwrap(), &parent_link).unwrap();
+        let redirected = parent_link.join(f.source.file_name().unwrap());
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        let result = seed(&redirected, &f.destination, deadline).await;
+        assert!(matches!(
+            result,
+            Err(SeedError::Failed("copy source moved", None))
+        ));
+        assert!(!f.destination.join(".env").exists());
     }
 }
