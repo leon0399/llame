@@ -1,12 +1,20 @@
+import {
+  getTimeOfDay,
+  type TimeOfDay,
+} from "@workspace/ui/hooks/use-time-of-day";
+
+const SALUTATIONS: Record<TimeOfDay, string> = {
+  morning: "Good morning",
+  afternoon: "Good afternoon",
+  evening: "Good evening",
+  // "Good night" is a farewell, so late hours keep the evening greeting.
+  night: "Good evening",
+};
+
 /** The new-chat page's greeting for a local hour (0–23) and the name the
  *  owner asked to be called, if any. */
 export function greeting(hour: number, name: string | null): string {
-  const salutation =
-    hour >= 5 && hour < 12
-      ? "Good morning"
-      : hour >= 12 && hour < 18
-        ? "Good afternoon"
-        : "Good evening";
+  const salutation = SALUTATIONS[getTimeOfDay(hour)];
 
   return name === null ? salutation : `${salutation}, ${name}`;
 }

@@ -8,8 +8,8 @@ describe("greeting", () => {
     [5, "Good morning"],
     [11, "Good morning"],
     [12, "Good afternoon"],
-    [17, "Good afternoon"],
-    [18, "Good evening"],
+    [16, "Good afternoon"],
+    [17, "Good evening"],
     [23, "Good evening"],
   ])("hour %i says %s", (hour, expected) => {
     expect(greeting(hour, null)).toBe(expected);
