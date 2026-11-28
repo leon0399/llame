@@ -60,7 +60,7 @@ the repository limit of the next requirement. On a Machine, the enumeration
 starts at the registered root that holds the requested path. A deeper ignore
 file outranks a shallower one. In one directory, `.ignore` outranks
 `.gitignore`. A search MUST NOT take either file as a candidate. A listing
-renders either file as an entry.
+MUST NOT omit either file only because it is an ignore file.
 
 #### Scenario: A rule at the repository root applies to a narrower scope
 
