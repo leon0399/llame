@@ -2,10 +2,12 @@
 
 import { createContext, useCallback, useContext, useState } from "react";
 
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import {
   LoaderCircleIcon,
   MessageSquareTextIcon,
+  KeyboardIcon,
   SettingsIcon,
   SquarePenIcon,
   XIcon,
@@ -191,10 +193,10 @@ function CommandPaletteSearchInput({
 
 function CommandPaletteActions({
   onNewChat,
-  onSettings,
+  onOpen,
 }: {
   onNewChat: () => void;
-  onSettings: () => void;
+  onOpen: (href: Route) => void;
 }) {
   return (
     <CommandGroup heading="Actions">
@@ -202,9 +204,13 @@ function CommandPaletteActions({
         <SquarePenIcon />
         New chat
       </CommandItem>
-      <CommandItem onSelect={onSettings}>
+      <CommandItem onSelect={() => onOpen("/settings")}>
         <SettingsIcon />
         Settings
+      </CommandItem>
+      <CommandItem onSelect={() => onOpen("/settings/shortcuts")}>
+        <KeyboardIcon />
+        Keyboard shortcuts
       </CommandItem>
     </CommandGroup>
   );
@@ -350,7 +356,7 @@ type CommandPaletteListProps = {
   resultsStale: boolean;
   onSelectChat: (chatId: string) => void;
   onNewChat: () => void;
-  onSettings: () => void;
+  onOpen: (href: Route) => void;
 };
 
 /** The dialog's results list — split out from `CommandPaletteProvider` so
@@ -364,13 +370,13 @@ function CommandPaletteList({
   resultsStale,
   onSelectChat,
   onNewChat,
-  onSettings,
+  onOpen,
 }: CommandPaletteListProps) {
   return (
     <CommandList>
       <CommandEmpty>No matches. Try another term.</CommandEmpty>
 
-      <CommandPaletteActions onNewChat={onNewChat} onSettings={onSettings} />
+      <CommandPaletteActions onNewChat={onNewChat} onOpen={onOpen} />
 
       {searching ? (
         <CommandPaletteSearchResults
@@ -430,7 +436,7 @@ function CommandPaletteDialog(
             router.push("/");
           })
         }
-        onSettings={() => run(() => router.push("/settings"))}
+        onOpen={(href) => run(() => router.push(href))}
       />
     </CommandDialog>
   );
