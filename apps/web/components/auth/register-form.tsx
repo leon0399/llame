@@ -9,13 +9,6 @@ import * as z from "zod";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
-import {
   Form,
   FormControl,
   FormField,
@@ -156,8 +149,7 @@ function ConfirmPasswordField({ control }: { control: RegisterControl }) {
   );
 }
 
-/** The form's actual field set — kept separate from the `Card` chrome around
- *  it in `RegisterForm`, so each stays a legible, single-purpose piece. */
+/** The form; the page around it gives the heading (see `AuthPage`). */
 function RegisterFormFields({
   form,
   isLoading,
@@ -201,20 +193,6 @@ export function RegisterForm() {
   const { isLoading, onSubmit } = useRegisterSubmit(form);
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Create an account</CardTitle>
-        <CardDescription>
-          An account on this instance, with its own chats and projects.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <RegisterFormFields
-          form={form}
-          isLoading={isLoading}
-          onSubmit={onSubmit}
-        />
-      </CardContent>
-    </Card>
+    <RegisterFormFields form={form} isLoading={isLoading} onSubmit={onSubmit} />
   );
 }
