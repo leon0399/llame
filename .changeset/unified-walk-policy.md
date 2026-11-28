@@ -1,5 +1,6 @@
 ---
 "machine": minor
+"api": minor
 "@workspace/native-file-tools": minor
 ---
 
