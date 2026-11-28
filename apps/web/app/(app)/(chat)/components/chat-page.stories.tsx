@@ -706,9 +706,9 @@ export const NewChatHomeOpensDraft: Story = {
     await readyComposer(canvasElement);
 
     await expect(
-      await canvas.findByRole("heading", {
-        name: /^Good (morning|afternoon|evening), Leo$/,
-      }),
+      // The line is drawn at random (lib/greeting covers which); here it
+      // only has to have resolved.
+      await canvas.findByRole("heading", { level: 1, name: /\S/ }),
     ).toBeVisible();
     await expect(canvas.queryByRole("log")).toBeNull();
     await expect(sentRoutes()).toEqual([]);
