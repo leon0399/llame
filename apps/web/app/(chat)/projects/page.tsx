@@ -6,6 +6,7 @@ import { FolderIcon, FolderPlusIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
+import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 
 import { useProjectsQuery } from "@/lib/services/project/queries";
 
@@ -19,7 +20,7 @@ function PhoneProjectList() {
   const [creating, setCreating] = useState(false);
 
   return (
-    <div className="flex flex-col gap-3 px-4 py-4 md:hidden">
+    <div className="flex flex-col gap-3 px-4 py-4">
       <Button variant="outline" onClick={() => setCreating(true)}>
         <FolderPlusIcon aria-hidden />
         New project
@@ -54,13 +55,24 @@ function PhoneProjectList() {
 // and this pane asks the user to pick or create one; on a phone it is the
 // list.
 export default function ProjectsPage() {
+  // Rendered, not CSS-hidden, per width: a hidden copy would duplicate the
+  // rail's rows for assistive tech and fetch for nothing.
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return (
+      <>
+        <PageHeader title="Projects" />
+        <PhoneProjectList />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Projects" />
 
-      <PhoneProjectList />
-
-      <div className="hidden flex-1 items-center justify-center overflow-y-auto md:flex">
+      <div className="flex flex-1 items-center justify-center overflow-y-auto">
         <div className="flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
           <FolderIcon className="size-8" />
           <p>Select a project from the list, or create a new one.</p>
