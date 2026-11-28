@@ -18,6 +18,8 @@ const useMachinesQuery = vi.mocked(machinesQueries.useMachinesQuery, {
 // runs; a fixed date would drift the same way a real last-seen timestamp does.
 const LAST_SEEN = new Date(Date.now() - 3 * 60_000).toISOString();
 
+const GIB = 1024 ** 3;
+
 function machine(
   overrides: Partial<MachineResponse> & { name: string },
 ): MachineResponse {
@@ -25,41 +27,29 @@ function machine(
     status: "online",
     lastSeenAt: LAST_SEEN,
     failureReason: null,
-    hubProtocolVersion: 2,
-    daemonProtocolVersion: 2,
-    daemonVersion: "0.0.2",
-    facts: null,
-    factsCapturedAt: null,
+    hubProtocolVersion: 8,
+    daemonProtocolVersion: 8,
+    daemonVersion: "0.6.2",
+    facts: {
+      os: "linux",
+      arch: "x64",
+      kernel: "6.8.0-45-generic",
+      cpuCount: 16,
+      totalMemoryBytes: 64 * GIB,
+      rootDisks: [{ root: "/srv/projects", totalBytes: 1024 * GIB }],
+    },
+    factsCapturedAt: LAST_SEEN,
     roots: ["/srv/projects"],
     ...overrides,
   };
 }
 
-const onlineDevl = machine({ name: "devl" });
+const current = machine({ name: "devl" });
 
-const offlineDevl = machine({
-  name: "devl",
-  status: "offline",
-  failureReason: "host_key_mismatch",
-});
-
-const withFacts = machine({
-  name: "devl",
-  facts: {
-    os: "linux",
-    arch: "x64",
-    kernel: "6.8.0-45-generic",
-    cpuCount: 8,
-    totalMemoryBytes: 16_000_000_000,
-    rootDisks: [{ root: "/srv/projects", totalBytes: 500_000_000_000 }],
-  },
-  factsCapturedAt: LAST_SEEN,
-});
-
-const identityChanged = machine({
-  name: "devl",
-  status: "offline",
-  failureReason: "identity_mismatch",
+const outdated = machine({
+  name: "gpu",
+  daemonProtocolVersion: 7,
+  daemonVersion: "0.6.1",
 });
 
 const neverConnected = machine({
@@ -68,22 +58,53 @@ const neverConnected = machine({
   lastSeenAt: null,
   daemonProtocolVersion: null,
   daemonVersion: null,
+  facts: null,
+  factsCapturedAt: null,
   roots: [],
 });
+
+const hostKeyChanged = machine({
+  name: "old-vps",
+  status: "offline",
+  failureReason: "host_key_mismatch",
+});
+
+function listed(data: Array<MachineResponse>) {
+  useMachinesQuery.mockReturnValue({
+    data,
+    isPending: false,
+    isError: false,
+    refetch: refetchMachines,
+  });
+}
+
+/** The row of the Machine named `name`. */
+function row(canvasElement: HTMLElement, name: string) {
+  const heading = within(canvasElement).getByRole("heading", { name });
+  const item = heading.closest("li");
+
+  if (item === null) throw new Error(`no row for ${name}`);
+
+  return item;
+}
+
+/** The meta line under a row's name: contact, system and daemon version. */
+function metaLine(item: HTMLElement) {
+  const line = item.querySelector("p");
+
+  if (line === null) throw new Error("row has no meta line");
+
+  return line;
+}
 
 const meta = {
   component: MachinesSection,
   tags: ["autodocs"],
   beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [onlineDevl],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
+    listed([current, outdated, neverConnected]);
     refetchMachines.mockClear();
   },
-  parameters: { layout: "centered" },
+  parameters: { layout: "padded" },
 } satisfies Meta<typeof MachinesSection>;
 
 export default meta;
@@ -91,183 +112,133 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * A reachable Machine: name, state, when the hub last completed a handshake,
- * the two protocol versions it agreed on, and the roots it accepts.
+ * One row per Machine, each the same shape whether or not its daemon is
+ * current: the name, the contact and system line ending in the daemon
+ * version, and CPU, memory and disk meters with their capacity. The meters
+ * read "—" until Machines report live use (#1992).
  *
- * @summary online Machine with its versions and roots
+ * @summary current, outdated and never-connected Machines as rows
  */
-export const Online: Story = {
+export const Rows: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const devl = row(canvasElement, "devl");
 
-    // The page heading names the section; the list carries no title.
-    await expect(canvas.getByText("devl")).toBeVisible();
-    await expect(canvas.getByText("Online")).toBeVisible();
-
-    const seen = canvasElement.querySelector("time");
-    await expect(seen).toHaveAttribute("dateTime", LAST_SEEN);
-    await expect(seen).toHaveTextContent("3 minutes ago");
-
-    await expect(
-      canvas.getByText("Hub protocol v2 · daemon 0.0.2 (protocol v2)"),
-    ).toBeVisible();
-    await expect(canvas.getByText("/srv/projects")).toBeVisible();
-    // Nothing failed, so there is no failure row to read.
-    await expect(canvas.queryByText("Last failure")).toBeNull();
-    // No handshake has reported facts, so there is no system row either.
-    await expect(canvas.queryByText("System")).toBeNull();
-  },
-};
-
-/**
- * A daemon reports its OS and architecture at each handshake, so the owner can
- * tell a Linux box from a macOS one before entering a Workspace on it.
- *
- * @summary online Machine with the OS and architecture it reported
- */
-export const OnlineWithFacts: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [withFacts],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText("System")).toBeVisible();
-    await expect(canvas.getByText("linux x64")).toBeVisible();
-    // The facts carry a kernel, a CPU count, and memory sizes; the row says
-    // only what the owner acts on, and never the instance id.
-    await expect(canvas.queryByText(/6\.8\.0/)).toBeNull();
-    await expect(
-      canvas.queryByText(/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-/),
-    ).toBeNull();
-  },
-};
-
-/**
- * A daemon that answers with a different instance id than the one bound to its
- * name is refused, so the owner sees the identity change rather than a
- * connection problem that would invite a retry.
- *
- * @summary offline Machine whose identity changed
- */
-export const IdentityChanged: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [identityChanged],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText("Offline")).toBeVisible();
-    await expect(canvas.getByText("Last failure")).toBeVisible();
-    await expect(canvas.getByText("Identity changed")).toBeVisible();
-  },
-};
-
-/**
- * The spec's offline scenario: a Machine whose pinned host key no longer
- * matches is reported offline with that reason and its last-seen time, so the
- * owner can tell a moved key from a machine that simply is not up.
- *
- * @summary offline Machine names its last failure
- */
-export const Offline: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [offlineDevl],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-
-    await expect(canvas.getByText("Offline")).toBeVisible();
-    await expect(canvas.getByText("Last failure")).toBeVisible();
-    await expect(canvas.getByText("Host key does not match")).toBeVisible();
-    // The last-seen time survives the failure: it says when the Machine was
-    // last known good, which is what dates the failure.
-    await expect(canvasElement.querySelector("time")).toHaveTextContent(
-      "3 minutes ago",
+    await expect(metaLine(devl)).toHaveTextContent(
+      "Online · seen 3 minutes ago · linux x64 · daemon 0.6.2",
     );
+    await expect(metaLine(devl)).not.toHaveTextContent("outdated");
+    await expect(within(devl).getByText("16 cores")).toBeVisible();
+    await expect(within(devl).getByText("64 GiB")).toBeVisible();
+    await expect(within(devl).getAllByText("1 TiB")[0]).toBeVisible();
+    await expect(within(devl).getAllByText("—")).toHaveLength(3);
+    await expect(
+      within(devl).queryByRole("button", { name: /Update/ }),
+    ).toBeNull();
+    await expect(
+      within(devl).getByRole("switch", { name: "Use devl (coming soon)" }),
+    ).toBeDisabled();
   },
 };
 
 /**
- * A Machine the hub has never completed a handshake with has no last-seen
- * time and no daemon version. Both say so instead of rendering an epoch date
- * or an empty cell.
+ * A daemon whose protocol is older than the hub's says so in the version it
+ * already shows, and offers the update, which is not built yet (#1815).
+ *
+ * @summary an outdated daemon and its disabled Update
+ */
+export const OutdatedDaemon: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const gpu = row(canvasElement, "gpu");
+
+    await expect(metaLine(gpu)).toHaveTextContent("daemon 0.6.1, outdated");
+    await expect(
+      within(gpu).getByRole("button", { name: "Update" }),
+    ).toBeDisabled();
+  },
+};
+
+/**
+ * A Machine the hub never reached has no last contact, no version and no
+ * reported capacity: each meter says "Unknown" rather than a zero.
  *
  * @summary configured but never contacted
  */
 export const NeverConnected: Story = {
   tags: ["ai-generated"],
-  beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [neverConnected],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
-  },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const builder = row(canvasElement, "builder");
 
-    await expect(canvas.getByText("builder")).toBeVisible();
-    await expect(canvas.getByText("Never connected")).toBeVisible();
-    await expect(
-      canvas.getByText("Hub protocol v2 · daemon not contacted yet"),
-    ).toBeVisible();
-    await expect(canvas.getByText("No roots registered")).toBeVisible();
-    // No handshake, so no timestamp element at all.
-    await expect(canvasElement.querySelector("time")).toBeNull();
+    await expect(metaLine(builder)).toHaveTextContent(
+      "Offline · never connected",
+    );
+    await expect(metaLine(builder)).not.toHaveTextContent("daemon");
+    await expect(within(builder).getAllByText("Unknown")).toHaveLength(3);
+    await expect(builder.querySelector("time")).toBeNull();
   },
 };
 
 /**
- * An instance whose operator configured no Machines has no Machines route:
- * the API answers 404 and `fetchMachines` maps that to an empty list. The
- * section must not exist at all — an empty card would advertise a capability
- * the instance does not have.
+ * Details opens under the row: each root with the size of its disk, then
+ * both protocol versions.
  *
- * @summary hidden when no Machines are configured
+ * @summary roots and protocol versions under a row
+ */
+export const DetailsOpen: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const gpu = row(canvasElement, "gpu");
+
+    await userEvent.click(within(gpu).getByRole("button", { name: "Details" }));
+    await expect(await within(gpu).findByText("/srv/projects")).toBeVisible();
+    await expect(
+      within(gpu).getByText("1 TiB", { selector: "span" }),
+    ).toBeVisible();
+    await expect(
+      within(gpu).getByText("daemon protocol v7 · hub protocol v8"),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * The last failed attempt is named in the contact line, beside when the
+ * Machine was last known good.
+ *
+ * @summary an offline Machine names its last failure
+ */
+export const Offline: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => listed([hostKeyChanged]),
+  play: async ({ canvasElement }) => {
+    await expect(metaLine(row(canvasElement, "old-vps"))).toHaveTextContent(
+      "Offline · Host key does not match · seen 3 minutes ago",
+    );
+  },
+};
+
+/**
+ * An instance with no Machines configured says so instead of standing blank.
+ *
+ * @summary no Machines configured
  */
 export const NotConfigured: Story = {
   tags: ["ai-generated"],
-  beforeEach: () => {
-    useMachinesQuery.mockReturnValue({
-      data: [],
-      isPending: false,
-      isError: false,
-      refetch: refetchMachines,
-    });
-  },
+  beforeEach: () => listed([]),
   play: async ({ canvasElement }) => {
-    await expect(canvasElement.querySelector('[data-slot="card"]')).toBeNull();
-    await expect(canvasElement).toBeEmptyDOMElement();
+    await expect(
+      within(canvasElement).getByText(
+        "This instance has no Machines configured.",
+      ),
+    ).toBeVisible();
+    await expect(within(canvasElement).queryByRole("listitem")).toBeNull();
   },
 };
 
 /**
- * A pending read stays hidden for the same reason: for an instance without
- * Machines the card would flash in and back out, and for one with them it
- * would arrive empty and then fill.
+ * While the list loads, a placeholder holds its place.
  *
- * @summary hidden while the status read is in flight
+ * @summary loading placeholder
  */
 export const Loading: Story = {
   tags: ["ai-generated"],
@@ -280,14 +251,16 @@ export const Loading: Story = {
     });
   },
   play: async ({ canvasElement }) => {
-    await expect(canvasElement).toBeEmptyDOMElement();
+    await expect(
+      canvasElement.querySelector('[data-slot="skeleton"]'),
+    ).not.toBeNull();
+    await expect(within(canvasElement).queryByRole("listitem")).toBeNull();
   },
 };
 
 /**
  * A failed read is not the absence of Machines, so it is announced rather
- * than swallowed. `Alert` carries `role="alert"` and the retry path refetches
- * the polled query.
+ * than swallowed, with a retry that refetches.
  *
  * @summary failed status read, with a retry path
  */
@@ -307,7 +280,6 @@ export const LoadFailed: Story = {
     await expect(canvas.getByRole("alert")).toHaveTextContent(
       "Could not load Machines.",
     );
-
     await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
     await expect(refetchMachines).toHaveBeenCalled();
   },
