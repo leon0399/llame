@@ -1,9 +1,11 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { isSQLWrapper, type SQL } from 'drizzle-orm';
-import { PgDialect } from 'drizzle-orm/pg-core';
+import {
+  BadRequestException,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import type { Chat, Message, Run } from '../db/schema';
+import type { Chat, ChatJob, Message, Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -13,6 +15,8 @@ import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { type MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
@@ -73,9 +77,6 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     updatedAt: new Date('2026-08-28T00:00:00.000Z'),
     archivedAt: null,
     projectId: null,
-    recencyDigestBaseline: null,
-    recencyDigestTold: null,
-    recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
@@ -245,9 +246,6 @@ describe('ChatsService message windows, updates and forks', () => {
     updatedAt: new Date('2026-08-28T00:00:00.000Z'),
     archivedAt: null,
     projectId: null,
-    recencyDigestBaseline: null,
-    recencyDigestTold: null,
-    recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
@@ -280,7 +278,7 @@ describe('ChatsService message windows, updates and forks', () => {
     };
   }
 
-  function makeService() {
+  function makeService(machines?: MachineConnector) {
     const db: Db = drizzle.mock();
 
     const tenantDb = new TenantDbService({
@@ -307,6 +305,7 @@ describe('ChatsService message windows, updates and forks', () => {
         noopReindexDispatch(),
         noopEmbedDispatch(),
         noopQueryEmbedder(),
+        machines,
       ),
       runAs,
       db,
@@ -558,14 +557,11 @@ describe('ChatsService message windows, updates and forks', () => {
 
     // The Chat-row values a fork copies off its source (complete-owner-forks
     // D3). This fixture carries no frozen baseline, so only the creation time
-    // and the model selection travel and both markers stay null rather than
-    // naming a copied checkpoint.
+    // and model selection travel; skill-catalog baseline, told-set and
+    // re-bake marker stay null rather than naming a copied checkpoint.
     const inheritedChatValues = {
       createdAt: heldChat.createdAt,
       modelSelection,
-      recencyDigestBaseline: null,
-      recencyDigestTold: null,
-      recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogTold: null,
       skillCatalogRebakedFrom: null,
@@ -938,8 +934,12 @@ describe('ChatsService message windows, updates and forks', () => {
       vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
       vi.spyOn(
         ChatJobsRepository.prototype,
-        'runningIdsInChat',
+        'listBindingsByChat',
       ).mockResolvedValue([]);
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'hasCreatingAttempt',
+      ).mockResolvedValue(false);
     });
 
     it('cancels the in-flight run before deleting the chat', async () => {
@@ -996,9 +996,9 @@ describe('ChatsService message windows, updates and forks', () => {
 
       const deleteById = vi.spyOn(ChatsRepository.prototype, 'deleteById');
 
-      const runningIds = vi.spyOn(
+      const listJobs = vi.spyOn(
         ChatJobsRepository.prototype,
-        'runningIdsInChat',
+        'listBindingsByChat',
       );
 
       const { service, db } = makeService();
@@ -1018,29 +1018,58 @@ describe('ChatsService message windows, updates and forks', () => {
       );
 
       expect(lock).toHaveBeenCalledWith(chat.id, ownerUserId);
-      expect(runningIds).not.toHaveBeenCalled();
+      expect(listJobs).not.toHaveBeenCalled();
       expect(deleteById).not.toHaveBeenCalled();
       expect(execute).not.toHaveBeenCalled();
     });
 
-    it('notifies running job processes before deleting the Chat', async () => {
+    it('keeps the Chat when a running Machine cannot be reached', async () => {
       vi.spyOn(
         RunsRepository.prototype,
         'findActiveByChatId',
       ).mockResolvedValue(undefined);
-      vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
 
-      const runningIds = vi
-        .spyOn(ChatJobsRepository.prototype, 'runningIdsInChat')
-        .mockResolvedValue(['job-1', 'job-2']);
+      const job: ChatJob = {
+        id: 'job-1',
+        chatId: chat.id,
+        ownerUserId,
+        kind: 'bash',
+        seq: 1,
+        state: 'running',
+        delivery: 'background',
+        stoppedBy: null,
+        runId: activeRun.id,
+        toolCallId: 'call-1',
+        intent: null,
+        command: null,
+        machineName: 'host-a',
+        daemonInstanceId: crypto.randomUUID(),
+        daemonJobId: crypto.randomUUID().replaceAll('-', ''),
+        startedAt: new Date(),
+        settledAt: null,
+        deadlineAt: null,
+        stopRequestedAt: null,
+        stopRequestedBy: null,
+        result: null,
+        outputs: ['stdout', 'stderr'],
+        artifactId: null,
+        artifactReadable: true,
+        settings: { selector: 'test-model', permissionMode: 'default' },
+      };
 
-      const deleteById = vi
-        .spyOn(ChatsRepository.prototype, 'deleteById')
-        .mockResolvedValue(true);
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'listBindingsByChat',
+      ).mockResolvedValue([job]);
+      const connector = localMachineConnector();
 
-      const { service, db } = makeService();
+      const jobsClient = vi
+        .spyOn(connector, 'jobsClient')
+        .mockRejectedValue(new Error('Machine unreachable'));
 
-      const execute = vi.spyOn(db, 'execute').mockResolvedValue(
+      const deleteById = vi.spyOn(ChatsRepository.prototype, 'deleteById');
+      const { service, db } = makeService(connector);
+      vi.spyOn(db, 'execute').mockResolvedValue(
         Object.assign([], {
           columns: [],
           count: 0,
@@ -1049,55 +1078,12 @@ describe('ChatsService message windows, updates and forks', () => {
           state: { status: 'I', pid: 0, secret: 0 },
         }),
       );
+      await expect(
+        service.deleteChat(ownerUserId, chat.id),
+      ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
-      await expect(service.deleteChat(ownerUserId, chat.id)).resolves.toBe(
-        true,
-      );
-
-      const deletionOrder = deleteById.mock.invocationCallOrder[0];
-
-      if (deletionOrder === undefined) {
-        throw new Error('Chat deletion did not run');
-      }
-
-      expect(runningIds.mock.invocationCallOrder[0]).toBeLessThan(
-        deletionOrder,
-      );
-      expect(
-        execute.mock.invocationCallOrder.every(
-          (order) => order < deletionOrder,
-        ),
-      ).toBe(true);
-      expect(execute).toHaveBeenCalledTimes(2);
-
-      const notifications: Array<SQL> = execute.mock.calls.map(
-        ([statement]) => {
-          if (!isSQLWrapper(statement)) {
-            throw new Error('Expected a SQL notification');
-          }
-
-          return statement.getSQL();
-        },
-      );
-
-      expect(
-        notifications.map((statement) => {
-          const { sql, params } = new PgDialect().sqlToQuery(statement);
-          expect(sql).toBe('select pg_notify($1, $2)');
-
-          return params;
-        }),
-      ).toEqual([
-        [
-          'llame_run_control',
-          JSON.stringify({ kind: 'job-stop', jobId: 'job-1' }),
-        ],
-        [
-          'llame_run_control',
-          JSON.stringify({ kind: 'job-stop', jobId: 'job-2' }),
-        ],
-      ]);
-      expect(deleteById).toHaveBeenCalledWith(chat.id, ownerUserId);
+      expect(jobsClient).toHaveBeenCalledWith('host-a');
+      expect(deleteById).not.toHaveBeenCalled();
     });
   });
 });

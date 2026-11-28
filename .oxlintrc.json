@@ -51,6 +51,7 @@
           "apps/api/src/core-infra.module.ts",
           "apps/api/src/db/db.ts",
           "apps/api/src/db/migrate.ts",
+          "apps/api/src/db/recency-digest-upgrade.cli.ts",
           "apps/api/src/decisions/decision-logger.ts",
           "apps/api/src/generate-openapi.ts",
           "apps/api/src/instance-config/config-loader.ts",
@@ -64,7 +65,6 @@
           "apps/api/src/worker.ts",
           "apps/api/vitest.integration.global-setup.mts",
           "apps/api/vitest.integration.setup.ts",
-          "apps/machine/src/instrument.ts",
           "apps/web/components/sidebar-row-title.tsx",
           "apps/web/instrumentation-client.ts",
           "apps/web/instrumentation.ts",
@@ -304,6 +304,7 @@
       // These API entrypoints compile as CommonJS. Remove this if API moves
       // to ESM.
       "files": [
+        "**/db/recency-digest-upgrade.cli.ts",
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
         "**/media/pdf-parse-entry.ts",

@@ -23,6 +23,7 @@ function row(
     message_chat_id: CHAT_ID,
     message_seq: '7',
     message_role: 'user',
+    message_sender_user_id: 'owner',
     message_parts: [{ type: 'text', text: 'before 😀 after' }],
     message_usage: null,
     message_revised_at: null,

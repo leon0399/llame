@@ -74,6 +74,14 @@ target is a directory, and links and special entries are never opened. Child
 directories show up to 20 entries followed by `… N more`. Empty directories
 render `(empty directory)`.
 
+The listing follows the walk policy. An entry named `.git`, `.jj`, `.hg`,
+`.svn`, or `node_modules` renders with no entries below it, even when an
+ignore file names it. An entry that an `.ignore` or `.gitignore` rule excludes
+does not render and does not count, under the same rules as a
+[`grep` walk](../tools/grep.md). The directory the read names is never
+filtered, so `read /repo/.git/` and `read /repo/dist/` still list their
+entries.
+
 A trailing separator is optional on a directory: `/dir/` and `/dir` both work.
 On a file it fails with `not_found`, and the file is not read. A line member
 selects a flat listing of root-level entries only, such as `:L1-5` (see

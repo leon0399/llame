@@ -18,6 +18,7 @@ const renderJobNoticeTemplate = loadPackagedTemplate<{
   readonly locator: string;
   readonly executor: string;
   readonly state: string;
+  readonly intent: string | undefined;
   readonly elapsed: string;
   readonly exitDetail: string | undefined;
   readonly stoppedBy: string | undefined;
@@ -39,7 +40,7 @@ export function createJobNoticeItem(input: {
   readonly hostDirectory?: string;
 }): AuthoredContextItemPart {
   const { job } = input;
-  const locator = formatJobLocator(job.executor, job.seq);
+  const locator = formatJobLocator(job.kind, job.seq);
 
   const artifactLocator = jobArtifactLocatorOf(job);
 
@@ -84,7 +85,7 @@ function jobNoticePayload(input: {
   return {
     jobId: job.id,
     locator: input.locator,
-    executor: job.executor,
+    executor: job.kind,
     state: job.state,
     elapsedMs: input.elapsedMs,
     ...(job.result?.exitCode !== undefined && {
@@ -124,8 +125,13 @@ function renderJobNoticeBody(input: {
 
   return renderJobNoticeTemplate({
     locator: input.locator,
-    executor: job.executor,
+    executor: job.kind,
     state: job.state,
+    // Model-authored: neutralized like output, since it sits in the reminder.
+    intent:
+      job.intent === null
+        ? undefined
+        : neutralizeReservedDelimiters(job.intent.replaceAll(/\s+/g, ' ')),
     elapsed: formatElapsed(input.elapsedMs),
     exitDetail,
     stoppedBy:

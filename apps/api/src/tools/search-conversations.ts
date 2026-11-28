@@ -4,35 +4,29 @@ import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 
 import { ChatsRepository } from '../chats/chats-repository';
+import { formatChatLocator } from '../chats/chat-locator';
 import { type TimeRange } from '../chats/chats-search-scope';
 import { timelineByOwner } from '../chats/chats-timeline-repository';
-import {
-  scanConversationLogicalLines,
-  type ConversationLogicalLine,
-} from '../chats/conversation-logical-lines';
 import { type Db } from '../db/tenant-db.service';
-import {
-  hydrateCanonicalSearchCandidate,
-  type HydratedCanonicalSearchDocument,
-} from '../search/chat/canonical-search-hydrator';
+import { hydrateCanonicalSearchCandidate } from '../search/chat/canonical-search-hydrator';
 import {
   evaluateCanonicalLinePredicates,
   matchCanonicalSearchPreview,
-  type CanonicalSearchPreviewPassage,
 } from '../search/chat/canonical-search-matcher';
-import { buildCanonicalSearchExcerpt } from '../search/chat/canonical-search-excerpt';
 import { type HybridSearchResult } from '../search/core';
-import { conversationSourceCoordinatesSchema } from './conversation-source-coordinates';
 import { type Tool, type ToolContext, type ToolResult } from './types';
+import {
+  buildSearchConversationsContentResult,
+  type SearchConversationsContentResult,
+} from './search-conversation-content-result';
+
+export type { SearchConversationsContentResult } from './search-conversation-content-result';
 
 const logger = new Logger('SearchConversationsTool');
 
 /**
- * The search-result notice, packaged as `prompts/search-conversations-notice.md`
- * and rendered once at module scope. It keeps the two conversation-history
- * sentences verbatim around this tool's own discovery clause; the literal pin
- * in `search-conversations.test.ts` is the guard against drift from the
- * conversation-history notice.
+ * The closed discovery framing is packaged as
+ * `prompts/search-conversations-notice.md` and rendered once at module scope.
  */
 const renderSearchConversationsNotice = loadPackagedTemplate<
   Record<string, never>
@@ -46,21 +40,9 @@ export const SEARCH_CONVERSATIONS_CANONICAL_NOTICE =
 export type SearchConversationsMetadataResult = {
   kind: 'metadata';
   chatId: string;
+  locator: string;
   title: string | null;
   updatedAt: string;
-};
-
-export type SearchConversationsContentResult = {
-  kind: 'content';
-  chatId: string;
-  title: string | null;
-  updatedAt: string;
-  role: 'user' | 'assistant';
-  timestamp: string;
-  messageSeq: number;
-  offset: number;
-  limit: number;
-  excerpt: string;
 };
 
 export type SearchConversationsTimelineResult = {
@@ -72,6 +54,8 @@ export type SearchConversationsTimelineResult = {
   messageCount: number;
   firstSeq: number;
   lastSeq: number;
+  firstLocator: string;
+  lastLocator: string;
 };
 
 export type SearchConversationsCanonicalResult =
@@ -336,6 +320,8 @@ async function executeTimeline(
         messageCount: r.messageCount,
         firstSeq: r.firstSeq,
         lastSeq: r.lastSeq,
+        firstLocator: formatChatLocator(r.chatId, r.firstSeq),
+        lastLocator: formatChatLocator(r.chatId, r.lastSeq),
       }),
     );
 
@@ -469,14 +455,16 @@ function isInRange(timestamp: Date, range?: RequiredRange): boolean {
   return true;
 }
 
+type CanonicalSearchCandidate = {
+  query: string;
+  row: HybridSearchResult;
+  requiredRange?: RequiredRange;
+};
+
 async function resolveCanonicalRow(
   tx: Db,
   ownerUserId: string,
-  candidate: {
-    query: string;
-    row: HybridSearchResult;
-    requiredRange?: RequiredRange;
-  },
+  candidate: CanonicalSearchCandidate,
 ): Promise<SearchConversationsCanonicalResult | null> {
   const { query, row, requiredRange } = candidate;
 
@@ -484,6 +472,7 @@ async function resolveCanonicalRow(
     return {
       kind: 'metadata',
       chatId: row.id,
+      locator: formatChatLocator(row.id),
       title: row.title,
       updatedAt: toIsoString(row.updatedAt),
     };
@@ -507,102 +496,18 @@ async function resolveCanonicalRow(
       evaluateCanonicalLinePredicates(tx, normalizedQuery, candidates),
   );
 
-  if (passage !== null) return contentResult(row, passage);
+  if (passage !== null)
+    return buildSearchConversationsContentResult(row, passage);
 
-  return vectorOnlyContentResult(row, document, requiredRange);
-}
-
-function contentResult(
-  row: HybridSearchResult,
-  passage: CanonicalSearchPreviewPassage,
-): SearchConversationsContentResult | null {
-  const coordinates = conversationSourceCoordinatesSchema.safeParse({
-    chatId: row.id,
-    messageSeq: passage.message.messageSeq,
-    offset: passage.offset,
-    limit: passage.limit,
-  });
-
-  if (!coordinates.success) return null;
-
-  return {
-    kind: 'content',
-    ...coordinates.data,
-    title: row.title,
-    updatedAt: toIsoString(row.updatedAt),
-    role: passage.message.role,
-    timestamp: passage.message.timestamp.toISOString(),
-    excerpt: buildCanonicalSearchExcerpt(passage),
-  };
-}
-
-const EXCERPT_MAX_CODE_POINTS = 500;
-
-function lineIndexAtOffset(
-  lines: ReadonlyArray<ConversationLogicalLine>,
-  charOffset: number,
-): number {
-  for (const line of lines) {
-    if (charOffset < line.endOffsetExclusive) return line.line;
-  }
-
-  return Math.max(lines.length - 1, 0);
-}
-
-function truncatedExcerpt(text: string): string {
-  const codePoints = Array.from(text);
-
-  return codePoints.length <= EXCERPT_MAX_CODE_POINTS
-    ? text
-    : `${codePoints.slice(0, EXCERPT_MAX_CODE_POINTS).join('')}…`;
-}
-
-function vectorOnlyContentResult(
-  row: HybridSearchResult,
-  document: HydratedCanonicalSearchDocument,
-  requiredRange?: RequiredRange,
-): SearchConversationsContentResult | null {
   const firstMessage = document.messages[0];
 
-  if (!firstMessage) return null;
-
-  if (requiredRange && !isInRange(firstMessage.timestamp, requiredRange)) {
+  if (
+    !firstMessage ||
+    (requiredRange && !isInRange(firstMessage.timestamp, requiredRange))
+  )
     return null;
-  }
 
-  const lines = scanConversationLogicalLines(firstMessage.visibleText);
-  const offset = lineIndexAtOffset(lines, firstMessage.sourceStart);
-
-  const lastLine = lineIndexAtOffset(
-    lines,
-    Math.max(firstMessage.sourceEndExclusive - 1, firstMessage.sourceStart),
-  );
-
-  const limit = Math.max(1, Math.min(lastLine - offset + 1, 2000));
-
-  const coordinates = conversationSourceCoordinatesSchema.safeParse({
-    chatId: row.id,
-    messageSeq: firstMessage.messageSeq,
-    offset,
-    limit,
-  });
-
-  if (!coordinates.success) return null;
-
-  const windowText = firstMessage.visibleText.slice(
-    firstMessage.sourceStart,
-    firstMessage.sourceEndExclusive,
-  );
-
-  return {
-    kind: 'content',
-    ...coordinates.data,
-    title: row.title,
-    updatedAt: toIsoString(row.updatedAt),
-    role: firstMessage.role,
-    timestamp: firstMessage.timestamp.toISOString(),
-    excerpt: truncatedExcerpt(windowText),
-  };
+  return buildSearchConversationsContentResult(row, firstMessage);
 }
 
 function toIsoString(value: Date | string): string {

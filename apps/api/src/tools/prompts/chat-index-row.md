@@ -1,0 +1,1 @@
+{{seq}} {{role}} {{timestamp}} {{locator}} {{preview}}

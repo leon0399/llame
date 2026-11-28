@@ -84,12 +84,10 @@ function readGitFailure(value: JsonValue): GitFailure | undefined {
     return undefined;
   const type = value['type'];
 
-  if (type === 'invalid_input') {
+  if (type === 'invalid_input' || type === 'copy_failed') {
     const message = value['message'];
 
-    return isText(message)
-      ? { status: 'error', type: 'invalid_input', message }
-      : undefined;
+    return isText(message) ? { status: 'error', type, message } : undefined;
   }
 
   if (!isStderrFailureType(type)) return undefined;

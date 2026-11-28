@@ -221,6 +221,7 @@ assessment.
 90. [Hyra 2.0](./hyra.md) — Tencent Hunyuan research post that describes an Overall, Mission, and Worker harness; the public repository ships result artifacts, and the orchestrator source is absent
 91. [DS Bot](./ds-bot.md) — Apache-2.0 DeepSeek Harness plugin whose Bots are root Sessions, whose desktop feed is a change hint, and whose Docker image grants full access inside one container
 92. [Command Code](./command-code.md) — Closed terminal coding agent whose public GitHub tree is a mods registry; the docs describe an append-only JSONL session, a host-drawn TUI, a permission ladder, and ripgrep code search.
+93. [CopilotKit OpenBot](./copilotkit-openbot.md). MIT coworker workspace whose threads live in CopilotKit Intelligence. The browser joins an AG-UI gateway socket. The composer parks a send while the turn is busy.
 
 ## Multi-machine and container placement
 
@@ -263,6 +264,7 @@ even with a single laptop UI):
 - [AX](./ax.md) — desired-state task sandboxes over Agent Substrate
 - [OpenShell](./openshell.md) — per-sandbox supervisor and workload; Docker, Podman, Kubernetes, and MicroVM fences
 - [OpenDuet](./openduet.md) — default one Docker computer per Bot; gVisor only when the computer runtime is set to runsc
+- [CopilotKit OpenBot](./copilotkit-openbot.md). With a supervisor, one computer container per person. An isolated Bot gets its own container. gVisor runs only when `COMPUTER_RUNTIME` is `runsc`.
 - [Rakazo](./rakazo.md) — one selected provider (Docker, Kubernetes, E2B, and the other named kinds); a missing remote key becomes a none provider
 - [OpenGrokBot](./opengrokbot.md) — Docker container per teammate, with shell on. A local computer leaves shell off until the operator enables it, and that switch refuses unless Seatbelt or bubblewrap passes a self-check
 - [Touri](./touri.md) — optional bot machines: Apple container on macOS, rootless Podman or Docker on Linux (README; the container lifecycle was not re-read)

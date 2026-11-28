@@ -119,7 +119,7 @@ writes the same fallback hold as Continue on next candidate, and the transcript
 shows a boundary that names the failed model and the failure.
 
 For a usage limit, the operator can choose to switch at once, to wait for a
-near reset and switch for a far one, or to always wait. A compaction Run never
+near reset and switch for a far one, or to keep the existing quota-wait behavior. A compaction Run never
 switches.
 
 An automatic switch does not move from a subscription or free model to a

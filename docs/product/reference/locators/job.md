@@ -54,6 +54,8 @@ locator, and one `<name>: <value>` line follows for each field:
 | Field               | Holds                                                                 |
 | ------------------- | --------------------------------------------------------------------- |
 | `executor`          | the kind of work                                                      |
+| `intent`            | the `i` of the call that started the job, the name the owner sees     |
+| `command`           | the shell text, JSON-quoted so it stays on one line                   |
 | `state`             | `running`, `succeeded`, `failed`, `cancelled`, `timed_out`, or `lost` |
 | `started_at`        | the start time                                                        |
 | `elapsed`           | seconds from the start to the end, or to now for a live job           |
@@ -67,25 +69,29 @@ locator, and one `<name>: <value>` line follows for each field:
 | `outcome`           | `unknown` for a `lost` job                                            |
 | `artifact`          | the `artifact://` locator, when the output is stored as one           |
 
-A job is `lost` when its worker sent no heartbeat for four heartbeat
-intervals. A read finds that and settles the job as `lost`
-before it answers, and the output that the worker stored stays readable. The
-record never holds the content of an output.
+A daemon reports a job `lost` when the process did not survive daemon restart.
+A read finds this state and settles the job before it answers. Output retained
+by the daemon stays readable while the job runs. If the daemon cannot return
+output, the read says `output unavailable right now`. The hub stores settled
+output in an artifact capped by the configured artifact byte limit. Output above
+that cap is truncated. If settled output is unavailable, the read says
+`output unavailable right now`. The record never holds output content.
 
 ### Output
 
-A `read` of `job://<executor>-<n>/<output>` returns the stored text of that
-output with the ordinary read selectors, so `:-L50` returns its last 50 lines.
-For a running job the text is what the worker stored up to that moment. A job
-whose output did not fit inline keeps it in the artifact, and the read returns
-it from there. An output name that the job does not have is `not_found`. A quiet
-output reads as empty.
+A `read` of `job://<executor>-<n>/<output>` returns stored text with ordinary
+read selectors, so `:-L50` returns its last 50 lines. For a running job, the
+text comes from the daemon's output files. Settled output comes from the
+artifact. If settled output could not be stored, the read says
+`output unavailable right now`. An output name that the job does not have is
+`not_found`. A quiet output reads as empty.
 
 ### Pending notices
 
-A settlement creates one pending `notice` item for that job. The winning
-settlement transaction inserts it, including when a touch finds the worker
-lost; a repeated settlement creates no second item. A live Run receives notices
+Each winning job settlement creates one pending `notice` item for that job. The
+settlement transaction inserts it, including when a touch finds the daemon lost
+the job. A repeated settlement creates no second item. A live Run receives
+notices
 at its next ordered boundary delivery with pending `steer` and `interrupt`
 items. Only the Run executing at that boundary is signalled. A notice by itself
 is a host trigger, not an owner message: its delivered message has user role,
@@ -93,7 +99,7 @@ no sender, and no stored content. The first dispatch authors the job context
 items from the triggering delivery rows. The notice has delete only and
 withdrawing it does not stop the job.
 
-The context item reports the locator, executor, state, exit detail, elapsed
+The context item reports the locator, executor, intent, state, exit detail, elapsed
 time, stopper when cancelled, artifact locator when present, and the last
 2,000 characters of each output. Output is safely neutralized as data before
 it enters the context. A host artifact directory is named only when a verified
@@ -112,7 +118,10 @@ the literal context items and remaps the reply target to the copied host turn.
 ## Listing
 
 `read("job://")` lists the jobs of the Chat, the oldest first, one line each:
-the locator, the state, and the start time. An empty Chat answers
+the locator, the state, the start time, and the intent when the starting call
+carried one, such as `job://bash-4 (running, 2026-11-27T15:12:03.000Z): Watching
+the dev server`. The owner's Jobs section names jobs by that intent, so the list
+maps a job the owner names to its locator. An empty Chat answers
 `job://: empty`. The list takes one line member, with or without the unit
 letter, such as `:L5-10`; `:raw`, `:outline`, and comma lists are
 `invalid_selector`. A fork of a Chat holds no job of its source.
@@ -127,5 +136,5 @@ letter, such as `:L5-10`; `:raw`, `:outline`, and comma lists are
 
 ## Configured by
 
-The worker heartbeat interval and the owner's job API are operator topics; see
-[scaling](../../operator/scaling.md#background-jobs).
+The daemon and the owner's job API are operator topics; see
+[background jobs](../../operator/background-jobs.md).

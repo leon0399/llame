@@ -303,6 +303,11 @@ registered roots fails the call with `path_not_registered`. A daemon that
 cannot start or answer fails it with `machine_unavailable`. The API never walks
 a host scope in its own process.
 
+A path or Machine walk follows the walk policy. It never enters or opens an
+entry named `.git`, `.jj`, `.hg`, `.svn`, or `node_modules`, at any depth, and
+it reports none of them in `ignored`. A scope that names such a directory
+still searches it.
+
 A path or Machine walk applies `.ignore` and `.gitignore`. From the scope
 prefix it reads both files in each directory it enters, and `.ignore` outranks
 `.gitignore` in one directory. Above the prefix it reads `.ignore` files up to

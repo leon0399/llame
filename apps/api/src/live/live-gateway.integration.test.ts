@@ -11,7 +11,7 @@
 
 import { Test } from '@nestjs/testing';
 import { type INestApplication } from '@nestjs/common';
-import { eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import type { Server } from 'node:http';
 import request from 'supertest';
@@ -27,16 +27,14 @@ import { configureApp } from '../app.setup';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { newChatJob } from '../testing/chat-job-rows';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { LIVE_PATH } from './live-gateway.service';
-import { workerInstances } from '../db/schema';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { newChatJob } from '../testing/chat-job-rows';
 import { ChangeHubService } from './change-hub.service';
 import { LIVE_CHANGE_LISTENER, ChangeListener } from './change-listener';
 import { LIVE_RECORD_LOADER, LiveRecordLoader } from './live-record-loader';
@@ -149,34 +147,19 @@ describe('LiveGatewayService', () => {
       message['chat']['id'] === chatId &&
       message['chat']['runningJobs'] === count;
 
-  async function createWorker() {
-    const id = crypto.randomUUID();
-    await tenantDb.runAs(users.a.id, (tx) =>
-      tx.insert(workerInstances).values({ id }),
-    );
-
-    return id;
-  }
-
-  function expireWorker(workerId: string) {
-    const deadAfter = workerDeadAfterSeconds(
-      app.get(InstanceConfigService).config,
-    );
-
-    return tenantDb.runAs(users.a.id, (tx) =>
-      tx
-        .update(workerInstances)
-        .set({
-          lastSeenAt: sql`now() - make_interval(secs => ${deadAfter + 1})`,
-        })
-        .where(eq(workerInstances.id, workerId)),
-    );
-  }
-
-  function storeJob(chatId: string, seq: number, workerInstanceId: string) {
+  function storeJob(
+    chatId: string,
+    seq: number,
+    delivery: 'background' | 'foreground' = 'background',
+  ) {
     return tenantDb.runAs(users.a.id, (tx) =>
       new ChatJobsRepository(tx).insert(
-        newChatJob({ chatId, ownerUserId: users.a.id, seq, workerInstanceId }),
+        newChatJob({
+          chatId,
+          ownerUserId: users.a.id,
+          seq,
+          delivery,
+        }),
       ),
     );
   }
@@ -457,87 +440,60 @@ describe('LiveGatewayService', () => {
       name,
     });
   });
-  it('updates subscribed owner sockets on job start, lease expiry and revival without settling the job', async () => {
+
+  it('counts background jobs, updates on daemon settlement and isolates the projection', async () => {
     const a = await connect(users.a.cookie);
     const b = await connect(users.b.cookie);
     const chatId = await newChat(users.a.id);
-    const worker = await createWorker();
-    const job = await storeJob(chatId, 1, worker);
+    const background = await storeJob(chatId, 1, 'background');
+
+    let foregroundId: string | undefined;
 
     try {
       await waitForMessage(a, jobProjection(chatId, 1));
       a.messages.length = 0;
-      await expireWorker(worker);
+
+      const foreground = await storeJob(chatId, 2, 'foreground');
+      foregroundId = foreground.id;
+      const markerA = await newChat(users.a.id);
+      await waitForMessage(
+        a,
+        (message) =>
+          isRecord(message['chat']) && message['chat']['id'] === markerA,
+      );
+      expect(
+        a.messages.some(
+          (message) =>
+            message['type'] === 'chat.upserted' &&
+            isRecord(message['chat']) &&
+            message['chat']['id'] === chatId &&
+            message['chat']['runningJobs'] === 2,
+        ),
+      ).toBe(false);
+
+      await finishJobs(chatId, [background.id]);
       await waitForMessage(a, jobProjection(chatId, 0));
 
-      a.messages.length = 0;
-      await tenantDb.runAs(users.a.id, (tx) =>
-        tx
-          .update(workerInstances)
-          .set({ lastSeenAt: sql`now()` })
-          .where(eq(workerInstances.id, worker)),
+      const markerB = await newChat(users.b.id);
+      await waitForMessage(
+        b,
+        (message) =>
+          isRecord(message['chat']) && message['chat']['id'] === markerB,
       );
-      await waitForMessage(a, jobProjection(chatId, 1));
-
-      const stored = await tenantDb.runAs(users.a.id, (tx) =>
-        new ChatJobsRepository(tx).findById(chatId, users.a.id, job.id),
-      );
-
-      expect(stored).toMatchObject({ state: 'running', settledAt: null });
-      expect(JSON.stringify(b.messages)).not.toContain(chatId);
-    } finally {
-      a.socket.terminate();
-      b.socket.terminate();
-      await finishJobs(chatId, [job.id]);
-    }
-  });
-
-  it('pushes a zero projection to a new socket for jobs on an already expired worker', async () => {
-    const chatId = await newChat(users.a.id);
-    const worker = await createWorker();
-    const job = await storeJob(chatId, 1, worker);
-    await expireWorker(worker);
-    const client = await connect(users.a.cookie);
-
-    try {
-      await waitForMessage(client, jobProjection(chatId, 0));
-
-      const stored = await tenantDb.runAs(users.a.id, (tx) =>
-        new ChatJobsRepository(tx).findById(chatId, users.a.id, job.id),
-      );
-
-      expect(stored?.state).toBe('running');
-    } finally {
-      client.socket.terminate();
-      await finishJobs(chatId, [job.id]);
-    }
-  });
-
-  it('counts only jobs on the remaining worker and sends no foreign-owner projection', async () => {
-    const a = await connect(users.a.cookie);
-    const b = await connect(users.b.cookie);
-    const chatId = await newChat(users.a.id);
-    const firstWorker = await createWorker();
-    const secondWorker = await createWorker();
-    const first = await storeJob(chatId, 1, firstWorker);
-    const second = await storeJob(chatId, 2, secondWorker);
-
-    try {
-      await waitForMessage(a, jobProjection(chatId, 2));
-      a.messages.length = 0;
-      await expireWorker(firstWorker);
-      await waitForMessage(a, jobProjection(chatId, 1));
       expect(JSON.stringify(b.messages)).not.toContain(chatId);
 
       const stored = await tenantDb.runAs(users.a.id, (tx) =>
-        new ChatJobsRepository(tx).listByChat(chatId, users.a.id),
+        new ChatJobsRepository(tx).findByLocator(chatId, users.a.id, 'bash', 2),
       );
 
-      expect(stored.map((row) => row.state)).toEqual(['running', 'running']);
+      expect(stored).toBeUndefined();
     } finally {
       a.socket.terminate();
       b.socket.terminate();
-      await finishJobs(chatId, [first.id, second.id]);
+      await finishJobs(chatId, [
+        background.id,
+        ...(foregroundId === undefined ? [] : [foregroundId]),
+      ]);
     }
   });
 });

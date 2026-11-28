@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { type JsonValue } from '@workspace/machine-protocol';
 
 import { MachineConnector } from '../machines/machine-connector.service';
-import { MachineUnavailableError } from '../machines/machine-session';
+import { MachineUnavailableError } from '../machines/machine-session-errors';
 import { type Chat } from '../db/schema';
 import { type ReadPage } from '../instructions/instruction-files';
 import {
@@ -51,9 +51,6 @@ const chat: Chat = {
   archivedAt: null,
   modelSelection: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,

@@ -34,10 +34,8 @@ no Workspace is entered.
 The current Machine's daemon serves a host `read`, `edit`, `write`, or `grep`.
 It answers only inside the roots registered on that Machine, so a host path
 outside them fails with `path_not_registered`. Host Workspace entry,
-instruction files, Workspace skills, Workspace MCP declarations, and prompt
-imports resolve through that same daemon and the same roots. Host `bash` and
-its background jobs remain the only host operations that run in the llame
-worker.
+instruction files, Workspace skills, Workspace MCP declarations, prompt
+imports, host `bash`, and its background jobs run through the daemon.
 
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
@@ -108,6 +106,12 @@ command on that host; `edit` and `write` refuse it with
 canonical Project locator. `edit` and `write` refuse the scheme with
 `unsupported_operation`.
 
+`chat://` locators need no Machine. `read` serves them through the trusted
+owner's database scope after the ordinary `tools.permissions.read` group
+admits the canonical locator. `edit` and `write` refuse the scheme with
+`unsupported_operation`. See [Chat locators](../reference/locators/chat.md)
+for owner privacy, archive handling, status annotations, and paging.
+
 Optional trusted bash cwd (defaults to the cwd of the process that executes the
 Run, so a split web/worker deployment resolves it in the worker, and a bound
 Workspace root overrides it):
@@ -124,15 +128,12 @@ over SSH, and it needs a `destination` on each entry it must serve.
 
 ## Managed command capacity
 
-`tools.bash.maxProcesses` bounds the managed commands of one worker process.
-It defaults to 64 and accepts a safe integer of at least 1 or a whole-value
-interpolation token that resolves to one. An empty or invalid resolved value
-fails startup naming the field.
-
-Foreground host commands, host jobs, and `ssh://` commands share this capacity.
-A call past the bound returns `limit_reached` before recording an attempt or
-spawning a process. A Machine daemon has its own bound of one and keeps its
-`unavailable` refusal. See [bash bounds and errors](../reference/tools/bash.md#bounds).
+The Machine daemon owns host commands and jobs. It allows 32 running jobs by
+default, with a separate 64 MiB output ceiling per stream. Configure both in
+the Machine's `config.toml`; see [Machine limits](machines.md#machine-limits).
+Host daemon saturation returns `limit_reached` before a new job starts.
+Standalone `ssh://` bash remains foreground-only and is not governed by the
+daemon's job limit.
 
 ## `grep`
 

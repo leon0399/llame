@@ -56,10 +56,10 @@ absolute path address the same Machine as the locator of the current Machine.
 
 A Machine operation runs on the Machine as that Machine's OS user, with no
 sandbox and no sandboxing of the command's process group. The host Machine is
-reached through a daemon child on this computer, and another Machine over the
-operator's SSH route. There is no isolation between users of a shared Machine:
-one user's files and processes are visible to another's, and hub-held Chat
-state — bindings, declarations, attempts, and results — stays owner-scoped.
+reached through a daemon child, and another Machine over the operator's SSH
+route. There is no isolation between users of a shared Machine: one user's
+files and processes are visible to another's, and hub-held Chat state stays
+owner-scoped.
 
 The Machine's registered roots bound addressing only. They are not a security
 boundary: the Machine user can change them, and anything running as that user,

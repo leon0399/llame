@@ -1,73 +1,43 @@
 # llame
 
 llame is a self-hosted, personal-first **meta-harness**: durable chat and agent
-execution on your infrastructure, with multi-user isolation for households,
-teams, or organizations. It keeps ownership of Chat and Run identity while
-aiming to dispatch peer coding agents over protocols such as ACP and A2A
-(similar to goose) as executor adapters — not a second session system.
+execution on your own infrastructure, with multi-user isolation for households,
+teams, or organizations. It owns Chat and Run identity and aims to drive peer
+coding agents over protocols such as ACP and A2A as executor adapters, not as a
+second session system.
 
 ## What runs today
 
-- Multi-user with opaque sessions, RLS-enforced tenant isolation, and
-  organizational identity.
-- Durable Chat Runs via pg-boss. Progress persists and replays after refresh or
-  reconnect.
-- Operator-managed providers, models, and per-model system prompts in
-  `llame.config.jsonc`. Provider accounts share credentials and endpoints;
-  models resolve their wire through provider/kind defaults, exact model metadata, or an explicit
-  override. OpenRouter can serve chat, embeddings, decisions, and reranking
-  through one account. Codex and OpenCode Go retain fixed subscription
-  destinations.
-- Owner-only Projects for organizing Chats, with pinning and reversible archive.
-- Bounded tool loop: `search_conversations`, optional line-ranged
-  `conversation_read`, and operator-configured MCP tools authorized by the
-  instance permission policy.
-- Owners select a per-Run `default`, `read-only`, or `bypass` permission mode
-  from a control beside the prompt input when the operator exposes more than one
-  through ordered `tools.permissionModes` (default `["default"]`); the choice
-  applies to the sending Chat only and is never persisted. `read-only` admits
-  only reads and plain Workspace entry or exit, and leaves egress under the
-  operator policy. A bypassed Run's usage badge carries a `Bypass` segment.
-- Optional native host file tools: selector-based `read`, exact `edit`, and
-  create-or-replace `write`, with durable mutation fencing, plus host `bash`
-  with per-call literal `cwd` and additive `env`, fresh processes, and bounded
-  output. See [native file setup](docs/product/operator/native-files.md).
-- Web reads through that same native `read` tool: absolute `http://` and
-  `https://` locators, publisher Markdown first (negotiated, announced
-  alternates, a `.md` suffix probe, `llms.txt`), a bounded local render, and
-  permission admission through that same `read` group for every locator it
-  derives rather than receives — each redirect hop, announced alternate,
-  `.md` suffix, and `llms.txt` candidate — before its request. Every resolved
-  address is also judged against the `read` group's rejects, and each request
-  is pinned to an admitted address, under 10 s header, 30 s call, and 5 MiB
-  body bounds. See
-  [web read setup](docs/product/operator/web-read.md).
-- Optional `web_search` through the Brave engine and an
-  operator-configured chain, with bounded normalized results. See
-  [web search setup](docs/product/operator/web-search.md).
-- Owner-scoped Markdown Knowledge Spaces: `knowledge_search` over live files
-  (including uncommitted changes), plus `kb://` reads, edits, and writes
-  through the native file tools, operator-configured and allowlisted.
-- Optional owner-scoped Chat recency digests: an owner opts in to send a bounded
-  list of their other Chats' titles and opening excerpts to the configured
-  provider.
+- **Multi-user and isolated.** Opaque sessions, tenant isolation enforced by
+  Postgres row-level security, and organizational identity.
+- **Durable Runs.** Every Chat Run executes on a queue; progress persists and
+  replays after a refresh or reconnect.
+- **Operator-managed models.** Providers, models, model roles, and per-model
+  system prompts live in one instance configuration file. See
+  [provider routing](docs/product/operator/providers/routing.md) and
+  [model request settings](docs/product/operator/providers/model-settings.md).
+- **Projects** group an owner's Chats, with pinning and reversible archive.
+- **Native tools** on the host or a remote Machine: `read`, `grep`, `edit`,
+  `write`, `bash`, and Workspace entry, under per-call permission rules and
+  per-Run permission modes. See
+  [native files](docs/product/operator/native-files.md) and
+  [Machines](docs/product/operator/machines.md).
+- **Web access**: `http(s)://` reads through `read`, with publisher Markdown
+  first and address pinning, and `web_search` over a configured engine chain.
+  See [web reads](docs/product/operator/web-read.md) and
+  [web search](docs/product/operator/web-search.md).
+- **Personal Knowledge**: owner-scoped Markdown Knowledge Spaces, searchable
+  and editable through the same tools. See
+  [Knowledge](docs/product/operator/knowledge.md).
+- **Recall**: search and read the owner's own earlier Chats, and an opt-in
+  recency digest. See
+  [conversation recall](docs/product/operator/conversation-recall.md).
+- **MCP tools** from operator-configured remote and stdio servers. See
+  [MCP tools](docs/product/operator/mcp-tools.md).
 
-Not yet shipped: llame-owned Git history for Knowledge (commits run through
-allowlisted host `bash` Git), user BYOK, fine-grained tool permissions,
-subagents. See [ROADMAP.md](ROADMAP.md).
-Operator setup: [docs/product/operator/conversation-recall.md](docs/product/operator/conversation-recall.md),
-[docs/product/operator/knowledge.md](docs/product/operator/knowledge.md).
-
-## Direction
-
-llame targets an assistant with external tools, a Git-backed Markdown knowledge
-base, prior-work recall, and self-improving context through recoverable writes.
-Knowledge reads and writes live owner-scoped files, and a recoverable commit
-uses allowlisted host `bash` Git. Workspaces, artifacts, child
-agents, automation, peer harness adapters (ACP/A2A and similar), and messaging
-channels follow only after that core loop works. See [VISION.md](VISION.md).
-Prior art for those adapters:
-[docs/research/harnesses/index.md](docs/research/harnesses/index.md).
+Not yet shipped: llame-owned Git history for Knowledge, user BYOK,
+interactive tool approvals, and subagents. See [ROADMAP.md](ROADMAP.md) and
+[VISION.md](VISION.md) for where it is going.
 
 ## Getting started
 
@@ -81,252 +51,29 @@ pnpm db:provision-rls
 pnpm dev
 ```
 
-`apps/api` needs `POSTGRES_URL` and any provider credentials referenced by
-`llame.config.jsonc`. `LLAME_CONFIG_PATH` overrides the file location. The config
-may be authored as JSONC (`.jsonc`/`.json`), YAML (`.yaml`/`.yml`, with anchors
-and merge keys resolved), or TOML (`.toml`), selected by extension. Without an
-override, the single `apps/api/llame.config.*` with a supported extension is
-loaded, so an existing `llame.config.json` keeps working; more than one fails
-startup. Provider entries describe accounts: `openai`, `anthropic`,
-`openrouter`, and `opencode-zen` share one credential, base URL, and headers
-across their models. Each model resolves its wire from the provider, model
-kind, and exact model metadata; an explicit `wire` overrides that default. OpenRouter
-supports chat, embeddings, decisions, and reranking with one provider entry.
-Unknown combinations fail startup at the model's `.wire` field.
-
-Explicit endpoint profiles (`openai-responses`, `openai-completions`,
-`anthropic-messages`, `system-one`, and `cohere-rerank`) remain available for
-custom services. `openai-codex` retains its fixed subscription transport.
-`opencode-go` selects Responses, Messages, or Chat Completions per model,
-with a fixed gateway destination and required subscription key.
-See [provider routing](docs/product/operator/providers/routing.md) for defaults,
-overrides, and a shared-account example, and
-[OpenCode Go](docs/product/operator/providers/opencode-go.md) for its transport
-constraints. Operators can group models into ordered model roles and point
-`defaults.selector` at `@role`. See
-[model roles](docs/product/operator/providers/routing.md#model-roles-and-default-selectors)
-for the role checks and the billing modes.
-
-Every provider entry may also set `headers` to a map of header names to
-strings or `null`. `{env:...}` and `{path:...}` resolve once at startup;
-`{session:id}` resolves per request to the Chat id on the main turn and
-compaction, or `title:<chatId>` for title generation. The
-vendor profiles, `openai-responses`, `openai-completions`,
-`anthropic-messages`, and `opencode-go` default to
-`X-Session-Id: {session:id}`; `openai-codex` has no default. Non-chat calls omit
-session-templated headers. Set a default entry to `null` to remove
-it — for example, a strict proxy that rejects unknown headers can use
-`"X-Session-Id": null`. Operator values overlay llame's own headers, including
-`User-Agent`, credentials, and OpenCode Go's `x-opencode-*`; that override is
-the operator's responsibility. Use `{env:...}` or `{path:...}` for secrets.
-The `@ai-sdk/anthropic` adapter merges an operator `anthropic-beta` with its
-own beta values only when the key is spelled in lowercase; another casing is
-discarded whenever the adapter adds a beta of its own for that request.
-
-`apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`. See
-[AGENTS.md](AGENTS.md) for development setup and commands.
-
-Personal Knowledge is opt-in. Set an absolute `knowledge.root` in the operator
-configuration, mount the same logical stable-ID child directories into every
-process that can provision or consume Runs, and add `knowledge_search` and
-`read` to `tools.allowed`. Every Run-authoring API must declare the setting for
-consistent accept-time availability, even if it does not mount the root.
-Configuration loading does not probe the root; provisioning and worker
-execution fail closed when their mount is missing. The Knowledge API keeps the
-root and local binding out of model context and owner-facing results; allowlisted
-host `bash` can discover a mounted root through ordinary filesystem commands.
-See [docs/product/operator/knowledge.md](docs/product/operator/knowledge.md).
-
-**Breaking**: `knowledge_read` is deleted. An allowlisted `knowledge_read`
-entry now fails boot; remove it from `tools.allowed` before upgrading. Read
-Knowledge files through the native `read` tool's `kb://<knowledgeSpaceId>/<path>`
-locator instead.
-
-Self-hosted Postgres needs `vector` (pgvector) and `pg_trgm` for
-embeddings-backed search. `pnpm db:up` provides both. **Breaking** for
-self-hosters on their own Postgres: switch to a pgvector-capable image before
-upgrading, or the extension migration fails.
-
-`models[]` entries can set `systemPromptFile` to a prompt file, and llame-owned
-tool descriptions are replaceable through `tools.promptFiles` and
-`models[].toolPromptFiles`; omitting either uses the packaged default. Relative
-paths resolve from the active config file, invalid overrides fail startup
-without fallback, and prompt contents must be safe for the Chat owner to
-inspect. Each attempt that reaches prompt preparation binds an immutable
-system-prompt-only receipt; tool declarations and rendered descriptions stay in
-worker memory, so a receipt is not a record of the descriptions the model was
-shown. The owner UI shows model switches and loads the receipt on demand; host
-file paths never enter the model catalog or receipt. Authoring:
-[apps/api/AGENTS.md](apps/api/AGENTS.md), operator runbook:
-[docs/product/operator/tool-prompts.md](docs/product/operator/tool-prompts.md).
-
-`models[].providerOptions` is a server-only free-form object of provider-native
-request options for the adapter the model's resolved wire selects, keyed as that
-adapter documents them (`reasoningSummary` on the Responses wire,
-`reasoningEffort` on Chat Completions, `thinking`/`effort`/`cacheControl` on
-the Messages wire); llame places it under the wire's provider-options namespace
-itself (`openai`, `openaiCompletions` for Chat Completions, or `anthropic` for
-Messages). Boot validates shape only — the value must be an object, and
-`{env:...}`/`{path:...}` syntax in any string value at any depth fails startup
-before any token resolves — so the object is not a credential channel and its
-contents are never redacted. Every request composes four layers, highest
-first: client invariants (the `openai-responses` wire always sends
-`store: false`, and a model that declares `reasoning` also sends
-`forceReasoning: true`; the Codex client always sends
-`reasoningSummary: 'auto'`; the Messages client always sends
-`sendReasoning: true` and, on every request that carries adaptive thinking,
-the drop-on-prefix-mismatch instruction), the Run's resolved effort when the
-model declares `reasoning`, the entry's object, then per-request defaults (the
-Responses client defaults `reasoningSummary: 'auto'` on streaming and
-compaction and sends none on structured generation; the Messages client
-defaults adaptive thinking with summarized display when the model declares
-`reasoning`, and the request-level ephemeral cache control on every request).
-Objects merge recursively key by key,
-while arrays and scalars replace the value beneath them; `null` at any depth
-removes a default but never an invariant. Keys that
-would change what the request is rather than how the model answers are
-stripped before composition: `conversation`, `previousResponseId`,
-`instructions`, `systemMessageMode`, and `allowedTools` on the Responses wire
-(both `openai-responses` and `openai-codex`); `model`, `max_tokens`, and
-`tool_choice` on the Chat Completions wire; `fallbacks`, `mcpServers`,
-`container`, and `thinking.blockBinding` on the Messages wire. The adapter
-decides the rest at request time: a value it recognizes and rejects fails that
-request under the existing failure contract, and an unrecognized key is dropped
-by the Responses and Anthropic adapters or forwarded into the request body by
-`openai-completions`.
-
-The `openai-responses` wire sends `store: false` on every request, so the
-provider keeps no response for later retrieval through the API and no request
-depends on a provider-side item: an entry's `"store": true` is not sent, and a
-later turn sends a stored reasoning part back as an item carrying its
-encrypted content, never as a reference to a stored item. A stored reasoning
-part that carries an item id and no encrypted content — one stored before this
-change — is omitted from the request. This does not change
-the provider's own data-retention policy, and an endpoint at another `baseUrl`
-follows its own. `store: false` makes the adapter ask for
-`reasoning.encrypted_content` on a model it treats as a reasoning model —
-every model entry that declares `reasoning`, whatever its model id. A declared
-entry whose model id the adapter would not treat as reasoning on its own also
-sends the system prompt with the `developer` role, as the adapter does for its
-own reasoning models. A model entry that declares no `reasoning` keeps the
-adapter's own model-id rule, so `gpt-4.1` asks for no encrypted reasoning
-content.
-
-`models[].maxOutputTokens` is an optional positive integer (or whole-value
-interpolation token, like `contextWindowTokens`, validated after resolution —
-a non-positive or non-integer value fails startup naming the model id and the
-field) sent as every request's `maxOutputTokens` setting; absent, the
-adapter's own default applies. The
-Responses adapter sends it as `max_output_tokens`; the Chat Completions
-adapter sends it as `max_tokens` with no `max_completion_tokens` remapping, so
-declaring it on an entry fronting a model that requires `max_completion_tokens`
-is rejected by that model. The Messages wire requires `max_tokens` on every
-request, so the Anthropic adapter fills it from its own model-id table when
-the entry declares no limit — 128k for the recognized current models and for
-any unrecognized `claude-` id, 64k or 32k for the 4.5 and older 4.x rows, and
-4096 for the Claude 3 Haiku, Claude 2, and Claude Instant rows and for any id
-that does not contain `claude-`, such as a gateway-served `glm-5` — with
-thinking tokens counted against it, and it warns when an unrecognized
-`claude-` id takes the 128k branch. A declared limit makes the adapter add a
-manual thinking budget to it silently. An adapter may adjust the value as it
-documents — for example lowering one above a ceiling it knows for a recognized
-model, warned only when the entry declared the limit —
-and the warnings it emits surface in the Run. This field caps provider output;
-the top-level `runs.maxOutputTokens` remains an admission reserve and does not.
-Like `providerOptions`, it is server-only and never returned by
-`GET /api/v1/models`.
-
-`models[].input` declares whether a model accepts images and PDFs (`["text"]`
-by default; add `image`, `pdf`, or both, as in `["text", "image", "pdf"]`).
-Declare `pdf` only where the provider accepts PDFs; see
-[model input](docs/product/operator/media.md#model-input).
-
-The `anthropic-messages` wire owns thinking and caching defaults, and both are
-`providerOptions` defaults rather than fixed behavior. When a model entry
-declares `reasoning`, the client asks for adaptive thinking with summarized
-display, so the owner's effort governs thinking depth and the provider's
-summaries stay visible as reasoning parts; `{ "thinking": { "display": null } }`
-keeps adaptive thinking but drops the display, a budget-only model gets manual
-thinking through `{ "thinking": { "type": "enabled", "budgetTokens": N } }`,
-and `{ "thinking": { "type": "disabled" } }` turns it off. Two documented
-ceilings follow. First, the drop-on-prefix-mismatch instruction llame sets for
-you is carried only on the adaptive shape the pinned adapter emits, so an entry
-that declares no `reasoning` sends no thinking configuration and no
-instruction, and an operator override to a manual-budget or disabled shape
-gives the instruction up for that model: on a model that thinks by default, a
-compaction or prompt-receipt change can then be rejected by the provider under
-the account's own default enforcement. The remedy is to declare `reasoning`
-for such a model. Second, the adapter's effort option is a closed enumeration
-of the provider's levels (`low`, `medium`, `high`, `xhigh`, `max`), so an
-effort level outside it fails that request at the adapter before any call — a
-gateway whose vocabulary is not Anthropic's cannot be driven through this
-option — while an operator `effort` on an entry that declares no `reasoning`
-is forwarded as written. The adapter may also lower `xhigh`/`max` to `high`
-with a warning when thinking is disabled on a model it knows rejects that
-combination; the Run surfaces the warning and nothing is retried or rewritten.
-Prompt caching is the other default: every request carries the top-level
-ephemeral cache control with the provider's 5-minute lifetime, the provider
-places and moves the breakpoint itself, and llame authors no block-level
-breakpoints. Replace the default with the provider's longer lifetime or remove
-it with `cacheControl: null` for a gateway that rejects the option; a gateway
-that ignores it simply serves the request without caching.
-
-`models[].pricingUsdPer1M.cacheWrite` is an optional per-million rate for the
-provider's cache-creation tokens. The adapter's input total already includes
-them, so cost prices them at that rate when the entry declares one and at the
-entry's input rate when it does not, which leaves the computed cost identical
-to the result before the field existed. The count is provider-reported and
-never inferred or backfilled: a turn that reports none records zero, an
-endpoint whose cache-read plus cache-write counts exceed its input total is
-bounded to a zero uncached term rather than a negative cost, and a model entry
-with no `pricingUsdPer1M` keeps its unknown-cost contract (`costUsd: null`).
-The web usage panel shows the count as an `of which cache write` row beneath
-Input, the way cached input is shown.
-
-`shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
-owner's other Chats' titles and opening excerpts to the configured provider;
-retroactive over existing eligible Chats. Disabling stops new baselines,
-re-bakes, and updates, but does
-not remove a digest already bound to another Chat; deleting a source Chat is not
-erasure from those existing prompts or receipts. The digest is framed as
-untrusted data and has no Chat identifiers. Compaction excludes the digest from
-checkpoints by instruction, not structural enforcement.
-
-MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
-`llame.config.jsonc`, with two transports. A remote entry is exactly
-`{ type, url, headers? }`, where `http` and `streamable-http` both select
-Streamable HTTP. A local entry is `{ type: "stdio", command, args?, env?, cwd? }`,
-run as a child process — the shape most MCP servers ship.
-
-Secrets use `{env:...}` and `{path:...}` interpolation. Interpolation marks a
-value secret: resolved values are redacted from diagnostics, results, and
-errors, never visible to users or models. A stdio child receives only its
-declared `env` plus the MCP SDK's base allowlist — llame's own credentials do
-not reach it. Runs unsandboxed as the
-llame user. Operators must explicitly allowlist each namespaced tool or its
-server namespace, and every call must have an applicable `tools.permissions`
-group; allowlisting selects eligibility but does not attest to read-only
-behavior. See [docs/product/operator/mcp-tools.md](docs/product/operator/mcp-tools.md).
+`apps/api` needs `POSTGRES_URL` and the provider credentials the configuration
+references. The configuration may be JSONC, YAML, or TOML; `LLAME_CONFIG_PATH`
+overrides its location ([operator guide](docs/product/operator/index.md)).
+`apps/web` is a thin client configured with `NEXT_PUBLIC_API_URL`.
+Running on your own Postgres: see
+[Postgres prerequisites](docs/product/operator/scaling.md#postgres-prerequisites).
 
 ## Documentation
 
-- [VISION.md](VISION.md): product direction and deliberate deferrals
-- [ROADMAP.md](ROADMAP.md): sequenced, unshipped work
-- [SPEC.md](SPEC.md): current architecture, invariants, and authority map
-- [CHANGELOG.md](CHANGELOG.md): shipped history
-- [AGENTS.md](AGENTS.md): repository workflow and engineering rules
-- [docs/index.md](docs/index.md): documentation map
-- [docs/product/reference](docs/product/reference/index.md): tool, locator,
-  and selector behavior as the assistant sees it
 - [docs/product/operator](docs/product/operator/index.md): configuration,
   deployment, and provider runbooks
-- [docs/development](docs/development/index.md): testing, quality gates, and
-  contributor records
-- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
-  peer harness / protocol prior art (noncanonical)
+- [docs/product/reference](docs/product/reference/index.md): tool, locator,
+  and selector behavior as the assistant sees it
+- [SPEC.md](SPEC.md): architecture, invariants, and the authority map
+- [VISION.md](VISION.md) and [ROADMAP.md](ROADMAP.md): direction and
+  sequenced, unshipped work
+- [CHANGELOG.md](CHANGELOG.md): shipped history
+- [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md): delivery
+  policy and engineering rules
+- [docs/index.md](docs/index.md): the whole documentation map
 
-TypeScript throughout: Next.js (`apps/web`), NestJS + worker (`apps/api`),
-shared components (`packages/ui`).
+TypeScript for the web app (Next.js), API and workers (NestJS); Rust for the
+Machine daemon.
 
 ## License
 

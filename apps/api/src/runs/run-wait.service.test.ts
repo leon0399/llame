@@ -13,7 +13,6 @@ import {
 import { type Db, type TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { asDouble } from '../testing/support';
 import {
   quotaRequestFromEvents,
@@ -146,10 +145,6 @@ function makeFixture(
         : asDouble<Chat>({ id: input.chatId }),
     );
 
-  const settleOnDeadWorkers = vi
-    .spyOn(ChatJobsRepository.prototype, 'settleOnDeadWorkers')
-    .mockResolvedValue([]);
-
   const hasPendingSteering = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'hasPendingSteering')
     .mockResolvedValue(options.pendingSteering ?? false);
@@ -177,7 +172,6 @@ function makeFixture(
     tx,
     select,
     chatLock,
-    settleOnDeadWorkers,
     hasPendingSteering,
     updateForAttempt,
     append,
@@ -284,7 +278,6 @@ describe('RunWaitService.suspendForQuota', () => {
 
     expect(dispatchInput?.wake?.generation).toBe(5);
     expect(options?.startAfter).toEqual(new Date(quotaAwaiting.wakeAt));
-    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
     expect(fixture.hasPendingSteering).not.toHaveBeenCalled();
   });
 
@@ -372,29 +365,10 @@ describe('RunWaitService.suspendForQuota', () => {
     );
   });
 
-  it('rehydrates every frozen boundary field from its persisted checkpoint', async () => {
+  it('rehydrates the frozen skill baseline and boundary fields from its checkpoint', async () => {
     const fixture = makeFixture();
 
     const baselines: FirstEpochBaselines = {
-      recencyDigestInitialization: {
-        baseline: {
-          pinned: [{ title: 'pinned', date: '2026-11-01', messageCount: 2 }],
-          recent: [
-            {
-              title: 'recent',
-              date: '2026-11-02',
-              messageCount: 3,
-              excerpt: 'excerpt',
-            },
-          ],
-          pinnedShown: 1,
-          pinnedTotal: 1,
-          recentShown: 1,
-          recentTotal: 1,
-          compiledOn: '2026-11-14T00:00:00.000Z',
-        },
-        told: [{ chatId: quotaInput.chatId, pinned: true }],
-      },
       skillCatalogFreeze: {
         baseline: {
           entries: [{ name: 'skill-a', description: 'does a' }],
@@ -477,12 +451,6 @@ describe('RunWaitService.suspend', () => {
     await expect(fixture.service.suspend(input)).resolves.toEqual({
       kind: 'suspended',
     });
-
-    expect(fixture.settleOnDeadWorkers).toHaveBeenCalledWith(
-      input.chatId,
-      input.userId,
-      BUILT_IN_DEFAULTS.runs.heartbeatSeconds * 4,
-    );
 
     expect(fixture.updateForAttempt).toHaveBeenCalledTimes(1);
     const update = fixture.updateForAttempt.mock.calls[0]?.[3];
@@ -587,7 +555,6 @@ describe('RunWaitService.suspend', () => {
       cause: 'interrupted',
     });
 
-    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
     expect(fixture.updateForAttempt).not.toHaveBeenCalled();
   });
 

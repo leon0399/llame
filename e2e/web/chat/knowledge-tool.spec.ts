@@ -42,8 +42,7 @@ const modelId = "system:openai:gpt-5.4-mini";
 const longNotePath = "notes/long-note.md";
 const pagedQuery = "KNOWLEDGE_E2E_PAGED";
 
-// Match the tool identity exposed beside its intent/action and lifecycle state,
-// excluding longer ids such as conversation_read.
+// Match the native reader chip by its standalone label.
 const readToolFilter = /\bread, /u;
 
 type KnowledgeSpaceResponse = {

@@ -48,6 +48,7 @@ import {
   type StoredToolObservation,
 } from './tool-observation-part';
 import { createToolCallIdMap, type ToolCallIdMap } from './tool-call-ids';
+import { selectContextHistory } from './recency-digest-replay';
 
 /**
  * `ModelMessage` is now the SDK's own type, re-exported above. Content can
@@ -184,6 +185,7 @@ export interface StoredMessage {
  * checkpoint row once, then emitted literally; replay never re-renders it.
  */
 export interface ContextCheckpoint {
+  id: string;
   text: string;
   absorbedThroughSeq: number;
 }
@@ -751,21 +753,10 @@ export function buildContext(
 ): ModelRequestContext {
   const { systemPrompt, checkpoint } = options;
 
-  // Checkpoint rows are storage-only markers. The selected checkpoint is
-  // represented by its stored literal text below; every other checkpoint row
-  // is skipped and can never fall through the assistant branch.
-  const history = messages.filter(
-    (m) =>
-      m.role !== 'system' &&
-      m.role !== 'tool' &&
-      m.role !== 'checkpoint' &&
-      (checkpoint === undefined || m.seq > checkpoint.absorbedThroughSeq),
+  const { originBaseline, checkpointCompanion, ordered } = selectContextHistory(
+    messages,
+    checkpoint,
   );
-
-  // Deterministic order: sort by seq (monotonic insertion order) even if the
-  // caller passed an unsorted array. seq (not createdAt) because same-transaction
-  // messages share created_at — see messages.seq in the schema.
-  const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   const result: Array<ModelMessage> = [];
 
@@ -778,11 +769,19 @@ export function buildContext(
     toolCallIds: options.toolCallIds ?? createToolCallIdMap(),
   };
 
+  if (originBaseline !== undefined) {
+    appendUserMessage(result, originBaseline, projection.retained);
+  }
+
   if (checkpoint !== undefined) {
     result.push({
       role: 'user',
       content: [{ type: 'text', text: checkpoint.text }],
     });
+
+    if (checkpointCompanion !== undefined) {
+      appendUserMessage(result, checkpointCompanion, projection.retained);
+    }
   }
 
   for (const m of ordered) {

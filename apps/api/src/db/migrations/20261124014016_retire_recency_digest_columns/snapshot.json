@@ -1,0 +1,63 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "ccd653a7-6fc5-44ba-9dc1-65cef12dc51e",
+  "prevIds": ["5cdc238c-b0e9-4ef0-ae35-64727021677d"],
+  "footprints": [
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "recency_digest_baseline"
+      ],
+      "writes": [
+        "s|col|public.chats.recency_digest_baseline",
+        "n|col|public.chats.recency_digest_baseline",
+        "e|col|public.chats.recency_digest_baseline"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": ["column", "public", "chats", "recency_digest_told"],
+      "writes": [
+        "s|col|public.chats.recency_digest_told",
+        "n|col|public.chats.recency_digest_told",
+        "e|col|public.chats.recency_digest_told"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chats",
+        "recency_digest_rebaked_from"
+      ],
+      "writes": [
+        "s|col|public.chats.recency_digest_rebaked_from",
+        "n|col|public.chats.recency_digest_rebaked_from",
+        "e|col|public.chats.recency_digest_rebaked_from"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chats\",\"recency_digest_baseline\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chats\",\"recency_digest_told\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chats\",\"recency_digest_rebaked_from\"]"
+    }
+  ]
+}

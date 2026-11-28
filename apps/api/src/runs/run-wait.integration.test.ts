@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { eq, inArray, sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
+import { newChatJob } from '../testing/chat-job-rows';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { chatJobs, runs, workerInstances, type ChatJob } from '../db/schema';
+import { runs, type ChatJob } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunsRepository } from './runs-repository';
 import { recordJobSettlementNotice } from '../jobs/job-notices';
@@ -30,25 +31,20 @@ describe('Run wait transactions', () => {
   async function seedWaitingRun(): Promise<SeededWaitingRun> {
     const seeded = await fx.seed();
     const attemptId = randomUUID();
-    const workerId = randomUUID();
     await fx.db(async (tx) => {
       await tx
         .update(runs)
         .set({ status: 'running_tool', activeAttemptId: attemptId })
         .where(eq(runs.id, seeded.runId));
-      await tx.insert(workerInstances).values({ id: workerId });
-      await new ChatJobsRepository(tx).insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 1,
-        runId: seeded.runId,
-        toolCallId: `call-${randomUUID()}`,
-        workerInstanceId: workerId,
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
+      await new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: fx.userId,
+          seq: 1,
+          runId: seeded.runId,
+          settings: { selector: seeded.modelId, permissionMode: 'default' },
+        }),
+      );
     });
 
     const [job] = await fx.db((tx) =>
@@ -260,48 +256,6 @@ describe('Run wait transactions', () => {
     });
     expect(await fx.types(seeded.runId)).not.toContain('run.suspended');
   });
-  it('interrupts suspension when a lost unrelated job creates a pending notice', async () => {
-    const seeded = await seedWaitingRun();
-    const lostWorkerId = randomUUID();
-
-    const lostJob = await fx.db(async (tx) => {
-      await tx.insert(workerInstances).values({ id: lostWorkerId });
-
-      const job = await new ChatJobsRepository(tx).insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 2,
-        runId: seeded.runId,
-        toolCallId: `call-${randomUUID()}`,
-        workerInstanceId: lostWorkerId,
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
-
-      await tx
-        .update(workerInstances)
-        .set({ lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) })
-        .where(eq(workerInstances.id, lostWorkerId));
-
-      return job;
-    });
-
-    const service = fx.harness.moduleRef.get(RunWaitService);
-
-    await expect(service.suspend(suspendInput(seeded))).resolves.toEqual({
-      kind: 'ready',
-      cause: 'interrupted',
-    });
-    expect(await fx.types(seeded.runId)).not.toContain('run.suspended');
-
-    const [storedLostJob] = await fx.db((tx) =>
-      tx.select().from(chatJobs).where(eq(chatJobs.id, lostJob.id)),
-    );
-
-    expect(storedLostJob?.state).toBe('lost');
-  });
 
   it('reuses the deadline job id and refuses an early or stale deadline wake', async () => {
     const seeded = await seedWaitingRun();
@@ -409,63 +363,6 @@ describe('Run wait transactions', () => {
       awaiting: { ...waiting.awaiting, deadline },
     });
   });
-  it('a deadline that discovers a listed lost job reuses the deadline job without enqueueing', async () => {
-    const seeded = await seedWaitingRun();
-    const service = fx.harness.moduleRef.get(RunWaitService);
-    await service.suspend(suspendInput(seeded));
-    const waiting = await fx.run(seeded.runId);
-
-    if (!waiting?.currentJobId) throw new Error('Run did not suspend');
-    const deadlineJobId = waiting.currentJobId;
-
-    const enqueue = vi
-      .spyOn(fx.harness.dispatch, 'enqueueInTransaction')
-      .mockResolvedValue(undefined);
-
-    await fx.db((tx) =>
-      tx
-        .update(workerInstances)
-        .set({ lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) })
-        .where(eq(workerInstances.id, seeded.job.workerInstanceId)),
-    );
-
-    const woken = await fx.harness.tenantDb.runAs(fx.userId, (tx) =>
-      service.wakeInTransaction(tx, {
-        runId: seeded.runId,
-        userId: fx.userId,
-        generation: waiting.wakeGeneration,
-        cause: 'timeout',
-        deadlineJobId,
-      }),
-    );
-
-    expect(woken).toBe(true);
-    expect(enqueue).not.toHaveBeenCalled();
-    expect(await fx.run(seeded.runId)).toMatchObject({
-      status: 'queued',
-      currentJobId: waiting.currentJobId,
-      wakeGeneration: waiting.wakeGeneration,
-      awaiting: waiting.awaiting,
-    });
-
-    const resumed = (await fx.events(seeded.runId)).find(
-      (event) => event.eventType === 'run.resumed',
-    );
-
-    expect(resumed?.payload).toMatchObject({
-      generation: waiting.wakeGeneration,
-      cause: 'settled',
-    });
-
-    const lostJob = await fx.db(
-      async (tx) =>
-        (
-          await tx.select().from(chatJobs).where(eq(chatJobs.id, seeded.job.id))
-        )[0],
-    );
-
-    expect(lostJob?.state).toBe('lost');
-  });
   it('refuses suspension for every terminal status with an active attempt', async () => {
     for (const status of ['completed', 'failed', 'expired'] as const) {
       const seeded = await seedWaitingRun();
@@ -485,59 +382,6 @@ describe('Run wait transactions', () => {
       });
       expect(await fx.types(seeded.runId)).not.toContain('run.suspended');
     }
-  });
-
-  it('records settled when a lost-worker batch includes any awaited job', async () => {
-    const seeded = await seedWaitingRun();
-    const outsideWorkerId = randomUUID();
-
-    const outsideJob = await fx.db(async (tx) => {
-      await tx.insert(workerInstances).values({ id: outsideWorkerId });
-
-      return new ChatJobsRepository(tx).insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 2,
-        runId: seeded.runId,
-        toolCallId: `call-${randomUUID()}`,
-        workerInstanceId: outsideWorkerId,
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
-    });
-
-    const service = fx.harness.moduleRef.get(RunWaitService);
-    await service.suspend(suspendInput(seeded));
-    await fx.db((tx) =>
-      tx
-        .update(workerInstances)
-        .set({ lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) })
-        .where(
-          inArray(workerInstances.id, [
-            seeded.job.workerInstanceId,
-            outsideWorkerId,
-          ]),
-        ),
-    );
-
-    const woke = await fx.harness.tenantDb.runAs(fx.userId, (tx) =>
-      service.wakeForChatInTransaction(tx, {
-        chatId: seeded.chatId,
-        userId: fx.userId,
-        jobId: outsideJob.id,
-        kind: 'settlement',
-      }),
-    );
-
-    expect(woke).toBe(true);
-
-    const resumed = (await fx.events(seeded.runId)).find(
-      (event) => event.eventType === 'run.resumed',
-    );
-
-    expect(resumed?.payload).toMatchObject({ cause: 'settled' });
   });
 
   it('does not expire a resumed Run from its obsolete dead-letter identity', async () => {

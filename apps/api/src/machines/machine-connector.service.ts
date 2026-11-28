@@ -24,27 +24,32 @@ import {
   type MachineMethod,
   type MachineMethodParams,
 } from '@workspace/machine-protocol';
-
 import type {
   MachineHostConfig,
   MachinesConfig,
 } from '../instance-config/machines-config';
-
-import type { BindOutcome } from './machine-bindings.repository';
 import { createLocalChildTransportFactory } from './local-child-transport';
+import type { BindOutcome } from './machine-bindings.repository';
+
 import {
-  MachineIdentityMismatchError,
   MachineSession,
-  MachineUnavailableError,
   type MachineChannelHandle,
+  type MachineRequestHandler,
   type MachineRequestOptions,
   type MachineSessionEnd,
+  type MachineSessionOptions,
+  type MachineStreamHandler,
 } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+  MachineUpdateRequiredError,
+} from './machine-session-errors';
+import type { MachineTransportFactory } from './machine-transport';
 import {
   createMachineSshTransportFactory,
   type MachineSshTransportFactory,
-  type MachineTransportFactory,
-} from './machine-transport';
+} from './machine-ssh-transport';
 import {
   boundMachineRoots,
   boundMachineVersion,
@@ -88,6 +93,9 @@ export type MachineConnectorDeps = {
   readonly now?: () => number;
   readonly idleCloseMs?: number;
   readonly handshakeTimeoutMs?: number;
+  readonly requestHandler?: MachineRequestHandler;
+  /** In-process bidirectional method handler for streaming contract tests. */
+  readonly streamHandler?: MachineStreamHandler;
 };
 
 type SessionEntry = {
@@ -122,10 +130,12 @@ export class MachineConnector {
   private readonly reachability = new Map<string, Promise<boolean>>();
   private readonly refusals = new Map<string, MachineUnavailableError>();
   private readonly mutations = new Map<string, Promise<void>>();
+  private readonly requestHandler: MachineConnectorDeps['requestHandler'];
+  private readonly streamHandler: MachineConnectorDeps['streamHandler'];
   private readonly injected: MachineTransportFactory | undefined;
   private readonly injectedLocal: MachineTransportFactory | undefined;
-  private ssh: MachineSshTransportFactory | undefined;
   private local: MachineTransportFactory | undefined;
+  private ssh: MachineSshTransportFactory | undefined;
 
   constructor(deps: MachineConnectorDeps) {
     this.machines = deps.machines;
@@ -138,6 +148,9 @@ export class MachineConnector {
     this.handshakeTimeoutMs = deps.handshakeTimeoutMs;
     this.injected = deps.transportFactory;
     this.injectedLocal = deps.localTransportFactory;
+    const testFactory = deps.transportFactory ?? deps.localTransportFactory;
+    this.requestHandler = deps.requestHandler ?? testFactory?.requestHandler;
+    this.streamHandler = deps.streamHandler ?? testFactory?.streamHandler;
   }
 
   /** Whether Machines exist at all: an absent section means no Machine surface. */
@@ -260,7 +273,32 @@ export class MachineConnector {
     const handle = session.openChannel({ method, params }, options);
     handle.channel.onClose(() => this.armIdle(name));
 
-    return handle;
+    return {
+      ...handle,
+      result: handle.result.catch((error: unknown) => {
+        throw session.mapRefusal(error, true);
+      }),
+    };
+  }
+  /** The typed Jobs RPC client and lifetime of one established Machine session. */
+  async jobsClient(name: string): Promise<{
+    readonly client: MachineSession['jobsClient'];
+    readonly callOptions: MachineSession['callOptions'];
+    readonly ended: Promise<MachineSessionEnd>;
+    readonly instanceId: string;
+  }> {
+    const session = await this.session(name);
+    const hello = session.hello;
+
+    if (hello === undefined)
+      throw new Error('Machine handshake is incomplete.');
+
+    return {
+      client: session.jobsClient,
+      callOptions: (options) => session.callOptions(options),
+      ended: session.ended,
+      instanceId: hello.instanceId,
+    };
   }
 
   /**
@@ -342,6 +380,23 @@ export class MachineConnector {
     }
   }
 
+  /** An established, identity-bound session for service-specific streaming RPCs. */
+  async machineSession(name: string): Promise<MachineSession> {
+    const session = await this.session(name);
+    const entry = this.sessions.get(name);
+
+    if (entry !== undefined) clearTimeout(entry.idleTimer);
+    session.retain();
+
+    return session;
+  }
+
+  /** Release a session lease after its service stream ends. */
+  releaseMachineSession(name: string, session: MachineSession): void {
+    session.release();
+    this.armIdle(name);
+  }
+
   /** The Machine's live session, opening one when it has none. */
   private async session(name: string): Promise<MachineSession> {
     if (!this.enabled() || !this.isConfigured(name))
@@ -376,8 +431,6 @@ export class MachineConnector {
     const local = name === this.localMachine();
     const destination = this.hosts()[name]?.destination;
 
-    // The local Machine is a child of this process and needs no destination;
-    // every other Machine is only reachable through SSH.
     if (!local && destination === undefined)
       throw new MachineUnavailableError(
         name,
@@ -386,27 +439,76 @@ export class MachineConnector {
         'This process cannot reach this Machine.',
       );
 
-    const session = new MachineSession({
-      name,
-      transport: this.factory(name).open({ name, destination }),
-      hubVersion: this.hubVersion,
-      handshakeTimeoutMs: this.handshakeTimeoutMs,
-    });
+    const session = this.createSession(name, destination);
 
     this.sessions.set(name, { session });
     void session.ended.then((end) => this.onEnded(name, session, end));
-    const hello = await session.ready();
 
-    // The bind decides whether this session may ever carry a request. It runs
-    // after the handshake and before anything else: a daemon answering under
-    // another computer's name never sees a request, and a bind that cannot be
-    // read fails the session closed instead of trusting the daemon.
-    await this.verifyIdentity(name, session, hello.instanceId);
+    try {
+      const hello = await session.ready();
 
-    this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
-    this.armIdle(name);
+      this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
+      this.armIdle(name);
+
+      return session;
+    } catch (error) {
+      this.handleStartFailure(name, session, error);
+    }
+  }
+
+  private createSession(
+    name: string,
+    destination: string | undefined,
+  ): MachineSession {
+    let session!: MachineSession;
+
+    const options: MachineSessionOptions = {
+      name,
+      transport: this.factory(name).open({ name, destination }),
+      hubVersion: this.hubVersion,
+      admitIdentity: (instanceId) =>
+        this.verifyIdentity(name, session, instanceId),
+    };
+
+    if (this.handshakeTimeoutMs !== undefined)
+      Object.assign(options, { handshakeTimeoutMs: this.handshakeTimeoutMs });
+
+    if (this.requestHandler !== undefined)
+      Object.assign(options, { requestHandler: this.requestHandler });
+
+    if (this.streamHandler !== undefined)
+      Object.assign(options, { streamHandler: this.streamHandler });
+
+    session = new MachineSession(options);
 
     return session;
+  }
+
+  private handleStartFailure(
+    name: string,
+    session: MachineSession,
+    error: unknown,
+  ): never {
+    const entry = this.sessions.get(name);
+
+    if (entry?.session === session) this.sessions.delete(name);
+    session.close();
+
+    if (error instanceof MachineUpdateRequiredError) {
+      this.recordContact(name, {
+        hubProtocolVersion: PROTOCOL_VERSION,
+        failure: 'incompatible_version',
+      });
+
+      throw new MachineUnavailableError(
+        name,
+        'incompatible_version',
+        false,
+        error.message,
+      );
+    }
+
+    throw error;
   }
 
   /**
@@ -547,5 +649,3 @@ export class MachineConnector {
     return this.ssh;
   }
 }
-
-export { MachineUnavailableError } from './machine-session';

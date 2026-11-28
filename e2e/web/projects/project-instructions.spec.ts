@@ -281,11 +281,26 @@ test.describe("Project instructions", () => {
 
     const projectUrl = `/projects/${project.id}`;
 
-    const editor = page.getByRole("textbox", {
+    const dialog = page.getByRole("dialog", { name: "Project instructions" });
+
+    const editor = dialog.getByRole("textbox", {
       name: "Project instructions",
     });
 
-    const save = page.getByRole("button", { name: /save instructions/i });
+    const save = dialog.getByRole("button", { name: "Save" });
+
+    const settings = page.getByRole("complementary", {
+      name: "Project settings",
+    });
+
+    // The section's card holds stored instructions; with none it offers to
+    // add them. Either opens the editor dialog.
+    const openEditor = async () => {
+      await settings
+        .getByRole("button", { name: /^(Edit|Add) instructions/ })
+        .click();
+      await expect(editor).toBeVisible();
+    };
 
     const tokens: Array<string> = [];
 
@@ -298,7 +313,7 @@ test.describe("Project instructions", () => {
 
     try {
       await page.goto(projectUrl);
-      await expect(editor).toBeVisible();
+      await openEditor();
       await expect(editor).toHaveValue("");
 
       // Save through the real editor. The PATCH is the persistence proof; the
@@ -314,12 +329,13 @@ test.describe("Project instructions", () => {
       await save.click();
 
       expect((await firstSave).status()).toBe(200);
-      await expect(editor).toBeEnabled();
-      await expect(editor).toHaveValue(instructions);
-      await expect(save).toBeDisabled();
+      await expect(dialog).toBeHidden();
 
       await page.reload();
+      await openEditor();
       await expect(editor).toHaveValue(instructions);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
 
       expect(
         (await readProject(request, account, project.id)).instructions,
@@ -341,6 +357,7 @@ test.describe("Project instructions", () => {
 
       // Clear by saving an empty draft, as the editor's contract defines it.
       await page.goto(projectUrl);
+      await openEditor();
       await expect(editor).toHaveValue(instructions);
 
       const clearSave = page.waitForResponse(
@@ -354,12 +371,12 @@ test.describe("Project instructions", () => {
       await save.click();
 
       expect((await clearSave).status()).toBe(200);
-      await expect(editor).toBeEnabled();
-      await expect(editor).toHaveValue("");
-      await expect(save).toBeDisabled();
+      await expect(dialog).toBeHidden();
 
       await page.reload();
-      await expect(editor).toHaveValue("");
+      await expect(
+        settings.getByRole("button", { name: /^Add instructions/ }),
+      ).toBeVisible();
 
       expect(
         (await readProject(request, account, project.id)).instructions,

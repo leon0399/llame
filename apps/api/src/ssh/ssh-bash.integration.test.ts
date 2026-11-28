@@ -11,33 +11,38 @@
  * wire, not the ledger. Requires a Docker daemon and the OpenSSH client tools.
  */
 
+import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
-import { BashProcessLimiter } from '@workspace/bash-executor';
 
-import { type Db } from '../db/tenant-db.service';
+import { type Chat, type ChatJob } from '../db/schema';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { createMachineSshTransportFactory } from '../machines/machine-transport';
+import { createMachineSshTransportFactory } from '../machines/machine-ssh-transport';
+import type { MachineTransport } from '../machines/machine-transport';
+import { hostBashJobs } from '../testing/host-bash-jobs';
 import { waitFor } from '../testing/support';
 import {
+  MACHINE_SSHD_NAME,
   MACHINE_SSHD_SH_ALIAS,
   MACHINE_SSHD_ROOT,
   startMachineSshd,
   type MachineSshd,
 } from '../testing/machine-sshd/machine-sshd';
-import { createSshClient, type SshClient } from './ssh-client';
-import { spawnSshProcess, type SshSpawn } from './ssh-process';
-
-import { type TenantRunner } from '../db/tenant-db.service';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { ChatsRepository } from '../chats/chats-repository';
 import { bashTool } from '../tools/bash';
 import { nativeReadTool } from '../tools/native-files';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { runTool } from '../tools/runner';
 import { type ToolContext } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
+import { createSshClient, type SshClient } from './ssh-client';
+import { spawnSshProcess, type SshSpawn } from './ssh-process';
 
 function interruptCurrent(aborts: RunAbortRegistry, runId: string): void {
   const segment = aborts.segmentOf(runId);
@@ -59,6 +64,31 @@ const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
     callback(drizzle.mock()),
 };
+
+function lockedChat(): Chat {
+  return {
+    id: 'chat',
+    ownerUserId: 'owner',
+    title: null,
+    visibility: 'private',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    archivedAt: null,
+    projectId: null,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    artifactSeq: 0,
+    workspaceToldAvailable: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
+    modelSelection: null,
+  };
+}
 
 const policy = compileToolPermissionMap(
   { bash: { allow: true }, read: { allow: true } },
@@ -120,7 +150,6 @@ describe('ssh bash over a real sshd', () => {
       runId: 'run',
       toolCallId: 'call',
       nativeDeliverySequence: 1,
-      bashProcessLimiter: new BashProcessLimiter(64),
       tenantDb,
       permissionPolicy: policy,
       sshClient,
@@ -154,6 +183,72 @@ describe('ssh bash over a real sshd', () => {
       context(sshClient),
       CALL_TIMEOUT_SECONDS,
     );
+  }
+
+  function machineBashRuntime(machines: MachineConnector) {
+    const daemonJobId = { value: '' };
+
+    const row: ChatJob = {
+      id: randomUUID(),
+      chatId: 'chat',
+      ownerUserId: 'owner',
+      kind: 'bash',
+      seq: 1,
+      state: 'running',
+      stoppedBy: null,
+      runId: 'run',
+      toolCallId: 'call',
+      intent: null,
+      command: null,
+      machineName: MACHINE_SSHD_NAME,
+      daemonInstanceId: '00000000-0000-4000-8000-000000000013',
+      daemonJobId: '',
+      delivery: 'foreground',
+      startedAt: new Date(),
+      settledAt: null,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: null,
+      outputs: ['stdout', 'stderr'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { selector: 'test-model', permissionMode: 'default' },
+    };
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
+      (input) => {
+        daemonJobId.value = input.daemonJobId;
+
+        return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
+      },
+    );
+    vi.spyOn(
+      ChatJobsRepository.prototype,
+      'promoteToBackground',
+    ).mockImplementation(() => {
+      const { promise, resolve } = Promise.withResolvers<ChatJob | undefined>();
+
+      // Exercise the real 750 ms abort fence while a promotion transaction commits.
+      setTimeout(() => resolve({ ...row, delivery: 'background' }), 800);
+
+      return promise;
+    });
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation((input) =>
+      Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+    );
+
+    return {
+      ...hostBashJobs(tenantDb, machines, {
+        wakeForChatInTransaction: () => Promise.resolve(false),
+      }),
+      daemonJobId,
+    };
   }
 
   async function hostnameOf(container: StartedTestContainer): Promise<string> {
@@ -370,7 +465,7 @@ describe('ssh bash over a real sshd', () => {
     });
   }, 60_000);
 
-  it('An interrupt cancels a Machine Workspace command with omitted cwd', async () => {
+  it('An interrupt backgrounds a Machine Workspace command with omitted cwd', async () => {
     const connection = fixture.connection();
 
     const transport = createMachineSshTransportFactory({
@@ -387,6 +482,7 @@ describe('ssh bash over a real sshd', () => {
     const aborts = new RunAbortRegistry();
     aborts.register('run', 'owner');
     const segment = aborts.beginSegment('run', 'attempt');
+    const jobRuntime = machineBashRuntime(machines);
 
     if (segment === undefined) throw new Error('Missing active segment');
     const marker = `${MACHINE_SSHD_ROOT}/yield-${crypto.randomUUID()}`;
@@ -395,15 +491,16 @@ describe('ssh bash over a real sshd', () => {
       const call = runTool(
         bashTool,
         { command: `echo $$ > ${marker}; exec sleep 30` },
-        {
-          ...context(client()),
+        context(client(), {
+          ...jobRuntime,
+          attemptId: 'attempt',
           machines,
           workspaceRoot: createWorkspaceRootCell(
             `machine://devl${MACHINE_SSHD_ROOT}`,
           ),
           abortSignal: segment.abort.signal,
           yieldSignal: segment.yield.signal,
-        },
+        }),
         CALL_TIMEOUT_SECONDS,
       );
 
@@ -421,9 +518,38 @@ describe('ssh bash over a real sshd', () => {
 
       interruptCurrent(aborts, 'run');
       await expect(call).resolves.toMatchObject({
-        status: 'error',
-        type: 'outcome_unknown',
+        status: 'success',
+        backgrounded: true,
+        cause: 'message',
       });
+
+      const stopFactory = createMachineSshTransportFactory({
+        ssh: connection.machines.ssh,
+      });
+
+      const stopper = new MachineConnector({
+        machines: connection.machines,
+        hubVersion: '0.0.0-yield-stop-test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: stopFactory,
+      });
+
+      try {
+        const session = await stopper.jobsClient(MACHINE_SSHD_NAME);
+
+        await session.client.cancelJob(
+          {
+            requestId: jobRuntime.daemonJobId.value,
+            jobId: jobRuntime.daemonJobId.value,
+            owner: 'owner',
+          },
+          session.callOptions(),
+        );
+      } finally {
+        stopper.onModuleDestroy();
+        stopFactory.dispose();
+      }
+
       await waitFor(
         async () => {
           const result = await fixture.box.exec(['kill', '-0', pid]);
@@ -439,6 +565,168 @@ describe('ssh bash over a real sshd', () => {
     }
   }, 60_000);
 
+  it('backgrounds a Machine job on disconnect and stops it from a new session', async () => {
+    const connection = fixture.connection();
+
+    const factory = createMachineSshTransportFactory({
+      ssh: connection.machines.ssh,
+    });
+
+    const links: Array<MachineTransport> = [];
+
+    const machines = new MachineConnector({
+      machines: connection.machines,
+      hubVersion: '0.0.0-disconnect-test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: {
+        open: (request) => {
+          const link = factory.open(request);
+          links.push(link);
+
+          return link;
+        },
+      },
+    });
+
+    const command = 'sleep 300';
+    const daemonJobId = { value: '' };
+
+    const row: ChatJob = {
+      id: randomUUID(),
+      chatId: 'chat',
+      ownerUserId: 'owner',
+      kind: 'bash',
+      seq: 1,
+      state: 'running',
+      stoppedBy: null,
+      runId: 'run',
+      toolCallId: 'call',
+      intent: null,
+      command: null,
+      machineName: MACHINE_SSHD_NAME,
+      daemonInstanceId: '00000000-0000-4000-8000-000000000013',
+      daemonJobId: '',
+      delivery: 'foreground',
+      startedAt: new Date(),
+      settledAt: null,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: null,
+      outputs: ['stdout', 'stderr'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { selector: 'test-model', permissionMode: 'default' },
+    };
+
+    const runtime = hostBashJobs(tenantDb, machines, {
+      wakeForChatInTransaction: () => Promise.resolve(false),
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
+      (input) => {
+        daemonJobId.value = input.daemonJobId;
+
+        return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
+      },
+    );
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation((input) =>
+      Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+    );
+
+    try {
+      const call = runTool(
+        bashTool,
+        { command, cwd: `machine://${MACHINE_SSHD_NAME}${MACHINE_SSHD_ROOT}` },
+        {
+          ...context(client()),
+          ...runtime,
+          attemptId: 'attempt',
+          bashBackgroundAfterSeconds: 60,
+          machines,
+          workspaceRoot: createWorkspaceRootCell(
+            `machine://${MACHINE_SSHD_NAME}${MACHINE_SSHD_ROOT}`,
+          ),
+        },
+        CALL_TIMEOUT_SECONDS,
+      );
+
+      await waitFor(
+        async () => {
+          const result = await fixture.execIn(fixture.box, [
+            'ps',
+            '-eo',
+            'args',
+          ]);
+
+          return result.stdout.includes(command) ? true : undefined;
+        },
+        10_000,
+        'the Machine job to start',
+      );
+
+      const link = links.at(-1);
+
+      if (link === undefined)
+        throw new Error('The Machine job session was never opened.');
+      link.close();
+
+      await expect(call).resolves.toMatchObject({
+        status: 'success',
+        backgrounded: true,
+        cause: 'disconnect',
+      });
+
+      const stopFactory = createMachineSshTransportFactory({
+        ssh: connection.machines.ssh,
+      });
+
+      const stopper = new MachineConnector({
+        machines: connection.machines,
+        hubVersion: '0.0.0-disconnect-stop-test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: stopFactory,
+      });
+
+      try {
+        const session = await stopper.jobsClient(MACHINE_SSHD_NAME);
+
+        await session.client.cancelJob(
+          {
+            requestId: daemonJobId.value,
+            jobId: daemonJobId.value,
+            owner: 'owner',
+          },
+          session.callOptions(),
+        );
+      } finally {
+        stopper.onModuleDestroy();
+        stopFactory.dispose();
+      }
+
+      await waitFor(
+        async () => {
+          const result = await fixture.execIn(fixture.box, [
+            'ps',
+            '-eo',
+            'args',
+          ]);
+
+          return result.stdout.includes(command) ? undefined : true;
+        },
+        10_000,
+        'the Machine job to stop',
+      );
+    } finally {
+      machines.onModuleDestroy();
+      factory.dispose();
+    }
+  }, 60_000);
   it('reports an unreachable host as a known refusal', async () => {
     const result = await bash(
       { command: 'printf never', cwd: 'ssh://127.0.0.1:1/tmp' },

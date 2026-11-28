@@ -1,4 +1,4 @@
-import { type GitWorktreeAddResult } from '@workspace/git-executor';
+import { type GitWorktreeAddResult } from '@workspace/machine-protocol';
 
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { type Checkout, type Repository } from '../db/schema';
@@ -11,7 +11,11 @@ import {
   gitFailureOutcome,
   worktreeFailed,
 } from './workspace-worktree-entry';
-import { executorFailure, type Failed } from './workspace-worktree-failure';
+import {
+  addFailureOutcome,
+  executorFailure,
+  type Failed,
+} from './workspace-worktree-failure';
 import {
   defaultWorktreeBase,
   worktreeDirectory,
@@ -66,7 +70,7 @@ export type CreationWorktreeInput = {
    * write it guards.
    */
   readonly decide: (
-    kind: 'main_clone' | 'worktree_directory',
+    kind: 'main_clone' | 'copy_source' | 'worktree_directory',
     address: string,
   ) => ToolErrorResult | undefined;
 };
@@ -74,6 +78,8 @@ export type CreationWorktreeInput = {
 /** The decided source, directory, and branch of one creation, before any write. */
 export type CreationPlan = {
   readonly mainClone: string;
+  /** The selected Checkout root whose included files the add copies. */
+  readonly copySource: string;
   readonly directory: string;
   readonly branch: string;
   /** The source HEAD the inspection read, for the lease when no base ref is named. */
@@ -140,6 +146,12 @@ async function decidePlan(
     }
   }
 
+  const copySource = inspection.toplevel;
+
+  const copyRejection = decideCopySource(input, copySource, mainClone);
+
+  if (copyRejection !== undefined) return copyRejection;
+
   const name = await chosenName(
     executors,
     input.target,
@@ -160,10 +172,30 @@ async function decidePlan(
 
   return {
     mainClone,
+    copySource,
     directory,
     branch: name.branch,
     sourceHead: inspection.head ?? undefined,
   };
+}
+
+/**
+ * The selected Checkout root supplies the environment files. A root that equals
+ * the canonical clone or the main clone is already decided; any other (a
+ * subdirectory of a linked worktree) needs its own decision before the copy.
+ */
+function decideCopySource(
+  input: CreationWorktreeInput,
+  copySource: string,
+  mainClone: string,
+): Failed | undefined {
+  if (copySource === input.canonical || copySource === mainClone)
+    return undefined;
+  const rejection = input.decide('copy_source', copySource);
+
+  return rejection === undefined
+    ? undefined
+    : { status: 'failed', result: rejection };
 }
 
 /** The canonical directory of one slug, on the source row's executor. */
@@ -240,13 +272,14 @@ async function addWorktree(
       source: plan.mainClone,
       branch: plan.branch,
       ...(input.baseRef !== undefined && { baseRef: input.baseRef }),
+      copySource: plan.copySource,
       directory: plan.directory,
     });
   } catch (error) {
     return executorFailure(error, input.target.machine, plan.directory);
   }
 
-  if (added.status === 'error') return gitFailureOutcome(added);
+  if (added.status === 'error') return addFailureOutcome(added, plan.directory);
 
   return { head: added.head };
 }

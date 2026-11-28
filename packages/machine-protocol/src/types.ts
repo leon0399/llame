@@ -1,4 +1,4 @@
-import type { JsonValue } from "./json-rpc";
+import type { JsonValue } from "./json-types";
 
 /** The hub's active trace, in the `sentry-trace` and `baggage` header
  *  formats, so the daemon's work joins the trace that asked for it. */
@@ -43,9 +43,6 @@ export type HelloResult = {
   readonly protocolVersion: number;
   readonly daemonVersion: string;
   readonly roots: ReadonlyArray<string>;
-  /** The git methods this daemon answers; absent on a daemon that predates
-   *  them, which is how the hub tells that it needs an update. */
-  readonly methods?: ReadonlyArray<string>;
   /** Lowercase UUID v4 text, persisted in this Machine's config directory. */
   readonly instanceId: string;
   /** 12 lowercase hex chars of the shipped bundle's sha256, or "unknown". */
@@ -370,9 +367,8 @@ export type ProcBashParams = {
   readonly env?: Readonly<Record<string, string>>;
 };
 
-/** The managed-executor result, exactly as `@workspace/bash-executor` returns
- *  it; a non-zero exit is this result, not a protocol error. `wallTimeMs` is
- *  optional: a daemon that predates it reports none. */
+/** The managed bash result; a non-zero exit is this result, not a protocol
+ *  error. `wallTimeMs` is optional: a daemon that predates it reports none. */
 export type ProcBashResult =
   | {
       readonly status: "success" | "error";
@@ -455,14 +451,16 @@ export type GitRepositoryRemote = {
 
 /**
  * A git refusal or failure. `invalid_input` is refused before git starts, and
- * carries the reason; every other type comes from a started process and
- * carries the bounded, redacted standard error. On a Machine, each
+ * carries the reason. `copy_failed` is a failed environment copy after the
+ * worktree exists, and carries a fixed reason phrase plus at most one bounded
+ * relative path, never standard error. Every other type comes from a started
+ * process and carries the bounded, redacted standard error. On a Machine, each
  * registered-root prefix in that text is a locator by the time it arrives.
  */
 export type GitFailure =
   | {
       readonly status: "error";
-      readonly type: "invalid_input";
+      readonly type: "invalid_input" | "copy_failed";
       readonly message: string;
     }
   | {
@@ -480,8 +478,8 @@ export type GitFailure =
       readonly stderr: string;
     };
 
-/** `git.inspect`, exactly as `@workspace/git-executor` returns it: every path
- *  field is a locator on a Machine and an absolute host path locally. */
+/** `git.inspect`: every path field is a locator on a Machine and an absolute
+ *  host path locally. */
 export type GitInspectParams = {
   readonly envelope: RequestEnvelope;
   readonly path: string;
@@ -593,6 +591,11 @@ export type GitWorktreeAddParams = {
   readonly branch: string;
   /** The commit-ish the branch starts from; absent means the source's HEAD. */
   readonly baseRef?: string;
+  /**
+   * The selected Checkout root whose `.worktreeinclude` files the daemon copies
+   * into the new worktree. Distinct from `source`, the main Checkout.
+   */
+  readonly copySource: string;
   readonly directory: string;
   readonly options: NativeDisplayOptions;
 };

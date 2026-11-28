@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { CompactionService } from '../compaction/compaction.service';
 import { runs } from '../db/schema';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { waitFor } from '../testing/support';
 import {
   answer,
@@ -19,6 +20,35 @@ if (!process.env['TEST_DATABASE_URL']) {
   );
 }
 
+const QUOTA_PRIMARY = 'system:openai:quota-boundary-primary';
+const QUOTA_NEXT = 'system:openai:quota-boundary-next';
+const QUOTA_SELECTOR = '@quota-boundary';
+
+const quotaBoundaryModel = (id: string): SystemModelCatalogEntry => ({
+  id,
+  source: 'system',
+  contextWindowTokens: 128_000,
+  input: ['text'],
+  provider: 'openai',
+  providerModelId: id,
+  systemPromptTemplate: 'Quota boundary test prompt',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+  billing: 'subscription',
+});
+
+const quotaBoundaryModels = [
+  quotaBoundaryModel(QUOTA_PRIMARY),
+  quotaBoundaryModel(QUOTA_NEXT),
+];
+
+const quotaBoundaryRoles = [
+  {
+    name: 'quota-boundary',
+    candidates: [{ modelId: QUOTA_PRIMARY }, { modelId: QUOTA_NEXT }],
+  },
+];
+
 vi.setConfig({ testTimeout: 90_000 });
 
 describe('quota waits at compaction boundaries', () => {
@@ -26,6 +56,8 @@ describe('quota waits at compaction boundaries', () => {
     allowedTools: ['read'],
     localMachine: 'quota-compaction-boundaries-host',
     failover: { owner: { quota: 'on' } },
+    modelRoles: quotaBoundaryRoles,
+    models: quotaBoundaryModels,
   });
 
   const quotaFailure = () =>
@@ -34,6 +66,24 @@ describe('quota waits at compaction boundaries', () => {
       resetsAt: Date.now() + 120_000,
       statusCode: 429,
     });
+
+  async function seed(
+    text: string,
+    modelId: string,
+    selector: string,
+    chatId?: string,
+  ) {
+    const seeded = await seedRun({
+      tenantDb: fx.harness.tenantDb,
+      userId: fx.userId,
+      modelId,
+      selector,
+      text,
+      ...(chatId !== undefined && { chatId }),
+    });
+
+    return { ...seeded, modelId };
+  }
 
   async function awaitingQuota(runId: string, resumeAt?: string) {
     return waitFor(
@@ -162,7 +212,12 @@ describe('quota waits at compaction boundaries', () => {
   }
 
   it('A manual compact resumes at its boundary and wakes into a successful summary', async () => {
-    const seeded = await fx.seed('Read the workspace and compact it.');
+    const seeded = await seed(
+      'Read the workspace and compact it.',
+      QUOTA_PRIMARY,
+      QUOTA_SELECTOR,
+    );
+
     const summarize = summaryWithQuotaOnce();
     let compactId = '';
 

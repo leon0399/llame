@@ -1,8 +1,8 @@
 /**
  * The local Machine link end to end (host-as-machine design D4/D12): the real
- * `llame-machine` bundle spawned as a child through
+ * `llame-machine` binary spawned as a child through
  * `createLocalChildTransportFactory`, with a temporary configuration directory
- * whose root the bundle's own `roots add` registered. The same session, hello,
+ * whose root the binary's own `roots add` registered. The same session,
  * version check, and file reads the SSH suite exercises, minus the network.
  *
  * The child's environment is the contract under test: the worker's own
@@ -10,11 +10,17 @@
  * configuration directory must.
  */
 
+import { createMCPClient } from '@ai-sdk/mcp';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import {
   PROTOCOL_VERSION,
   type JsonValue,
@@ -23,49 +29,104 @@ import {
 } from '@workspace/machine-protocol';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
-import { MACHINE_BUNDLE } from '../testing/local-daemon';
+import { MACHINE_BINARY, stopLocalDaemon } from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
+import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';
+import { MachineTransport } from './machine-mcp-transport';
 import { MachineSession } from './machine-session';
 
+const MCP_FIXTURE = join(__dirname, '../mcp/mcp-stdio-test-fixture.mjs');
 const HUB_VERSION = '0.0.0-local-child-test';
+
 const NAME = 'host-a';
 const NOTES = 'hello from the host\n';
 const ENVELOPE = { budgetMs: 60_000 };
 
+async function waitForProcessExit(pid: number): Promise<void> {
+  // This is a real child process; fake timers cannot advance its exit.
+  const deadline = Date.now() + 2000;
+
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return;
+    }
+
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 20);
+    await promise;
+  }
+
+  throw new Error(
+    `MCP fixture process ${pid} did not exit after its channel closed.`,
+  );
+}
+
 describe('the local Machine link (host-as-machine)', () => {
   let configDir: string;
+  let stateDir: string;
   let root: string;
-
+  let serverPidFile: string;
   beforeAll(() => {
     configDir = mkdtempSync(join(tmpdir(), 'llame-local-machine-config-'));
+    stateDir = mkdtempSync(join(tmpdir(), 'llame-local-machine-state-'));
     root = realpathSync(
       mkdtempSync(join(tmpdir(), 'llame-local-machine-root-')),
     );
     writeFileSync(join(root, 'notes.txt'), NOTES);
+    serverPidFile = join(root, 'mcp-server.pid');
+
+    const fixtureConfig = JSON.stringify({
+      pidFile: serverPidFile,
+      tools: [{ name: 'echo', inputSchema: { type: 'object' } }],
+    });
+
+    writeFileSync(
+      join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          fixture: {
+            command: process.execPath,
+            args: [MCP_FIXTURE],
+            env: { MCP_FIXTURE: fixtureConfig },
+          },
+        },
+      }),
+    );
     // Register the root with the daemon's own command, exactly as the dev
     // helper and an operator do.
-    execFileSync(process.execPath, [MACHINE_BUNDLE, 'roots', 'add', root], {
-      env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir },
+    execFileSync(MACHINE_BINARY, ['roots', 'add', root], {
+      env: {
+        ...process.env,
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
       stdio: 'pipe',
     });
   });
 
   afterAll(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(configDir, { recursive: true, force: true });
+    try {
+      stopLocalDaemon(stateDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(configDir, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
-  /** One local session whose worker environment carries `overrides`. */
-  function connect(overrides: NodeJS.ProcessEnv = {}): MachineSession {
+  /** One local session whose environment can be overridden per test. */
+  function connect(_overrides: NodeJS.ProcessEnv = {}): MachineSession {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       LLAME_MACHINE_CONFIG_DIR: configDir,
-      ...overrides,
+      LLAME_MACHINE_STATE_DIR: stateDir,
     };
 
     const factory = createLocalChildTransportFactory({
-      command: `${process.execPath} ${MACHINE_BUNDLE}`,
+      command: MACHINE_BINARY,
       env,
     });
 
@@ -122,7 +183,9 @@ describe('the local Machine link (host-as-machine)', () => {
         read.status !== 'success' ||
         !('kind' in read)
       ) {
-        throw new Error('fs.read did not answer a file');
+        throw new Error(
+          `fs.read did not answer a file: ${JSON.stringify(answer)}`,
+        );
       }
 
       expect(read.kind).toBe('file');
@@ -165,6 +228,122 @@ describe('the local Machine link (host-as-machine)', () => {
       expect(text).not.toContain('release-token');
     } finally {
       session.close();
+    }
+  });
+
+  it('streams media and refuses arbitrary bytes through the real daemon', async () => {
+    const session = connect();
+
+    const media = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/6fsAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    const path = join(root, 'image.png');
+    writeFileSync(path, media);
+
+    try {
+      await session.ready();
+      const chunks: Array<Buffer> = [];
+
+      const bytes = session.openChannel({
+        method: 'fs.bytes',
+        params: { path, envelope: ENVELOPE },
+      });
+
+      bytes.channel.onNotification((notification) => {
+        if (notification.method !== 'bytes' || !isRecord(notification.params))
+          return;
+
+        if (isString(notification.params['data']))
+          chunks.push(Buffer.from(notification.params['data'], 'base64'));
+      });
+
+      await expect(bytes.result).resolves.toEqual({
+        size: media.byteLength,
+        mediaType: 'image/png',
+      });
+      expect(Buffer.concat(chunks)).toEqual(media);
+      bytes.channel.close();
+
+      const arbitraryChunks: Array<Buffer> = [];
+
+      const arbitrary = session.openChannel({
+        method: 'fs.bytes',
+        params: { path: join(root, 'notes.txt'), envelope: ENVELOPE },
+      });
+
+      arbitrary.channel.onNotification((notification) => {
+        if (
+          notification.method !== 'bytes' ||
+          !isRecord(notification.params) ||
+          !isString(notification.params['data'])
+        ) {
+          return;
+        }
+
+        arbitraryChunks.push(
+          Buffer.from(notification.params['data'], 'base64'),
+        );
+      });
+
+      await expect(arbitrary.result).resolves.toMatchObject({
+        status: 'error',
+        type: 'unsupported_media_type',
+      });
+      expect(arbitraryChunks).toEqual([]);
+      arbitrary.channel.close();
+    } finally {
+      session.close();
+    }
+  });
+
+  it('lists and opens MCP bidirectionally, then stops the server when closed', async () => {
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      LLAME_MACHINE_CONFIG_DIR: configDir,
+      LLAME_MACHINE_STATE_DIR: stateDir,
+    };
+
+    const factory = createLocalChildTransportFactory({
+      command: MACHINE_BINARY,
+      env,
+    });
+
+    const connector = new MachineConnector({
+      machines: { local: NAME, hosts: { [NAME]: {} } },
+      hubVersion: HUB_VERSION,
+      bindIdentity: () => Promise.resolve('bound'),
+      transportFactory: factory,
+    });
+
+    const transport = new MachineTransport({
+      connector,
+      machine: NAME,
+      root,
+      server: 'fixture',
+      envelope: ENVELOPE,
+    });
+
+    const client = await createMCPClient({ transport, maxRetries: 0 });
+    let pid: number | undefined;
+
+    try {
+      await expect(
+        connector.request(NAME, 'mcp.servers', { root, envelope: ENVELOPE }),
+      ).resolves.toMatchObject({
+        servers: [{ name: 'fixture', state: 'available' }],
+      });
+
+      const listed = await client.listTools();
+      expect(listed.tools).toMatchObject([{ name: 'echo' }]);
+      pid = Number(readFileSync(serverPidFile, 'utf8'));
+    } finally {
+      await client.close();
+      await transport.close();
+
+      if (pid !== undefined) await waitForProcessExit(pid);
+      connector.onModuleDestroy();
     }
   });
 });

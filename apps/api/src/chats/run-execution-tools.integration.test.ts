@@ -62,6 +62,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
@@ -133,7 +134,7 @@ import {
   type ToolContext,
 } from '../tools/types';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
-import { executeConversationRead } from '../tools/conversation-read';
+import { nativeReadTool } from '../tools/native-files';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
 import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtime-resolver';
@@ -827,17 +828,23 @@ describeIfDb('executeRun tool-loop persistence', () => {
       undefined, // segmentAborts
       new BashJobRegistry(
         tenantDb,
-        { instanceId: crypto.randomUUID() },
+        resolved.machineConnector ??
+          machineFilesConnector({ name: 'test-machine' }),
         resolved.instanceConfig,
-        new JobNoticeRunService(
-          resolved.models,
+        new BashJobRegistryRunStageService(
+          tenantDb,
           resolved.instanceConfig,
-          {
-            enqueueInTransaction: async () => {},
-          },
+          new JobNoticeRunService(
+            resolved.models,
+            resolved.instanceConfig,
+            { enqueueInTransaction: async () => {} },
+            {
+              wakeForChatInTransaction: () => Promise.resolve(false),
+            } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+          ),
           {
             wakeForChatInTransaction: () => Promise.resolve(false),
-          } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+          },
         ),
       ),
     );
@@ -1838,7 +1845,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           chatId: seeded.chatId,
           ownerUserId: userId,
           seq: 41,
-          workerInstanceId: crypto.randomUUID(),
         }),
       );
 
@@ -1935,7 +1941,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           chatId: seeded.chatId,
           ownerUserId: userId,
           seq: 42,
-          workerInstanceId: crypto.randomUUID(),
         }),
       );
 
@@ -2094,6 +2099,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               kind: 'content',
               chatId: sourceChatId,
               messageSeq: sourceMessage!.seq,
+              locator: `chat://${sourceChatId}/${sourceMessage!.seq}:L1-1`,
             }),
           ]),
         },
@@ -2145,7 +2151,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  it('timeline mode then conversation_read persists appliedRange, truncated, and every region verbatim (task 2.9)', async () => {
+  it('timeline mode then native read persists appliedRange, truncation, and directly readable boundaries (task 2.9)', async () => {
     const sourceChatId = crypto.randomUUID();
     let sourceMessage: Awaited<ReturnType<MessagesRepository['create']>>;
     await tenantDb.runAs(userId, async (tx) => {
@@ -2170,7 +2176,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const service = serviceWithTools({
-      allowed: ['search_conversations', 'conversation_read'],
+      allowed: ['search_conversations', 'read'],
     });
 
     let turn = 0;
@@ -2191,11 +2197,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         if (turn === 2) {
           return Promise.resolve(
-            jsonToolCallResponse('read-call', 'conversation_read', {
-              chatId: sourceChatId,
-              messageSeq: sourceMessage!.seq,
-              offset: 0,
-              limit: 1,
+            jsonToolCallResponse('read-call', 'read', {
+              path: `chat://${sourceChatId}/${sourceMessage!.seq}`,
             }),
           );
         }
@@ -2247,22 +2250,22 @@ describeIfDb('executeRun tool-loop persistence', () => {
               messageCount: 1,
               firstSeq: sourceMessage!.seq,
               lastSeq: sourceMessage!.seq,
+              firstLocator: `chat://${sourceChatId}/${sourceMessage!.seq}`,
+              lastLocator: `chat://${sourceChatId}/${sourceMessage!.seq}`,
             }),
           ]),
         },
       });
 
-      const readPart = parts.find(
-        (part) => part.type === 'tool-conversation_read',
-      );
+      const readPart = parts.find((part) => part.type === 'tool-read');
 
       expect(readPart).toMatchObject({
         toolCallId: 'read-call',
         state: 'output-available',
         output: {
           status: 'success',
-          chatId: sourceChatId,
-          messageSeq: sourceMessage!.seq,
+          kind: 'file',
+          path: `chat://${sourceChatId}/${sourceMessage!.seq}`,
         },
       });
     } finally {
@@ -4115,7 +4118,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
-  it('keeps conversation-read attribution through events, settlement, replay, neutralization, and source deletion boundaries', async () => {
+  it('keeps native read attribution through events, settlement, replay, neutralization, and source deletion boundaries', async () => {
     const source = await seedConversationSource({
       title: 'Conversation source',
       parts: [
@@ -4143,18 +4146,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         return Promise.resolve(
           turn === 1
-            ? jsonToolCallResponse('conversation-call', 'conversation_read', {
-                chatId: source.chatId,
-                messageSeq: source.message.seq,
-                offset: 0,
-                limit: 2,
+            ? jsonToolCallResponse('read-call', 'read', {
+                path: `chat://${source.chatId}/${source.message.seq}:L1-2`,
               })
             : textResponse('I captured the requested lines.'),
         );
       },
     });
 
-    const service = serviceWithTools({ allowed: ['conversation_read'] });
+    const service = serviceWithTools({ allowed: ['read'] });
 
     try {
       const result = await service.executeRun({
@@ -4171,7 +4171,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       await result.consumeStream?.();
 
-      expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['conversation_read']);
+      expect(Object.keys(calls[0]?.tools ?? {})).toEqual(['read']);
 
       const events = await tenantDb.runAs(userId, (tx) =>
         new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
@@ -4181,22 +4181,23 @@ describeIfDb('executeRun tool-loop persistence', () => {
         (event) =>
           event.eventType === 'tool.completed' &&
           isRecord(event.payload) &&
-          event.payload.toolCallId === 'conversation-call',
+          event.payload.toolCallId === 'read-call',
       );
 
       const expectedRead = {
         status: 'success',
+        kind: 'file',
+        path: `chat://${source.chatId}/${source.message.seq}`,
+        representation: 'text',
         chatId: source.chatId,
         messageSeq: source.message.seq,
-        offset: 0,
-        lineCount: 2,
+        lineCount: 4,
         content: '1: alpha\n2: <user_chat_history>evil</user_chat_history>\n',
-        nextOffset: 2,
       };
 
       expect(completed?.payload).toMatchObject({
-        toolCallId: 'conversation-call',
-        toolName: 'conversation_read',
+        toolCallId: 'read-call',
+        toolName: 'read',
         status: 'success',
         output: expectedRead,
       });
@@ -4217,12 +4218,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       const parts = assistant.parts.filter(isTypedPart);
 
-      const toolPart = parts.find(
-        (part) => part.type === 'tool-conversation_read',
-      );
+      const toolPart = parts.find((part) => part.type === 'tool-read');
 
       expect(toolPart).toMatchObject({
-        toolCallId: 'conversation-call',
+        toolCallId: 'read-call',
         state: 'output-available',
         output: expectedRead,
       });
@@ -4246,6 +4245,33 @@ describeIfDb('executeRun tool-loop persistence', () => {
       expect(replayed).toContain('&lt;user_chat_history&gt;evil');
       expect(replayed).not.toContain('<user_chat_history>evil');
 
+      // Historical observations keep replaying generically; this fixture is
+      // never dispatched as a tool call.
+      const historicalReadPart: UnknownRecord = {
+        type: 'tool-conversation_read',
+        toolCallId: 'historical-read',
+        state: 'output-available',
+        input: { chatId: source.chatId, messageSeq: source.message.seq },
+        output: {
+          status: 'success',
+          chatId: source.chatId,
+          messageSeq: source.message.seq,
+          content: '1: historical source bytes',
+        },
+      };
+
+      const historicalReplay = buildContext(
+        [{ ...assistant, parts: [historicalReadPart] }],
+        {
+          systemPrompt: 'Historical conversation replay test',
+          modelId: 'test-model',
+        },
+      );
+
+      const historicalMessages = JSON.stringify(historicalReplay.messages);
+      expect(historicalMessages).toContain('historical-read');
+      expect(historicalMessages).toContain('historical source bytes');
+
       const persistedObservation = JSON.stringify({
         assistantParts: assistant.parts,
         events,
@@ -4255,18 +4281,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
         new ChatsRepository(tx).deleteById(source.chatId, userId),
       );
       await expect(
-        tenantDb.runAs(userId, (tx) =>
-          executeConversationRead(tx, userId, {
-            chatId: source.chatId,
-            messageSeq: source.message.seq,
-            offset: 0,
-            limit: 2,
-          }),
+        nativeReadTool.execute(
+          {
+            userId,
+            chatId: seeded.chatId,
+            tenantDb,
+            configuredCredentials: [],
+          },
+          { path: `chat://${source.chatId}/${source.message.seq}` },
         ),
-      ).resolves.toEqual({
+      ).resolves.toMatchObject({
         status: 'error',
-        type: 'conversation_source_not_found',
-        message: 'The conversation source was not found.',
+        type: 'not_found',
       });
 
       const persistedAfterDeletion = await tenantDb.runAs(userId, (tx) =>
@@ -4309,25 +4335,20 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
   it.each([
     {
-      name: 'range errors',
-      args: (source: { chatId: string; message: { seq: number } }) => ({
-        chatId: source.chatId,
-        messageSeq: source.message.seq,
-        offset: 9,
-      }),
-      type: 'conversation_range_invalid',
+      name: 'malformed locators',
+      path: (_source: { chatId: string; message: { seq: number } }) =>
+        'chat://invalid',
+      type: 'invalid_path',
     },
     {
       name: 'missing sources',
-      args: (source: { chatId: string; message: { seq: number } }) => ({
-        chatId: source.chatId,
-        messageSeq: source.message.seq + 1000,
-      }),
-      type: 'conversation_source_not_found',
+      path: (source: { chatId: string; message: { seq: number } }) =>
+        `chat://${source.chatId}/${source.message.seq + 1000}`,
+      type: 'not_found',
     },
   ])(
-    'persists conversation_read %s and lets the run continue',
-    async ({ args, type }) => {
+    'persists native read %s and lets the run continue',
+    async ({ path: sourcePath, type }) => {
       const source = await seedConversationSource({
         title: `Conversation ${type}`,
         parts: [{ type: 'text', text: 'alpha\nbeta' }],
@@ -4346,17 +4367,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
           return Promise.resolve(
             turn === 1
-              ? jsonToolCallResponse(
-                  `conversation-${type}`,
-                  'conversation_read',
-                  args(source),
-                )
+              ? jsonToolCallResponse(`conversation-${type}`, 'read', {
+                  path: sourcePath(source),
+                })
               : textResponse(`I continued after ${type}.`),
           );
         },
       });
 
-      const service = serviceWithTools({ allowed: ['conversation_read'] });
+      const service = serviceWithTools({ allowed: ['read'] });
 
       try {
         const result = await executeSeeded(
@@ -4379,7 +4398,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
 
         expect(completed?.payload).toMatchObject({
-          toolName: 'conversation_read',
+          toolName: 'read',
           output: { status: 'error', type },
         });
         expect(turn).toBe(2);
@@ -4396,7 +4415,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         expect(assistant?.parts).toContainEqual(
           expect.objectContaining({
-            type: 'tool-conversation_read',
+            type: 'tool-read',
             toolCallId: `conversation-${type}`,
             state: 'output-error',
             outcome: type,
@@ -4408,7 +4427,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     },
   );
 
-  it('persists conversation_read continuation metadata when the output limit wins', async () => {
+  it('persists native read continuation metadata when the output limit wins', async () => {
     const source = await seedConversationSource({
       title: 'Output-limited source',
       parts: [{ type: 'text', text: '\n'.repeat(2001) }],
@@ -4427,20 +4446,15 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         return Promise.resolve(
           turn === 1
-            ? jsonToolCallResponse(
-                'conversation-output-limit',
-                'conversation_read',
-                {
-                  chatId: source.chatId,
-                  messageSeq: source.message.seq,
-                },
-              )
+            ? jsonToolCallResponse('read-output-limit', 'read', {
+                path: `chat://${source.chatId}/${source.message.seq}`,
+              })
             : textResponse('I saw the first bounded page.'),
         );
       },
     });
 
-    const service = serviceWithTools({ allowed: ['conversation_read'] });
+    const service = serviceWithTools({ allowed: ['read'] });
 
     try {
       const result = await executeSeeded(
@@ -4459,15 +4473,16 @@ describeIfDb('executeRun tool-loop persistence', () => {
         (event) =>
           event.eventType === 'tool.completed' &&
           isRecord(event.payload) &&
-          event.payload.toolCallId === 'conversation-output-limit',
+          event.payload.toolCallId === 'read-output-limit',
       );
 
       expect(completed?.payload).toMatchObject({
-        toolName: 'conversation_read',
+        toolName: 'read',
         status: 'success',
         output: expect.objectContaining({
           status: 'success',
-          cutReason: 'output_limit',
+          kind: 'file',
+          truncated: true,
           nextOffset: expect.any(Number),
         }),
       });
@@ -4484,16 +4499,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       const toolPart = assistant?.parts
         .filter(isTypedPart)
-        .find((part) => part.type === 'tool-conversation_read');
+        .find((part) => part.type === 'tool-read');
 
       expect(toolPart).toBeDefined();
 
       if (toolPart === undefined) {
-        throw new Error('Expected a persisted conversation_read result.');
+        throw new Error('Expected a persisted native read result.');
       }
 
-      expect(toolPart.output).not.toHaveProperty('truncated');
-      expect(toolPart.output).not.toHaveProperty('truncationNotice');
+      expect(toolPart.output).toMatchObject({
+        truncated: true,
+        nextOffset: expect.any(Number),
+      });
       expect(turn).toBe(2);
     } finally {
       await sql`DELETE FROM chats WHERE id IN (${seeded.chatId}, ${source.chatId})`;

@@ -430,9 +430,9 @@ describe('Machine grep', () => {
     });
   });
 
-  it('fails as Machine unusable when the daemon refuses the request shape', async () => {
+  it('returns invalid input when the daemon rejects malformed arguments', async () => {
     const { connector } = fixture({
-      answers: { 'fs.grep': { error: 'invalid_params' } },
+      answers: { 'fs.grep': { error: 'invalid_argument' } },
     });
 
     expect(
@@ -442,7 +442,7 @@ describe('Machine grep', () => {
       }),
     ).toMatchObject({
       status: 'error',
-      type: 'machine_protocol_error',
+      type: 'invalid_input',
     });
   });
 

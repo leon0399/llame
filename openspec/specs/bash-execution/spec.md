@@ -122,277 +122,6 @@ The `bash` description MUST tell the model to set the directory of the command w
 - **WHEN** the model calls `bash` with `command: "cd /srv && ls"`
 - **THEN** the command runs as the model wrote it, and permissions match the submitted `command` text
 
-### Requirement: Command results are bounded and explicit
-
-Each bash call MUST enforce finite input, duration, process, stdout, and
-stderr bounds. On the llame host and for an `ssh://` command, each stream
-bound MUST be `tools.artifacts.maxBytes` UTF-8 bytes. A Machine command MUST
-keep the 32,000-unit stream bound of the Machine protocol. The result MUST
-contain a safe status, the exit code when known, the bounded output, and
-truncation metadata when a bound cut the output. It MUST carry the wall time
-from spawn to settlement as `wallTimeMs` when the producer reports it. The
-result MUST NOT carry constant fields that name the operation or the executor.
-
-A `command_failed` message MUST carry the exit code, the elapsed time when
-known, and the bounded streams in the bash text shape of
-`tool-result-rendering`. A `timed_out` message MUST name the elapsed time that
-the producer measured. It MUST omit that time when no command started.
-
-The executor MUST return output as the command produced it, cut at the bound.
-The executor MUST NOT rewrite, reorder, or delete lines, except to replace a
-member and to drop a required fragment. llame MUST replace
-every member of the instance's configured credential set (`instance-config`)
-with `[REDACTED]`. The replacement MUST occur before llame records the result,
-stores it as an artifact, or sends it to the model.
-
-On the llame host the executor redacts. For an `ssh://` command and a Machine
-command, the API redacts the output it received. llame never sends the
-configured credential set to the remote host or the Machine.
-
-The executor MUST apply the bound to the raw output's positions in the bound's
-own unit, and a stream MUST NOT exceed the bound. A cut, a drop, or a gap can
-clip a member. llame MUST replace a clipped fragment of 10 or more characters
-with `[REDACTED]` and MUST remove a shorter one. llame can cut a stream at a
-capture or transport limit, or because the command timed out. In that case
-llame MUST drop the fragment at the end that is a proper prefix of a member.
-
-When a transport dropped output between two kept parts of a stream, a member
-fragment can match on both sides of that gap. llame MUST drop both fragments.
-A cut, a drop, or a gap MUST NOT expose any part of a member match.
-
-Secrets that a bound Workspace's own MCP configuration resolves are not
-members. The delimiter neutralization of every tool result MUST still apply to
-the copy that the model reads. After timeout settlement proves that the
-process group stopped, the watcher MUST drain output for at most 50 ms. The
-watcher MUST mark a stream that is still open at that bound as truncated, and
-MUST destroy it.
-
-For a command on the llame host, the foreground bound starts promotion instead
-of stopping the command. The command's duration follows the job lifetime rules
-of `background-jobs`, including its operator-authorized unlimited option. An
-unresolved host promotion has no per-call deadline: the call MUST remain
-unsettled until promotion or recovery determines the authoritative result. The
-`ssh://` and Machine duration bounds and settlement rules remain unchanged.
-
-#### Scenario: Promotion wins the durable fence
-
-- **WHEN** promotion commits the job, initial output, and `backgrounded` result before recovery
-- **THEN** the host call returns `backgrounded` and the job exists
-- **AND** recovery uses the committed result without settling a second outcome
-
-#### Scenario: Recovery wins the durable fence
-
-- **WHEN** recovery records `outcome_unknown` for an open host command before promotion commits
-- **THEN** the Run fails and the command is not executed again
-- **AND** the losing promotion creates no job
-
-#### Scenario: A lost acknowledgement does not roll back promotion
-
-- **WHEN** promotion commits but the host loses the transaction acknowledgement
-- **THEN** the host resolves the result under the durable fence
-- **AND** the committed `backgrounded` result remains authoritative
-
-#### Scenario: Remote command timeout remains unchanged
-
-- **WHEN** an `ssh://` command reaches its effective runner or managed-executor timeout, or a Machine command reaches its 300-second cap
-- **THEN** the existing remote timeout signal, duration, and settlement bound apply
-- **AND** the host-promotion exception does not start or extend the remote command
-
-#### Scenario: Oversized output is bounded
-
-- **WHEN** a command on the llame host produces more output than `tools.artifacts.maxBytes`
-- **THEN** the result contains a bounded prefix and explicit truncation metadata
-- **AND** the output after that bound reaches neither the model nor the artifact
-
-#### Scenario: Non-zero exit is observable
-
-- **WHEN** a command exits non-zero within its bounds
-- **THEN** the result reports the non-zero status and bounded stderr
-- **AND** it does not convert the command into a successful file or Knowledge effect
-
-#### Scenario: Paths and diagnostics survive
-
-- **WHEN** a command prints absolute paths, a stack trace, or a line that begins with `Error:`
-- **THEN** the executor result contains those lines verbatim within the bound
-- **AND** only reserved tool delimiters are escaped in the copy that the model reads
-
-#### Scenario: Wall time is reported
-
-- **WHEN** a command runs for 1,240 ms and exits 0
-- **THEN** the result carries `wallTimeMs` 1240
-- **AND** the header that the model reads is `exit 0, 1.2 s`
-
-#### Scenario: A timeout names the elapsed time
-
-- **WHEN** the deadline stops a command after 30.0 s
-- **THEN** the `timed_out` message names 30.0 s elapsed
-
-#### Scenario: An old daemon reports no wall time
-
-- **WHEN** a Machine daemon that predates `wallTimeMs` answers a bash call
-- **THEN** the hub result carries no `wallTimeMs`
-- **AND** the call settles with its other fields unchanged
-
-#### Scenario: A host stream within the default bound is kept
-
-- **WHEN** `tools.artifacts.maxBytes` is its default 8 MiB and a command on the llame host prints 3 MB to stdout
-- **THEN** the executor keeps all 3 MB, and the result is not marked truncated
-
-#### Scenario: A printed provider key is redacted
-
-- **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` and a file holds that key. A bash command on the llame host prints that file
-- **THEN** the result's stdout contains `[REDACTED]` where the key was
-- **AND** the recorded result, its artifact, and its replay contain no `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
-
-#### Scenario: Remote output is redacted by the API
-
-- **WHEN** an `ssh://` command or a Machine command writes a configured credential to its output
-- **THEN** the recorded result contains `[REDACTED]` where the credential was and not the credential
-- **AND** neither request to the remote host nor request to the Machine carried the credential set
-
-#### Scenario: A credential crossing the output bound is redacted whole
-
-- **WHEN** a command on the llame host prints output whose configured credential begins a few characters before the stdout bound
-- **THEN** the result contains no prefix of the credential
-- **AND** the result is still bounded and marked truncated
-
-#### Scenario: An earlier redaction does not expose a later credential
-
-- **WHEN** a command prints a configured credential longer than `[REDACTED]` near the start of stdout. The longest member then begins just past the stdout bound
-- **THEN** the result contains `[REDACTED]` for the first and no prefix of the second
-
-#### Scenario: A credential ending at the cut is not exposed
-
-- **WHEN** a configured credential crosses the stdout bound and its last character is the first character of another member
-- **THEN** the result contains no part of it
-
-#### Scenario: A credential cut by the timeout is not exposed
-
-- **WHEN** a command times out while it prints a configured credential
-- **THEN** the result contains no prefix of the credential
-
-#### Scenario: A credential cut by a Machine's bound is not exposed
-
-- **WHEN** a Machine command's stdout reaches the 32,000-unit bound in the middle of a configured credential
-- **THEN** the hub result contains no prefix of the credential
-- **AND** the result is marked truncated
-
-#### Scenario: A short fragment at the bound leaves no marker
-
-- **WHEN** a configured credential starts 4 characters before the stdout bound
-- **THEN** the result's stdout ends before the credential and is no longer than the bound
-- **AND** it contains no character of the credential
-
-#### Scenario: Non-credential configuration survives
-
-- **WHEN** `knowledge.root` resolves to `/srv/kb` and a command prints `/srv/kb/notes.md`
-- **THEN** the result contains `/srv/kb/notes.md` verbatim
-
-### Requirement: Unknown command effects are never replayed automatically
-
-The host MUST record the command attempt for the Run and tool call in the durable Run event log
-before it starts the command. It MUST record the result after. A command becomes a known result
-only after its process group is proven empty. A descendant that leaves the group is outside this
-proof. The contract MUST say so, and it MUST NOT claim a process tree. A stop at a deadline
-whose process group is proven empty MUST be a known `timed_out` result with bounded partial
-output. A stop after a deadline, a cancellation, or a host failure that is not proven MUST
-produce `outcome_unknown`. A process that never started MUST be a known refusal, never
-`outcome_unknown`.
-
-A live `outcome_unknown` result that is recorded while the Run still executes MUST be a tool
-observation. The Run MUST continue. A later approved bash call on that worker MUST be admitted
-when the process bound has a free slot. The model-facing message MUST tell the model to inspect
-the current workspace state before a new attempt. The host MUST still signal the process group
-at settlement as a best effort, except when a background promotion remains in progress.
-The host MUST NOT refuse a later bash admission because of an earlier unknown on that worker.
-
-The durable `native.attempt` MUST still prevent a second execution of the command by recovery.
-When a Run is resumed after an attempt without a recorded result, recovery MUST arbitrate with any
-pending promotion before it determines the result. Recovery that wins records `outcome_unknown`
-and fails the Run; it MUST NOT execute the command again. A shell process group can survive a
-worker crash. A replacement worker can admit a new bash command while the old group is alive.
-
-When the managed child closes and the process group is not yet proven empty, the executor MUST
-SIGKILL the group and settle from that proof. A group that is proven empty MUST record a known
-result with the observed exit status. A group that cannot be proven empty MUST record
-`outcome_unknown`.
-
-A command on the llame host has no per-call deadline. At its foreground bound the call MUST
-start the move. A committed move MUST record `backgrounded`; a failed move MUST follow the rules
-of `A move that fails stops the command`.
-The command deadline is the job lifetime of `background-jobs`. For a command on
-an `ssh://` or `machine://` directory, the runner MUST pass bash a separate timeout signal and
-duration. The effective deadline of that command MUST be the lesser of the per-call timeout of
-the runner and the 300-second cap of the managed executor. Caller cancellation stays separate.
-After a deadline or Run cancellation, a remote bash call has at most 750 ms to settle and
-persist `native.result`; a longer settlement or persistence produces `outcome_unknown`.
-After a host Run cancellation with no promotion pending, bash has at most 750 ms to settle and
-persist `native.result`; a longer settlement or persistence produces `outcome_unknown`. For a
-host promotion whose durable outcome remains unresolved after 750 ms, the host MUST NOT publish
-a final result or advance the Run until the authoritative outcome is known.
-Promotion and recovery MUST arbitrate one durable result under the same database fence. Promotion
-MUST commit the job, its initial output and its `backgrounded` result in one transaction. Recovery
-that wins first MUST record `outcome_unknown` under that fence; a losing promotion MUST NOT create
-a job. A lost commit acknowledgement MUST be resolved under that fence, not treated as a rollback.
-The host MUST NOT run an attempt again automatically, under the same or another tool-call ID.
-
-#### Scenario: Normal completion permits the next call
-
-- **WHEN** the command exits and its process group is proven empty
-- **THEN** the attempt records a known result
-- **AND** the next approved file or bash operation can run in the same Run
-
-#### Scenario: Proven-stopped timeout is known
-
-- **WHEN** the deadline of a command on a `machine://` directory passes and the process group is proven empty
-- **THEN** the result is `timed_out` with the output from before the stop
-- **AND** the Run continues
-
-#### Scenario: Unproven stop after timeout is unknown and the Run continues
-
-- **WHEN** the deadline of a command on a `machine://` directory passes and the process group cannot be proven empty
-- **THEN** the result is `outcome_unknown`
-- **AND** the Run continues
-- **AND** the next approved bash call on that worker is admitted
-
-#### Scenario: Crash becomes unknown
-
-- **WHEN** the worker is lost after the command starts and before a result is recorded
-- **THEN** a resume on any worker does not execute the command again
-- **AND** the Run reports that a host command or mutation can have executed
-- **AND** the old process group can stay alive and untracked, and the replacement worker can admit a new bash command
-
-#### Scenario: Failed cancellation is an observation
-
-- **WHEN** a cancellation cannot prove the process group empty
-- **THEN** the result is `outcome_unknown`
-- **AND** the Run continues when that unknown is recorded as a live tool result
-- **AND** a later bash call on the same worker is admitted when the process bound has a free slot
-
-#### Scenario: Exit with survivors uses post-kill proof
-
-- **WHEN** the managed child closes and a member of the process group is still observable
-- **THEN** the executor SIGKILLs the group
-- **AND** when the group is then proven empty, the attempt records a known result with the observed exit status
-- **AND** when the group cannot be proven empty, the attempt records `outcome_unknown` and the Run continues
-
-#### Scenario: Other Runs are unaffected after an unknown
-
-- **WHEN** one Run records a live `outcome_unknown`
-- **THEN** a later bash call in another Run on the same worker is admitted
-- **AND** no operator action and no process restart is necessary
-
-#### Scenario: A host command is not stopped at the foreground bound
-
-- **WHEN** a host command runs longer than the foreground bound
-- **THEN** its call returns `backgrounded`, and the attempt records that result
-- **AND** the command continues
-
-#### Scenario: A host command ends at the job lifetime
-
-- **WHEN** the job lifetime of a host command passes and its process group is proven empty
-- **THEN** the job is `timed_out` and keeps the output from before the stop
-
 ### Requirement: Bash and native file tools observe one live host filesystem
 
 Bash and native `read`, `edit`, and `write` on one host SHALL operate on the
@@ -412,28 +141,6 @@ future executor adapter SHALL preserve this same-filesystem result contract.
 - **WHEN** bash changes a file and exits with a known result
 - **THEN** the next native read observes the current bytes
 - **AND** the result does not claim that a Git commit occurred
-
-### Requirement: A host command can start in the background
-
-A `bash` call can run on the `machines.local` Machine of the process and set `async: true`. That call MUST start the command as a job of `background-jobs` and return `backgrounded` at once. `unlimited: true` MUST ask for a job with no lifetime, as `background-jobs` defines. The tool MUST refuse a `bash` call that sets `async` or `unlimited` on an `ssh://` directory or on another Machine.
-
-The refusal MUST occur before any process starts. For a Machine, the tool MUST return the refusal text "`async` is unavailable for Machine `<name>` on this attempt. Run the command synchronously." The refusal MUST NOT name the worker.
-
-#### Scenario: A build starts in the background
-
-- **WHEN** the current Machine is the `machines.local` of the process and the model calls `bash` with `command: "make"` and `async: true`
-- **THEN** the call returns `backgrounded` with a job locator before `make` exits
-
-#### Scenario: A remote directory refuses async
-
-- **WHEN** the model calls `bash` with an `ssh://` `cwd` and `async: true`
-- **THEN** the call returns an error, and no process starts on either host
-
-#### Scenario: Another Machine refuses async without a worker name
-
-- **WHEN** `machines.local` is `gpu` and the model calls `bash` with `cwd: "machine://devl/srv/app"` and `async: true`
-- **THEN** the call returns "`async` is unavailable for Machine `devl` on this attempt. Run the command synchronously."
-- **AND** no process starts, and the result does not name `gpu`
 
 ### Requirement: A foreground host command moves to the background
 
@@ -505,7 +212,7 @@ MUST settle as `lost`.
 ### Requirement: The backgrounded result tells the model what follows
 
 A `backgrounded` result MUST hold the job locator, the elapsed time, and the cause: `async`,
-`time`, or `message`. Its model-facing text MUST be: "The command continues in the background as
+`time`, `message`, or `disconnect`. Its model-facing text MUST be: "The command continues in the background as
 `<locator>`. You get a notice when it settles. Do not poll it." For the cause `message`, the
 text MUST start with: "Moved to the background to handle an incoming message."
 
@@ -516,11 +223,11 @@ text MUST start with: "Moved to the background to handle an incoming message."
 
 ### Requirement: A Run cancellation stops a foreground host command
 
-A Run can be cancelled, expire, or fail while a host `bash` call runs in the foreground. The
-host MUST then stop that command under the cancellation rules of this capability. The host MUST
+A Run can be cancelled, expire, or fail while a configured Machine `bash` call runs in the foreground. The
+installation MUST then stop that command under the cancellation rules of this capability. The installation MUST
 NOT stop a command that already moved to the background. A Run abort of any
 kind MUST NOT stop a command whose move is pending, and a move that commits leaves a normal job.
-A Run abort before the move starts MUST stop the foreground command. Remote commands do not change.
+A Run abort before the move starts MUST stop the foreground command. Standalone `ssh://` cancellation does not change.
 
 #### Scenario: Stop during a foreground command
 
@@ -547,23 +254,10 @@ A Run abort before the move starts MUST stop the foreground command. Remote comm
 - **WHEN** the owner cancels a Run whose command moved to the background a minute ago
 - **THEN** the job of that command stays `running`
 
-### Requirement: One bound limits the commands of a worker process
+#### Scenario: Stop during a remote Machine foreground command
 
-Each worker process MUST run at most `tools.bash.maxProcesses` managed commands at one time. The
-bound MUST count foreground host commands, jobs, and `ssh://` commands. A call past the bound
-MUST be refused before its attempt is recorded and before any process starts. The refusal MUST
-have the type `limit_reached`, MUST name the bound, and MUST say that a later call can succeed.
-It MUST NOT have the type `unavailable`.
-
-#### Scenario: Two commands in one step both run
-
-- **WHEN** the model calls `bash` twice in one step, with the default bound
-- **THEN** both commands run, and each call gets its own result
-
-#### Scenario: A call past the bound is refused
-
-- **WHEN** a worker process runs 64 managed commands, with the default bound, and one more `bash` call arrives
-- **THEN** the call returns `limit_reached`, no attempt is recorded, and no process starts
+- **WHEN** the owner cancels a Run while a foreground command runs on another configured Machine
+- **THEN** the installation requests cancellation from that Machine daemon rather than promoting the command
 
 ### Requirement: The bash description explains background work
 
@@ -582,21 +276,316 @@ that tool, as `tool-prompt-templates` requires.
 - **WHEN** the description is rendered for a Run that has `bash` and no `stop`
 - **THEN** it does not name `stop`
 
-### Requirement: Bash on the host Machine of the worker runs in the worker
+### Requirement: Bash runs as a job of the current Machine's daemon
 
-When the Machine of the resolved `cwd` is the `machines.local` of the process, `bash` MUST run the command in that process. The command runs as the host OS user. On any other Machine, `bash` MUST run through the Machine daemon. Registered roots MUST NOT confine a command in the process. This holds until background jobs run on every Machine.
+Every `bash` call whose directory belongs to a configured Machine MUST start
+a daemon job on that Machine, including the host. A foreground call MUST wait
+for the job's settlement up to its bound. When the bound passes, a steer
+arrives, or the connection drops, the call MUST become a background job with
+the cause `time`, `message`, or `disconnect`, and the command MUST keep running.
+An `ssh://` call MUST stay foreground-only under its existing timeout and
+settlement rules; the foreground bound MUST NOT promote it.
 
-#### Scenario: A host command runs in the worker
+`bash` MUST accept a Machine locator as `cwd` and run on that Machine in that
+directory. In a Workspace, an omitted or relative `cwd` MUST resolve on the
+Workspace's Machine. The environment MUST be the managed base environment plus
+the declared `env` entries. The bounds of `bash-execution` MUST apply.
 
-- **WHEN** `machines.local` is `devl`, the current Machine is `devl`, and the model calls `bash` with `command: "pwd"`
-- **THEN** the worker process starts the command on `devl`
+#### Scenario: A dropped connection backgrounds the command
 
-#### Scenario: Another Machine runs the command through its daemon
+- **WHEN** the connection to the Machine drops during a foreground command
+- **THEN** the call returns a backgrounded result with cause `disconnect` and the job keeps running
 
-- **WHEN** `machines.local` is `devl` and the model calls `bash` with `cwd: "machine://gpu/srv/app"`
-- **THEN** the `gpu` Machine daemon runs the command
+#### Scenario: Command runs remotely in the given directory
 
-#### Scenario: The host Machine of another worker runs through its daemon
+- **WHEN** the model calls `bash` with `cwd: "machine://devl/home/me/shop"` and `command: "pwd"`
+- **THEN** the output is `/home/me/shop` produced on `devl`
 
-- **WHEN** the current Machine is `devl`, `devl` has a `destination`, and the worker that runs the attempt has `machines.local` set to `gpu`
-- **THEN** the command runs on `devl` through the `devl` Machine daemon over SSH
+#### Scenario: Relative cwd inside a Machine Workspace
+
+- **WHEN** the Chat is bound to `machine://devl/home/me/shop` and the model calls `bash` with `cwd: "packages/ui"`
+- **THEN** the command runs on `devl` in `/home/me/shop/packages/ui`
+
+#### Scenario: The host Machine is a working directory from a Machine Workspace
+
+- **WHEN** the Chat is bound to `machine://gpu/srv/app`, the host Machine is `devl`, and the model calls `bash` with `cwd: "machine://devl/home/me/shop"`
+- **THEN** the command runs on `devl` in `/home/me/shop`
+
+### Requirement: A command can start in the background on every Machine
+
+`async` and `unlimited` MUST be accepted on every configured Machine.
+An `ssh://` call that sets either option MUST be refused before any process
+starts. Standalone SSH commands MUST stay foreground-only.
+
+#### Scenario: A background command on a remote Machine
+
+- **WHEN** a call with `async` runs on `machine://box`
+- **THEN** the call returns a job locator at once
+
+#### Scenario: A remote directory refuses async
+
+- **WHEN** the model calls `bash` with an `ssh://` `cwd` and `async: true`
+- **THEN** the call returns an error, and no process starts on either host
+
+### Requirement: Daemon and SSH command results are bounded and explicit
+
+Each bash call MUST enforce finite input, process, stdout, and stderr bounds.
+Its duration MUST be finite unless the operator authorizes `unlimited: true`
+under `background-jobs`. Each returned stream
+bound MUST be `tools.artifacts.maxBytes` UTF-8 bytes. A configured Machine
+MUST also enforce its own retained-output byte ceiling; the installation MUST
+apply its result bound to the bytes it reads from that retained output. The result MUST
+contain a safe status, the exit code when known, the bounded output, and
+truncation metadata when a bound cut the output. It MUST carry the wall time
+from spawn to settlement as `wallTimeMs` when the producer reports it. The
+result MUST NOT carry constant fields that name the operation or the executor.
+
+A `command_failed` message MUST carry the exit code, the elapsed time when
+known, and the bounded streams in the bash text shape of
+`tool-result-rendering`. A `timed_out` message MUST name the elapsed time that
+the producer measured. It MUST omit that time when no command started.
+
+The executor MUST return output as the command produced it, cut at the bound.
+The executor MUST NOT rewrite, reorder, or delete lines, except to replace a
+member and to drop a required fragment. llame MUST replace
+every member of the instance's configured credential set (`instance-config`)
+with `[REDACTED]`. The replacement MUST occur before llame records the result,
+stores it as an artifact, or sends it to the model.
+
+For every configured Machine and an `ssh://` command, the API redacts the output it received. llame never sends the
+configured credential set to the remote host or the Machine.
+
+The executor MUST apply the bound to the raw output's positions in the bound's
+own unit, and a stream MUST NOT exceed the bound. A cut, a drop, or a gap can
+clip a member. llame MUST replace a clipped fragment of 10 or more characters
+with `[REDACTED]` and MUST remove a shorter one. llame can cut a stream at a
+capture or transport limit, or because the command timed out. In that case
+llame MUST drop the fragment at the end that is a proper prefix of a member.
+
+When a transport dropped output between two kept parts of a stream, a member
+fragment can match on both sides of that gap. llame MUST drop both fragments.
+A cut, a drop, or a gap MUST NOT expose any part of a member match.
+
+Secrets that a bound Workspace's own MCP configuration resolves are not
+members. The delimiter neutralization of every tool result MUST still apply to
+the copy that the model reads. After timeout settlement proves that the
+process group stopped, the watcher MUST drain output for at most 50 ms. The
+watcher MUST mark a stream that is still open at that bound as truncated, and
+MUST destroy it.
+
+For a command on any configured Machine, the foreground bound starts promotion instead
+of stopping the command. The command's duration follows the job lifetime rules
+of `background-jobs`, including its operator-authorized unlimited option. An
+unresolved Machine promotion has no per-call deadline: the call MUST remain
+unsettled until promotion or recovery determines the authoritative result. The
+`ssh://` duration bounds and settlement rules remain unchanged.
+
+#### Scenario: Promotion wins the durable fence
+
+- **WHEN** promotion commits background delivery and the `backgrounded` result for the persisted daemon job before recovery
+- **THEN** the Machine call returns `backgrounded` and the job exists
+- **AND** recovery uses the committed result without settling a second outcome
+
+#### Scenario: Recovery wins the durable fence
+
+- **WHEN** recovery records `outcome_unknown` for an open host command before promotion commits
+- **THEN** the Run fails and the command is not executed again
+- **AND** the losing promotion does not dispatch a second command or overwrite the authoritative result
+
+#### Scenario: A lost acknowledgement does not roll back promotion
+
+- **WHEN** promotion commits but the host loses the transaction acknowledgement
+- **THEN** the host resolves the result under the durable fence
+- **AND** the committed `backgrounded` result remains authoritative
+
+#### Scenario: Remote command timeout remains unchanged
+
+- **WHEN** an `ssh://` command reaches its effective runner or managed-executor timeout
+- **THEN** the existing remote timeout signal, duration, and settlement bound apply
+- **AND** Machine promotion does not start or extend that standalone SSH command
+
+#### Scenario: Oversized output is bounded
+
+- **WHEN** a command on the llame host produces more output than `tools.artifacts.maxBytes`
+- **THEN** the result contains a bounded prefix and explicit truncation metadata
+- **AND** the output after that bound reaches neither the model nor the artifact
+
+#### Scenario: Non-zero exit is observable
+
+- **WHEN** a command exits non-zero within its bounds
+- **THEN** the result reports the non-zero status and bounded stderr
+- **AND** it does not convert the command into a successful file or Knowledge effect
+
+#### Scenario: Paths and diagnostics survive
+
+- **WHEN** a command prints absolute paths, a stack trace, or a line that begins with `Error:`
+- **THEN** the executor result contains those lines verbatim within the bound
+- **AND** only reserved tool delimiters are escaped in the copy that the model reads
+
+#### Scenario: Wall time is reported
+
+- **WHEN** a command runs for 1,240 ms and exits 0
+- **THEN** the result carries `wallTimeMs` 1240
+- **AND** the header that the model reads is `exit 0, 1.2 s`
+
+#### Scenario: A timeout names the elapsed time
+
+- **WHEN** the deadline stops a command after 30.0 s
+- **THEN** the `timed_out` message names 30.0 s elapsed
+
+#### Scenario: A host stream within the default bound is kept
+
+- **WHEN** `tools.artifacts.maxBytes` is its default 8 MiB and a command on the llame host prints 3 MB to stdout
+- **THEN** the executor keeps all 3 MB, and the result is not marked truncated
+
+#### Scenario: A printed provider key is redacted
+
+- **WHEN** a provider `key` resolves to `sk-canary-7Qx2Lm9Vb4Rt8Wn3` and a file holds that key. A bash command on the llame host prints that file
+- **THEN** the result's stdout contains `[REDACTED]` where the key was
+- **AND** the recorded result, its artifact, and its replay contain no `sk-canary-7Qx2Lm9Vb4Rt8Wn3`
+
+#### Scenario: Remote output is redacted by the API
+
+- **WHEN** an `ssh://` command or a Machine command writes a configured credential to its output
+- **THEN** the recorded result contains `[REDACTED]` where the credential was and not the credential
+- **AND** neither request to the remote host nor request to the Machine carried the credential set
+
+#### Scenario: A credential crossing the output bound is redacted whole
+
+- **WHEN** a command on the llame host prints output whose configured credential begins a few characters before the stdout bound
+- **THEN** the result contains no prefix of the credential
+- **AND** the result is still bounded and marked truncated
+
+#### Scenario: An earlier redaction does not expose a later credential
+
+- **WHEN** a command prints a configured credential longer than `[REDACTED]` near the start of stdout. The longest member then begins just past the stdout bound
+- **THEN** the result contains `[REDACTED]` for the first and no prefix of the second
+
+#### Scenario: A credential ending at the cut is not exposed
+
+- **WHEN** a configured credential crosses the stdout bound and its last character is the first character of another member
+- **THEN** the result contains no part of it
+
+#### Scenario: A credential cut by the timeout is not exposed
+
+- **WHEN** a command times out while it prints a configured credential
+- **THEN** the result contains no prefix of the credential
+
+#### Scenario: A credential cut by a Machine's bound is not exposed
+
+- **WHEN** a Machine command's stdout reaches its retained-output or installation read bound in the middle of a configured credential
+- **THEN** the hub result contains no prefix of the credential
+- **AND** the result is marked truncated
+
+#### Scenario: A short fragment at the bound leaves no marker
+
+- **WHEN** a configured credential starts 4 characters before the stdout bound
+- **THEN** the result's stdout ends before the credential and is no longer than the bound
+- **AND** it contains no character of the credential
+
+#### Scenario: Non-credential configuration survives
+
+- **WHEN** `knowledge.root` resolves to `/srv/kb` and a command prints `/srv/kb/notes.md`
+- **THEN** the result contains `/srv/kb/notes.md` verbatim
+
+### Requirement: Daemon command effects are never replayed automatically
+
+The installation MUST record the durable native attempt before dispatch and its
+result after. A process that never started MUST be a known refusal, never
+`outcome_unknown`. A known start refusal MUST remove its unstarted job binding.
+A daemon running-job-limit refusal with reason `job_limit` MUST map to the
+installation's `machine_job_limit` classification.
+Its model-facing result MUST be `limit_reached`, state that a later call can
+succeed, and MUST NOT classify the temporary capacity refusal as unavailable.
+
+A daemon command MUST have its owner-scoped binding persisted before `CreateJob`.
+The installation MUST NOT dispatch it again during native-attempt recovery.
+A missing native result MAY fail its Run under the existing recovery contract;
+that MUST NOT delete the binding or repeat a command that can still be running.
+Job state and output MUST reconcile through `background-jobs` independently of
+that Run. A recorded live `outcome_unknown` remains a tool observation, and the
+Run MUST continue. Later authorized calls MUST remain admissible within the
+applicable Machine limit, without an operator action or process restart.
+
+A known command settlement MUST prove that its process group is empty. A
+descendant that leaves that group is outside the proof; the contract MUST NOT
+claim a process-tree proof. When the managed child closes with group survivors,
+the daemon MUST SIGKILL the group and settle from the resulting proof. An
+unproved stop MUST record `outcome_unknown`, never a proved `timed_out` result.
+The model-facing unknown result MUST tell the model to inspect current
+Workspace state before making a new attempt.
+
+Every configured Machine command MUST use the job lifetime, not a 300-second
+per-call deadline. Its foreground bound starts promotion rather than stopping
+the command. Promotion and recovery MUST arbitrate one authoritative native
+result under the same durable fence; a losing promotion MUST NOT overwrite it.
+A lost commit acknowledgement MUST be resolved under that fence. An unresolved
+promotion MUST NOT advance the Run or publish a final result. A Run cancellation
+before promotion MUST stop the foreground command; a committed promotion MUST
+leave a background job. Cancellation with no pending promotion has at most
+750 ms to settle and persist the native result; otherwise it is unknown.
+A cancellation request MUST be persisted on the binding before its daemon RPC.
+If the RPC cannot reach the Machine, reconciliation MUST deliver the retained
+request on reconnection. That cancellation MUST take precedence over a
+simultaneous disconnect; it MUST NOT become ordinary background promotion.
+
+A standalone `ssh://` command MUST keep its separate timeout and cancellation
+signals, the lesser of its per-call timeout and 300-second managed-executor cap,
+and the 750 ms result-persistence bound after deadline or cancellation.
+
+#### Scenario: Normal completion permits the next call
+
+- **WHEN** the command exits and its process group is proven empty
+- **THEN** the attempt records a known result
+- **AND** the next approved file or bash operation can run in the same Run
+
+#### Scenario: Proven-stopped timeout is known
+
+- **WHEN** the deadline of a command on a `machine://` directory passes and the process group is proven empty
+- **THEN** the result is `timed_out` with the output from before the stop
+- **AND** the Run continues
+
+#### Scenario: Unproven stop after timeout is unknown and the Run continues
+
+- **WHEN** the deadline of a command on a `machine://` directory passes and the process group cannot be proven empty
+- **THEN** the result is `outcome_unknown`
+- **AND** the Run continues
+- **AND** the next approved bash call on that worker is admitted
+
+#### Scenario: A crash does not repeat a daemon command
+
+- **WHEN** the worker is lost after the command starts and before a result is recorded
+- **THEN** a resume on any worker does not execute the command again
+- **AND** the Run reports that a host command or mutation can have executed
+- **AND** the bound daemon job remains reconcilable independently of that Run, and a later approved command can be admitted within the Machine limit
+
+#### Scenario: Failed cancellation is an observation
+
+- **WHEN** a cancellation cannot prove the process group empty
+- **THEN** the result is `outcome_unknown`
+- **AND** the Run continues when that unknown is recorded as a live tool result
+- **AND** a later bash call on the same worker is admitted when the applicable Machine limit has a free slot
+
+#### Scenario: Exit with survivors uses post-kill proof
+
+- **WHEN** the managed child closes and a member of the process group is still observable
+- **THEN** the executor SIGKILLs the group
+- **AND** when the group is then proven empty, the attempt records a known result with the observed exit status
+- **AND** when the group cannot be proven empty, the attempt records `outcome_unknown` and the Run continues
+
+#### Scenario: Other Runs are unaffected after an unknown
+
+- **WHEN** one Run records a live `outcome_unknown`
+- **THEN** a later bash call in another Run on the same worker is admitted
+- **AND** no operator action and no process restart is necessary
+
+#### Scenario: A host command is not stopped at the foreground bound
+
+- **WHEN** a host command runs longer than the foreground bound
+- **THEN** its call returns `backgrounded`, and the attempt records that result
+- **AND** the command continues
+
+#### Scenario: A host command ends at the job lifetime
+
+- **WHEN** the job lifetime of a host command passes and its process group is proven empty
+- **THEN** the job is `timed_out` and keeps the output from before the stop

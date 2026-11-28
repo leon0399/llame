@@ -11,7 +11,6 @@ export {
   parsePathScheme,
   RAW_SUFFIX,
   resolveEndRelativeSelector,
-  resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";
 
@@ -20,7 +19,6 @@ export type { ReadTarget } from "./path";
 export {
   readFile,
   readResolvedFile,
-  loadText,
   splitSourceLines,
   selectSourceLines,
   MAX_READ_LINES,
@@ -41,6 +39,16 @@ export { boundFlatResult, directoryResult } from "./directory-page";
 
 /** The local entry order: directories first, then by name, as every listing sorts. */
 export { compareEntries } from "./directory-listing";
+
+export { renderCollectedDirectoryParts } from "./directory-listing";
+
+export { isWalkFixedName } from "./walk-policy";
+
+export type {
+  ChildDir,
+  DirEntry,
+  DirectoryListingOptions,
+} from "./directory-listing";
 
 export type {
   NativeReadOptions,
@@ -68,6 +76,7 @@ export {
   editFile,
   createFile,
   replaceFile,
+  FILE_EXISTS_MESSAGE,
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 
@@ -84,8 +93,6 @@ export {
   renderWriteText,
 } from "./model-text";
 
-export { openFlags } from "./path";
-
 export { statHostPath } from "./stat";
 
 export type { HostPathStat } from "./stat";
@@ -97,3 +104,5 @@ export {
 } from "./source-lines";
 
 export * from "./grep";
+
+export { similarNames } from "./read-suggestions";

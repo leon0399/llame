@@ -192,7 +192,10 @@ describe('createModelClient failure redaction', () => {
   ] as const)(
     'keeps OpenRouter budget classification through the %s override and redaction',
     async (wire) => {
-      const resetsAt = Date.parse('2026-11-25T12:00:00Z');
+      // A reset in the past changes how the failure is classified, so keep it
+      // an hour ahead of the test's clock.
+      const resetsAt = Date.now() + 3_600_000;
+      const resetsAtText = new Date(resetsAt).toISOString();
 
       const fetch = serve(() =>
         jsonResponse(
@@ -204,7 +207,7 @@ describe('createModelClient failure redaction', () => {
               message: `Budget rejected ${KEY}`,
               metadata: {
                 limit_source: 'openrouter_workspace_budget',
-                resets_at: '2026-11-25T12:00:00Z',
+                resets_at: resetsAtText,
               },
             },
           }),

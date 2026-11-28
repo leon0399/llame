@@ -24,8 +24,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { migrateDatabase } from './src/db/migrate.js';
 import postgres from 'postgres';
 import type { TestProject } from 'vitest/node';
 
@@ -104,12 +103,10 @@ async function prepareTestDatabase(
     const asApp = postgres(appUrl, { max: 1 });
 
     try {
-      await migrate(drizzle({ client: asApp }), {
-        migrationsFolder: path.resolve(
-          import.meta.dirname,
-          'src/db/migrations',
-        ),
-      });
+      await migrateDatabase(
+        asApp,
+        path.resolve(import.meta.dirname, 'src/db/migrations'),
+      );
     } finally {
       await asApp.end();
     }

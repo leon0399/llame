@@ -5,7 +5,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { type ChatJob, type Run, type RunEvent } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   clearQuotaAwaitingInTransaction,
@@ -29,14 +28,18 @@ function job(id: string, state: ChatJob['state']): ChatJob {
     id,
     chatId: 'chat-id',
     ownerUserId: 'owner-id',
-    executor: 'bash',
+    kind: 'bash',
     seq: id === 'settled-id' ? 1 : 2,
     state,
     stoppedBy: null,
     runId: 'run-id',
     toolCallId: 'call-id',
-    workerInstanceId: 'worker-id',
-    pid: null,
+    intent: null,
+    command: null,
+    machineName: 'test-machine',
+    daemonInstanceId: 'daemon-instance',
+    daemonJobId: `daemon-${id}`,
+    delivery: 'background',
     startedAt,
     settledAt,
     deadlineAt: null,
@@ -147,15 +150,11 @@ function db(rows: ReadonlyArray<ChatJob | WakeEvent>): Db {
 describe('completeWaitInTransaction', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('returns requested-order settled and running results with settled output details', async () => {
+  it('returns requested-order settled and running job details', async () => {
     const settled = job('settled-id', 'succeeded');
     const running = job('running-id', 'running');
     const currentRun = run();
     const consumed: Array<string> = [];
-
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
-      Buffer.from('completed'),
-    );
 
     const update = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')
@@ -189,7 +188,6 @@ describe('completeWaitInTransaction', () => {
           state: 'succeeded',
           elapsedMs: 2000,
           exitDetail: { exitCode: 0 },
-          outputs: [{ name: 'stdout', text: 'completed' }],
         },
         { locator: 'job://bash-2', state: 'running' },
       ],
@@ -314,9 +312,6 @@ describe('completeWaitInTransaction', () => {
       'The resumed wait lost its active attempt.',
     ],
   ])('rejects completion after %s', async (_case, fenced, message) => {
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
-      Buffer.alloc(0),
-    );
     vi.spyOn(RunsRepository.prototype, 'updateForAttempt').mockResolvedValue(
       fenced,
     );

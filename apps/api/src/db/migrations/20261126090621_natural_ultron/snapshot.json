@@ -1,0 +1,40 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "521ded8a-c282-4f84-a3d3-fc84557f5a8e",
+  "prevIds": [
+    "df914fec-f29b-418f-a570-b22edbe884fb",
+    "ccd653a7-6fc5-44ba-9dc1-65cef12dc51e"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chat_jobs", "delivery"],
+      "writes": [
+        "s|col|public.chat_jobs.delivery",
+        "n|col|public.chat_jobs.delivery",
+        "e|col|public.chat_jobs.delivery"
+      ],
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_jobs",
+        "name": "delivery",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'background'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

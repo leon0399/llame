@@ -18,6 +18,8 @@ and extraction models.
 - [Per-call overhead of Machine daemon tools](./2026-11-18-daemon-call-overhead.md) - Measures today's Node daemon process boundary and JSON serialization cost for `fs.read` and `fs.grep`, without predicting Rust/gRPC performance.
 - [Jobs that outlive the Machine daemon](./2026-11-23-detached-jobs.md) - Compares process detachment, subreapers, pidfds, systemd transient units, tmux sessions and confinement interactions, with measured WSL2 probes; a later daemon can discover and watch a running job only while an external holder keeps it alive, and needs the holder to record its exit status.
 - [gRPC over a child process stdio](./2026-11-24-grpc-over-stdio.md) - Tests Node HTTP/2 over a child pipe, tonic over incoming IO and Unix sockets, disconnect behavior, code generation and pipe-based RPC prior art.
+- [Workspaces with several roots in agent tools](./2026-11-27-multi-root-workspaces.md) - Compares added-root permissions, instructions, naming and manifest-managed hub-spoke checkouts across agent CLIs and IDEs.
+- [Model-chosen workspaces and skills from added roots](./2026-11-27-model-chosen-workspaces.md) - Compares model-triggered workspace changes across agent harnesses and skill discovery and collisions in oh-my-pi, Claude Code, Codex, Gemini CLI, and OpenCode.
 
 ## Research bundles
 

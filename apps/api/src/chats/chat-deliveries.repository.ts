@@ -35,7 +35,7 @@ export type NewChatDelivery = {
 /** Owner-facing delivery data, with only the job fields it may expose. */
 export type ChatDeliveryView = {
   item: ChatDelivery;
-  job: Pick<ChatJob, 'executor' | 'seq' | 'state'> | null;
+  job: Pick<ChatJob, 'kind' | 'seq' | 'state'> | null;
 };
 
 export class ChatDeliveriesRepository {
@@ -576,7 +576,7 @@ export class ChatDeliveriesRepository {
       .select({
         item: chatDeliveries,
         job: {
-          executor: chatJobs.executor,
+          kind: chatJobs.kind,
           seq: chatJobs.seq,
           state: chatJobs.state,
         },

@@ -4371,6 +4371,8 @@ export const ComposerStopAndEscapeLeaveJobsRunning: Story = {
       id: "job-1",
       chatId: CHAT_ID,
       locator: "job://bash-1",
+      intent: "Watching the web dev server",
+      command: "pnpm --filter web dev",
       executor: "bash",
       state: "running",
       stoppedBy: null,
@@ -4406,7 +4408,11 @@ export const ComposerStopAndEscapeLeaveJobsRunning: Story = {
     const input = await openedLiveRun(canvasElement);
     const details = within(canvas.getByLabelText("Session details"));
 
-    await expect(await details.findByText("Running")).toBeVisible();
+    const jobStop = await details.findByRole("button", {
+      name: "Stop Watching the web dev server",
+    });
+
+    await expect(jobStop).toBeEnabled();
     await userEvent.click(
       canvas.getByRole("button", { name: "Stop generation" }),
     );
@@ -4417,8 +4423,8 @@ export const ComposerStopAndEscapeLeaveJobsRunning: Story = {
     await expect(
       everyRoute().filter((route) => route.includes("/jobs/")),
     ).toEqual([]);
-    await expect(details.getByText("Running")).toBeVisible();
-    await expect(details.queryByText("Cancelled")).toBeNull();
+    await expect(jobStop).toBeEnabled();
+    await expect(details.queryByText("Stopping")).toBeNull();
   },
 };
 

@@ -8,6 +8,7 @@
 
 # Lockfiles: generated — collapse in diffs and don't count toward language stats.
 pnpm-lock.yaml linguist-generated=true -diff
+Cargo.lock linguist-generated=true -diff
 
 # Drizzle snapshots are generated and remain textually diffable. Migration SQL
 # stays visible because it is the reviewable artifact.
@@ -22,6 +23,10 @@ apps/web/lib/api/live-generated/** linguist-generated=true
 apps/api/src/live/generated/** linguist-generated=true
 apps/api/src/queue/generated/** linguist-generated=true
 
+# TypeScript bindings generated from packages/machine-protocol/proto by buf.
+# `proto:check` regenerates and fails on drift, so review the .proto files instead.
+packages/machine-protocol/src/generated/** linguist-generated=true
+
 # Binary assets (never normalize / diff).
 *.png   binary
 *.jpg   binary
@@ -31,12 +36,6 @@ apps/api/src/queue/generated/** linguist-generated=true
 *.webp  binary
 *.woff  binary
 *.woff2 binary
-
-# Parallel PRs add entries at the same place at the top. The root `prepare`
-# script registers scripts/merge-changelog.mjs, which merges pure additions
-# per date section and leaves every other change to git's text merge. Local
-# merges and rebases only: GitHub's server-side merge ignores merge drivers.
-CHANGELOG.md merge=changelog
 
 # Sourced by the generated git hook shim; a CR would abort every hook.
 .lefthookrc text eol=lf

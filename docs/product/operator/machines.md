@@ -108,39 +108,37 @@ client, the pinned file, and whatever the included configuration references.
 
 ### The host Machine
 
-The process starts `LLAME_MACHINE_COMMAND serve --stdio` as a child with
-`shell: false`. The variable splits on whitespace into the executable and its
-leading arguments. The default is `llame-machine` on `PATH`, and development
-sets `node apps/machine/dist/llame-machine.cjs`.
+The API starts a daemon child with `shell: false`. Set `LLAME_MACHINE_COMMAND`
+to override its executable and arguments. Otherwise the API uses the Rust daemon
+binary for the current platform from `apps/machine/dist/<target>/llame-machine`;
+`LLAME_MACHINE_BIN_DIR` overrides that distribution directory. The API discovers
+the daemon socket with `attach --print-socket`, then connects to its Unix socket.
+Development uses the same static binary; build it with
+`pnpm --filter machine build`.
 
-The child receives `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`,
-`LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`,
-`SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`, each only when it is set. It receives
-no other variable of the worker environment. Database and provider credentials,
-and tokens such as `SENTRY_AUTH_TOKEN`, therefore stay out of the daemon's
-environment and out of the environment of any process it starts. This is an
-environment boundary only: the child runs as the worker's OS user with that
-user's file access. A `{path:...}` interpolation in a host Workspace `.mcp.json`
-can therefore read any file that user can read, including credential files and
-`.env.local`, and a stdio server can read the worker's `/proc/<pid>/environ`.
-See [Workspace MCP](mcp-tools.md#interpolation-and-redaction). To keep hub
-credentials out of host Workspaces, name a wrapper in `LLAME_MACHINE_COMMAND`
-that starts `llame-machine` as a separate OS user with access to the registered
-roots and the files its Workspaces need.
+The daemon receives an allowlisted environment containing OS identity, locale,
+and its configuration and state directory settings. API and Sentry credentials
+are not passed to it. This is an environment boundary only: the daemon runs as
+the worker's OS user with that user's file access. A `{path:...}` interpolation
+in a host Workspace `.mcp.json` can therefore read any file that user can read,
+including credential files and `.env.local`. See
+[Workspace MCP](mcp-tools.md#interpolation-and-redaction). Use a wrapper that
+starts the daemon as a separate OS user when Workspaces must not share the
+worker's file access.
 
-A spawn failure reports `unreachable`. A child exit reports `session_lost`. The
-next call starts a new child.
-
-Before any host operation, the process completes an identity-checked handshake
-with its child. A worker that sets `machines.local` to another
-computer's name therefore fails the call, and no operation runs on the wrong
+Exit status 78 reports `machine_identity_mismatch`. Any other discovery
+failure reports `unreachable`; the next call starts a new daemon connection.
+Before requesting roots or limits, the API checks protocol compatibility and
+admits the daemon identity. A worker that sets `machines.local` to another
+computer's name therefore fails before any operation runs on the wrong
 computer.
 
 ### Another Machine
 
-Each worker writes a private SSH configuration and runs
-`ssh -F <generated> -T -- <destination> llame-machine serve --stdio`. The
-generated file sets a safety block first and then includes your SSH
+Each worker writes a private SSH configuration, opens SSH, and forwards the
+remote daemon's Unix socket. The daemon is discovered remotely with
+`llame-machine attach --print-socket`; configure the forced command as described
+below. The generated file sets a safety block first, then includes your SSH
 configuration, so your aliases, `ProxyJump` chains, users, ports, and
 identities apply while these options win for every hop:
 
@@ -170,34 +168,34 @@ llame uses.
 
 ## Install the daemon
 
-Build `pnpm --filter machine build` and copy `apps/machine/dist/llame-machine.cjs`
-to the box (for example `/usr/local/bin/llame-machine`, executable, Node 22.19 or
-newer on the box). Restrict the hub's key to the daemon in the box user's
+Build the static Rust daemon with `pnpm --filter machine build` and install the
+target-specific `llame-machine` binary on each box. Configure it with
+`config.toml`; it writes diagnostics to `daemon.log` and does not send events to
+Sentry. See [observability](observability.md#machine-daemon).
+
+Restrict the hub's key to daemon socket attachment in the box user's
 `~/.ssh/authorized_keys`:
 
 ```text
-restrict,command="/usr/local/bin/llame-machine serve --stdio" ssh-ed25519 AAAA... llame-hub
+restrict,port-forwarding,command="/usr/local/bin/llame-machine attach --print-socket" ssh-ed25519 AAAA... llame-hub
 ```
 
-Use the absolute path; add `from="<hub address>"` when the hub's address is
-stable. On jump hosts, allow forwarding only to the next hop, for example
+`port-forwarding` is required because the hub forwards the daemon's Unix socket.
+OpenSSH's `permitopen` option restricts TCP forwarding destinations, not Unix
+socket paths. Keep this key limited to a dedicated account and use
+`from="<hub address>"` when the hub's address is stable.
+
+On jump hosts, allow forwarding only to the next TCP hop, for example
 `restrict,port-forwarding,permitopen="box:22"`. Set sshd's
 `ClientAliveInterval` so a box notices a vanished hub.
 
-To report the daemon's errors and traces to Sentry, set its variables in the
-same forced command; see [observability](observability.md#machine-daemon).
+To migrate a `serve --stdio` forced command, install the Rust binary and
+`config.toml`, then change the command to `attach --print-socket`.
 
-The daemon also answers the typed git methods (`git.inspect`, `git.locate`,
-`git.state`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`) that
-checkout registration, worktree entry, and worktree removal use. `git.locate`
-finds the nearest `.git` entry inside the registered roots without starting git,
-and `git.state` reads the repository state of that entry. The handshake lists
-every method a daemon answers.
-After updating the hub, replace the daemon binary on each box with the same
-build. A box whose handshake lacks a git method keeps serving files and
-`bash`, and a git call that needs the missing method (worktree removal needs
-`git.locate` and `git.state`) fails as `machine_update_required` until the
-binary is replaced.
+The daemon implements repository inspection and worktree operations through
+the typed GitService. It locates repositories only inside registered roots and
+uses the located `.git` entry for status requests. Deploy the API and daemon
+from the same protocol-compatible build.
 
 One request shape is not additive: the `fs.grep` request carries its bounds in
 `bounds` (with a nullable `fileBytes`), not in the removed `budget` field. The
@@ -224,9 +222,11 @@ match the hub requires.
 The daemon keeps an instance id in `instance.json` in its configuration
 directory. That directory is `LLAME_MACHINE_CONFIG_DIR` when it is set,
 `$XDG_CONFIG_HOME/llame-machine` when that variable is set, and
-`~/.config/llame-machine` otherwise.
+`~/.config/llame-machine` otherwise. The Rust daemon reads the id the Node
+daemon wrote, so existing bindings survive the upgrade.
 
-The daemon creates the id once and reports it at every handshake. llame binds
+The daemon creates the id once and reports it from its bootstrap service at
+every connection. llame binds
 each Machine name to the first id it sees. A daemon that answers with another
 id is refused with `machine_identity_mismatch`, and the Machine reads offline
 until an operator acts.
@@ -243,11 +243,11 @@ to answer for the name gets `machine_identity_mismatch`. Set
 
 ## Upgrading
 
-Protocol version 3 carries the instance id, the build id, the static facts
-of the Machine, and the unit-letter and line-and-column read selectors. Upgrade every Machine daemon before the API. Run
-`llame-machine --version` on each box to read the release, the build, the
-protocol version, and the instance id. A box that runs an older daemon shows as
-offline with "update required" until you replace the binary.
+Protocol version 4 is the gRPC contract. Every Machine daemon must report
+exactly that version; a daemon with another version shows as "update required"
+until you replace the binary. Run `llame-machine info` on each box to read the
+release, the build, the protocol version, and the instance id. An older Node
+daemon cannot answer at all and shows as offline.
 
 The Machines list and the `machine://` listing show each Machine's OS and
 architecture once a handshake reports them.
@@ -290,11 +290,8 @@ The migration converts every stored `machine:<name>` executor to `<name>` and
 every stored bare root to a `machine://` locator. It rewrites one transaction
 and fails on an unknown executor value, so a failed run changes nothing.
 
-This release uses the host daemon child for every host path a Run touches. Host
-file tools, `grep`, every git and worktree call, host Workspace entry, host
-Workspace MCP servers, host instruction files, Workspace skills, and prompt
-imports all run through that child under its registered roots. Host `bash` and
-its background jobs remain the only host operations that run in the worker.
+Every host path a Run touches, including `bash` and its background jobs, runs
+through the host daemon under its registered roots.
 
 ## Register roots
 
@@ -306,10 +303,13 @@ llame-machine roots list
 llame-machine roots remove ~/work/shop
 ```
 
-Roots live in `$XDG_CONFIG_HOME/llame-machine/roots.json`. The daemon refuses
-every path outside them with `path_not_registered`. Roots bound addressing
-only: anything running as that user, including Machine `bash` and Workspace MCP
-servers, can edit the roots file. The hub has no operation that changes roots.
+Roots and limits live in `config.toml` in the configuration directory. The
+Rust daemon does not read the Node daemon's `roots.json`; run `roots add` again
+after upgrading. A change applies to the next call without a restart. The daemon
+refuses every path outside the roots with `path_not_registered`. Roots bound
+addressing only: anything running as that user, including Machine `bash` and
+Workspace MCP servers, can edit the file. The hub has no operation that changes
+roots.
 
 The host Machine needs roots too, registered on the host as the llame process
 user. A host Chat served by another worker over SSH is already root-bounded, so
@@ -337,6 +337,27 @@ main checkout inside a root — for example
 every root — a repository whose toplevel sits above them, as a tracked home
 directory does, or a worktree kept elsewhere — is refused the same way rather
 than reported as a locator.
+
+## Machine limits
+
+Each Machine sets its own capacity; the installation sets none per Machine.
+The daemon defaults to 32 running jobs and a 64 MiB output cap for each stream.
+Configure the limits in `config.toml` in the daemon's configuration directory:
+
+```toml
+roots = ["/home/me/work"]
+
+[limits]
+max_running_jobs = 32
+job_output_bytes = 67108864
+```
+
+`max_running_jobs` refuses a new job with `limit_reached` while that many jobs
+run. It protects against a Run that starts commands in a loop; it does not
+control load. `job_output_bytes` is the most each output stream of a job writes
+to disk. Past the cap, the daemon stops recording that stream and the command
+keeps running. **Breaking:** `tools.bash.maxProcesses` is removed from
+installation configuration, and an existing config with that key fails startup.
 
 ## Permissions
 
@@ -389,6 +410,45 @@ every eligible user. To scope access, allow per Machine:
 }
 ```
 
+## Local development Machine
+
+`pnpm db:up` also starts `llame-machine`, a container that serves the daemon
+over sshd on `127.0.0.1:2622` (`LLAME_MACHINE_SSH_PORT` moves it). Build the
+daemon first with `pnpm --filter machine build`: the container runs the bundle
+from the working tree, so a rebuild applies to the next session without
+rebuilding the image.
+Its daemon reads `SENTRY_DSN` and `SENTRY_ENVIRONMENT` from
+`apps/machine/.env.local` when that file exists; recreate the container after
+editing it (`docker compose up -d machine`).
+
+On each start the container creates what is missing and writes it to
+`.llame-dev/machine/` at the repository root: a hub key pair (`id_ed25519`)
+authorized only for the daemon, and `known_hosts` pinning the box's host key.
+The example configuration registers the box as `docker` with those two files:
+
+```jsonc
+{
+  "machines": {
+    "ssh": {
+      "knownHostsFile": "../../.llame-dev/machine/known_hosts",
+      "identityFile": "../../.llame-dev/machine/id_ed25519",
+    },
+    "hosts": { "docker": { "destination": "box@127.0.0.1:2622" } },
+  },
+}
+```
+
+`knownHostsFile` applies to every Machine. To keep other hosts on
+`~/.ssh/known_hosts`, omit it and append the box's line instead:
+`cat .llame-dev/machine/known_hosts >> ~/.ssh/known_hosts`.
+
+The box's one root is `/home/box/work`, addressed as
+`machine://docker/home/box/work`; clone repositories there. Its home directory
+and host key live in the `llame-machine-home` and `llame-machine-hostkeys`
+volumes, so they survive `pnpm db:down`; `pnpm db:reset` deletes them with the
+database. The files are owned by uid and gid 1000; set `LLAME_HOST_UID` and
+`LLAME_HOST_GID` when yours differ, or the hub's ssh cannot read the key.
+
 ## Status
 
 `GET /api/v1/machines`, the settings page, and a Chat's session details
@@ -437,7 +497,7 @@ as expected rather than as evidence the Machine is reachable.
   environment; the hub never sends commands, URLs, or headers. The host box's
   daemon gets only the base environment, so a Workspace declaration cannot read
   a worker-only variable by name. The daemon still runs as the worker's OS user:
-  a `{path:...}` location reaches every file that user can read, and a stdio
-  server can read the worker's process environment through `/proc`. Run the
-  host daemon as a separate OS user when hub credentials must stay out of host
-  Workspaces. Values the box resolves come back only for redaction.
+  a `{path:...}` location reaches every file that user can read, and the daemon
+  can read process environment data accessible to that user. Run the host daemon
+  as a separate OS user when hub credentials must stay out of host Workspaces.
+  Values the box resolves come back only for redaction.

@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import type {
   GitInspectResult,
   GitWorktreeAddResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import {
   type Checkout,
@@ -609,6 +609,112 @@ describe('ChatCreationWorkspace failures name their cause', () => {
     expect(createCheckout).not.toHaveBeenCalled();
     expect(createLease).not.toHaveBeenCalled();
     expect(bindAtCreation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'a copy failure',
+      { status: 'error', type: 'copy_failed', message: 'copy failed: .env' },
+      'copy failed: .env',
+    ],
+    [
+      'a timeout',
+      { status: 'error', type: 'timed_out', stderr: '' },
+      'The worktree command failed.',
+    ],
+  ] as const)(
+    'names the plan directory and binds nothing after %s',
+    async (_name, failure, message) => {
+      const { git, calls } = fakeGit();
+      calls.worktreeAdd.mockResolvedValue(failure);
+
+      const { workspace, createCheckout, createLease, bindAtCreation } =
+        makeWorkspace({ git });
+
+      await expect(
+        workspace.enter(input({ worktree: worktreeInput })),
+      ).resolves.toEqual({
+        status: 'worktree_failed',
+        message,
+        leftDirectory: DIRECTORY,
+      });
+      expect(createCheckout).not.toHaveBeenCalled();
+      expect(createLease).not.toHaveBeenCalled();
+      expect(bindAtCreation).not.toHaveBeenCalled();
+    },
+  );
+
+  it('creates the worktree, and so seeds it, for an owner read-only creation', async () => {
+    const { git, calls } = fakeGit();
+    const { workspace } = makeWorkspace({ git });
+
+    await expect(
+      workspace.enter(
+        input({ permissionMode: 'read-only', worktree: worktreeInput }),
+      ),
+    ).resolves.toMatchObject({ status: 'bound' });
+    expect(calls.worktreeAdd).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ copySource: ROOT }),
+    );
+  });
+
+  it('copies from the root of a linked worktree the source subdirectory names', async () => {
+    const linked = `${MACHINE}/srv/linked`;
+    const { git, calls } = fakeGit({ canonical: '/srv/linked/sub' });
+
+    calls.inspect.mockResolvedValue({
+      status: 'ok',
+      toplevel: linked,
+      commonDir: `${ROOT}/.git`,
+      linked: true,
+      mainWorktree: ROOT,
+      remotes: [],
+      branch: 'feature',
+      head: HEAD,
+    });
+    const { workspace, appendAttempt } = makeWorkspace({ git });
+
+    await workspace.enter(input({ worktree: worktreeInput }));
+
+    expect(calls.worktreeAdd).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ source: ROOT, copySource: linked }),
+    );
+    // submitted, canonical, main clone, copy source, directory
+    const [attempt] = appendAttempt.mock.calls[0] ?? [];
+    expect(attempt?.decisions.map((decision) => decision.path)).toContain(
+      linked,
+    );
+  });
+
+  it('refuses a rejected linked root behind an allowed subdirectory before the add', async () => {
+    const linked = `${MACHINE}/srv/linked`;
+    const { git, calls } = fakeGit({ canonical: '/srv/linked/sub' });
+
+    calls.inspect.mockResolvedValue({
+      status: 'ok',
+      toplevel: linked,
+      commonDir: `${ROOT}/.git`,
+      linked: true,
+      mainWorktree: ROOT,
+      remotes: [],
+      branch: 'feature',
+      head: HEAD,
+    });
+
+    const { workspace } = makeWorkspace({
+      git,
+      policy: policy({
+        allow: [{ field: 'path', regex: '^machine://' }],
+        reject: [{ field: 'path', regex: '^machine://host-a/srv/linked$' }],
+      }),
+    });
+
+    await expect(
+      workspace.enter(input({ worktree: worktreeInput })),
+    ).resolves.toMatchObject({ status: 'bind_failed' });
+    expect(calls.worktreeAdd).not.toHaveBeenCalled();
   });
 
   it('answers outcome_unknown with the directory the lost link can leave', async () => {

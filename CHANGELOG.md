@@ -1,4 +1,104 @@
-_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
+_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first. Pull requests add entries under `.changeset/`, and `pnpm changelog:compile` moves them here; see [CONTRIBUTING.md](CONTRIBUTING.md)._
+
+# 2026-11-27
+
+- Session details' Jobs section names each running job by the intent of the
+  `bash` call that started it, with its elapsed time and stop control. Settled
+  jobs move to a Finished jobs panel that opens beside the sidebar and shows
+  each job's command, stored output, and outcome. Jobs record `intent` and
+  `command` when they start; `GET /api/v1/chats/:chatId/jobs/:jobId/output`
+  returns a settled job's stored output, each stream bounded to its last
+  64 KiB.
+
+# 2026-11-26
+
+- Admit host Bash attempts before reserving artifact sequence numbers, so a
+  request for another owner's Run is rejected before job setup.
+
+# 2026-11-25
+
+- Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon
+  bootstrap and root services, and the versioned gRPC contract.
+- Settle Machine jobs only after proving the process group empty. Normal exits
+  kill survivors, output-pipe waits are bounded, and interrupted cancellations
+  continue independently of their RPC.
+- Replace the Node Machine daemon and JSON-RPC connector with the static Rust
+  daemon over Connect gRPC Unix sockets. The API checks protocol compatibility
+  and admits the daemon identity before requesting roots or limits, discovers
+  its socket with `attach --print-socket`, and uses SSH socket forwarding for
+  remote Machines. Use the new forced command and configure the daemon with
+  `config.toml`; daemon diagnostics are written to `daemon.log`.
+
+- **Breaking:** host bash jobs now run on the Rust Machine daemon. The
+  migration drops `chat_job_chunks` without copying it, deleting existing
+  stored job output. The installation no longer accepts
+  `tools.bash.maxProcesses`; a config that still sets it fails startup. The
+  daemon limits jobs to 32 running at once and each output stream to 64 MiB by
+  default. Settled output is stored as a bounded artifact when available.
+
+- Delete the Node bash and Git executor packages after moving the API bash result
+  and sanitization contract and Machine Git test operations into `apps/api`.
+- Keep retained Machine mutation results replayable when the idempotency cache
+  reaches its key limit. Attaching through a different configuration now
+  refuses the running daemon before returning its socket.
+- Register generated protocol bindings and the external Rust and protobuf
+  build tools in dead-code analysis.
+- Reap a timed-out Machine command and prove its process group empty before
+  reporting `timed_out`. An unproved stop keeps an unknown outcome.
+
+# 2026-11-24
+
+- Update Schemathesis to 4.32.2 so a negative test that mutates both
+  authentication and a request body does not refill the rejected credential.
+- Activate API static and hybrid mutants before module imports and run all
+  related tests. A first importing test alone does not exercise every consumer
+  of a module-initialized schema.
+- Read owner Chat history through native `read` using `chat://`, `chat://<id>`,
+  and `chat://<id>/<seq>`. The collection lists eligible non-archived Chats;
+  owners can still address archived Chats directly. Indexes and message reads
+  use eligible stored rows, shared bounds, and owner-scoped not-found parity.
+  Run status is a separate read-only annotation. Search now returns `chat://`
+  locators, with line delimiters bound to their originating lines. The old
+  `conversation_read` tool is removed; remove it from
+  `tools.allowed` and tool prompt overrides before upgrading. A stale
+  permission group remains inert.
+- Keep existing digest columns, renderer, and templates during this reader
+  layer. Before the later digest upgrade, back up the database, stop acceptance,
+  drain old workers, and run the reader-binary exporter:
+  `pnpm --filter api recency-digest:export --out <path>`. Store its
+  version 1 owner-bound JSON output as private mode `0600` data. Baseline
+  disclosure requires the immutable version 1 quota initializer and the
+  matching dispatched receipt identity. The packaged `project_default`
+  template proves membership only for emitted rows; custom title-only templates
+  prove only exact emitted titles. The mutable told-set is inventory, not
+  disclosure proof. Ambiguous identities or pin corrections are omitted and
+  reported privately, including total omissions. The export contains no whole
+  prompt or transcript. The later digest converter consumes this file; it is
+  not part of this reader release.
+  Bootstrap diagnostics and YAML warnings do not echo configuration source;
+  malformed YAML still rejects startup.
+- Store recency-digest baselines and notices as owner-only context items on the
+  reminder rail, not in system prompts or tool descriptions. Shared Chat rows
+  disclose the `chat://` locator, canonical Workspace affinity, and bounded
+  opening and latest visible-text excerpts, with no Run status. Owners inspect
+  the exact persisted text in their Chat; system-only prompt receipts do not
+  contain digest items. Disabled compaction carries only the frozen baseline,
+  without source reads or notices. `shareRecentChats` remains off by default;
+  enabling is retroactive, and disabling or deleting a source does not erase
+  prior disclosure. Digest selection and ratios exclude untitled Chats; each
+  newly announced row identifies its pinned or recent membership.
+- **Breaking:** the Machine daemon is a Rust binary serving gRPC
+  (`stead.machine.v1` and the frozen `stead.machine.bootstrap.v1`) instead of
+  the Node JSON-RPC daemon. Every connection runs `llame-machine attach
+  --stdio`, which starts the account's daemon when none runs; `serve --stdio`
+  is removed, so SSH forced commands must change. The daemon reads roots and
+  limits from `config.toml` (run `roots add` again) and keeps
+  `instance.json`. Every `bash` command, on the host and on every configured
+  Machine, runs as a daemon job whose output lives on the Machine; background
+  commands work on every Machine. `chat_job_chunks` and the stored output of
+  existing jobs are dropped, and every settled job keeps one bounded artifact
+  copy. `tools.bash.maxProcesses` is removed; each Machine sets
+  `max_running_jobs` (default 32) and its output ceiling.
 
 # 2026-11-23
 

@@ -7,6 +7,9 @@ import {
 import { type MediaReadHook } from '@workspace/native-file-tools';
 import { isRecord } from '@workspace/runtime-safety';
 
+import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
@@ -19,6 +22,7 @@ import {
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 import { bashTool } from './bash';
+import { bashTarget } from './bash-target';
 import { executeMachineNative } from './machine-files';
 import {
   nativeEditTool,
@@ -28,7 +32,6 @@ import {
 import { runTool } from './runner';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { expectRedacted, stubArtifactWrites } from '../testing/support';
 import { type ToolContext } from './types';
 import { type ToolMediaStore } from '../media/tool-media-store';
 import { createWorkspaceRootCell } from './workspace-path';
@@ -211,7 +214,7 @@ describe('Machine native reads', () => {
     ]);
   });
 
-  it('splits a selector off the locator and sends the decoded path', async () => {
+  it('preserves a selector-shaped suffix as literal path text', async () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
@@ -224,8 +227,8 @@ describe('Machine native reads', () => {
     );
     const session = await peer.session(0);
     expect(session.calls[0]?.params).toMatchObject({
-      path: '/srv/app/README.md',
-      options: { displayPrefix: 'machine://devl', selector: '1-5' },
+      path: '/srv/app/README.md:1-5',
+      options: { displayPrefix: 'machine://devl' },
     });
   });
 
@@ -587,6 +590,47 @@ describe('Machine media', () => {
     expect(handed[0]?.bytes.equals(bytes)).toBe(true);
   });
 
+  it('refuses text bytes read through the image media path', async () => {
+    const bytes = Buffer.from('plain text, not an image');
+
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: {
+            status: 'error',
+            type: 'invalid_utf8',
+            message: 'The file is not valid UTF-8.',
+          },
+        },
+        'fs.bytes': { hold: true },
+      },
+    });
+
+    const { store, handed } = mediaStore();
+
+    const call = runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/notes.txt' },
+      context(connector, { media: store }),
+      5,
+    );
+
+    const session = await peer.session(0);
+    await session.awaitRequests(2);
+    await flushMicrotasks();
+    sendChunks(session, bytes);
+    session.release('fs.bytes', {
+      size: bytes.byteLength,
+      mediaType: 'application/octet-stream',
+    });
+
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'unsupported_media_type',
+    });
+    expect(handed).toHaveLength(0);
+  });
+
   it('asks the bytes for a literal filename a selector-shaped suffix named', async () => {
     const bytes = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -670,7 +714,7 @@ describe('Machine media', () => {
     );
 
     const session = await peer.session(0);
-    await session.awaitRequests(3);
+    await session.awaitRequests(2);
     await flushMicrotasks();
     sendChunks(session, bytes);
     session.release('fs.bytes', {
@@ -722,7 +766,7 @@ describe('Machine media', () => {
     );
 
     const session = await peer.session(0);
-    await session.awaitRequests(3);
+    await session.awaitRequests(2);
     await flushMicrotasks();
     sendChunks(session, bytes);
     session.release('fs.bytes', {
@@ -744,7 +788,7 @@ describe('Machine media', () => {
     expect(session.calls[2]?.params).toMatchObject({ path: '/srv/shot.png' });
   });
 
-  it('keeps the text refusal when the bytes are not media', async () => {
+  it('refuses non-media bytes with unsupported_media_type', async () => {
     const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03]);
 
     const { peer, connector } = fixture({
@@ -773,7 +817,7 @@ describe('Machine media', () => {
     });
     await expect(call).resolves.toMatchObject({
       status: 'error',
-      type: 'invalid_utf8',
+      type: 'unsupported_media_type',
     });
   });
 
@@ -1250,417 +1294,117 @@ describe('Machine mutations', () => {
   });
 });
 
-describe('Machine bash', () => {
-  afterEach(() => vi.restoreAllMocks());
+/*
+ * Command execution belongs to JobService, not the removed proc.bash RPC.
+ * JobService result and settlement behavior is exercised at the registry seam
+ * in jobs/bash-job-result.test.ts and chat-jobs.integration.test.ts. These tests
+ * keep the Machine working-directory projection at the bash routing boundary.
+ */
+describe('Machine bash target routing', () => {
+  it('keeps a selector-shaped suffix as literal Machine path text', () => {
+    const { connector } = fixture();
 
-  const BASH_OK = {
-    status: 'success',
-    exitCode: 0,
-    stdout: '/srv/app\n',
-    stderr: '',
-    truncated: false,
-  };
-
-  it('redacts configured credentials from the result, parts, and native.result', async () => {
-    const provider = 'PROVIDER-CANARY-7f3';
-    const mcp = 'MCP-HEADER-CANARY-2b9';
-    const knowledge = '/srv/app/knowledge/root';
-
-    const filler = Array.from(
-      { length: 4000 },
-      (_, line) => `line ${String(line)}`,
-    ).join('\n');
-
-    const { peer, connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'success',
-            exitCode: 0,
-            stdout: `provider ${provider}\nmcp ${mcp}\nknowledge ${knowledge}\n${filler}\n`,
-            stderr: `stderr ${provider} ${mcp}\n`,
-            truncated: false,
-          },
-        },
-      },
-    });
-
-    const { append } = stubFence();
-    const insertParts = stubArtifactWrites();
-
-    const result = await runTool(
-      bashTool,
-      { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, {
-        artifactReadable: true,
-        permissionPolicy: compileTestPermissionPolicy(),
-        configuredCredentials: [provider, mcp],
+    expect(
+      bashTarget(context(connector), {
+        command: 'pwd',
+        cwd: 'machine://devl/srv/app:1-5',
       }),
-      5,
-    );
-
-    const shown = JSON.stringify(result);
-    expectRedacted(shown, [provider, mcp]);
-    expect(shown).toContain(knowledge);
-
-    const parts = insertParts.mock.calls
-      .flatMap(([, written]) => written)
-      .map((part) => part.content.toString('utf8'))
-      .join('\n');
-
-    expectRedacted(parts, [provider, mcp]);
-    expect(parts).toContain(knowledge);
-
-    const events = append.mock.calls
-      .map(([, eventType, payload]) => JSON.stringify({ eventType, payload }))
-      .join('\n');
-
-    expectRedacted(events, [provider, mcp]);
-    expect(events).toContain(knowledge);
-
-    const session = await peer.session(0);
-    const sent = JSON.stringify(session.calls.at(-1)?.params);
-    expect(sent).not.toContain(provider);
-    expect(sent).not.toContain(mcp);
-  });
-
-  it('drops a member prefix a Machine bound or deadline cut', async () => {
-    stubFence();
-
-    const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'success',
-            exitCode: 0,
-            stdout: 'prefix SECRET-',
-            stderr: '',
-            truncated: true,
-          },
-        },
+    ).toMatchObject({
+      target: 'machine',
+      machine: {
+        name: 'devl',
+        path: '/srv/app:1-5',
+        locator: 'machine://devl/srv/app%3A1-5',
       },
-    });
-
-    const result = await runTool(
-      bashTool,
-      { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
-      5,
-    );
-
-    expect(result).toMatchObject({ status: 'success', stdout: 'prefix ' });
-    expect(JSON.stringify(result)).not.toContain('SECRET');
-  });
-
-  it('keeps a member prefix a finished command wrote itself', async () => {
-    stubFence();
-
-    const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'success',
-            exitCode: 0,
-            stdout: 'prefix SECRET-',
-            stderr: 'warn SECRET-',
-            truncated: false,
-          },
-        },
-      },
-    });
-
-    const result = await runTool(
-      bashTool,
-      { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
-      5,
-    );
-
-    // The daemon neither cut the capture nor timed out, so these bytes are the
-    // command's own text, not the front of a value llame dropped.
-    expect(result).toMatchObject({
-      status: 'success',
-      stdout: 'prefix SECRET-',
-      stderr: 'warn SECRET-',
+      input: { command: 'pwd', cwd: 'machine://devl/srv/app%3A1-5' },
     });
   });
 
-  it('drops a member prefix a Machine timeout cut', async () => {
-    stubFence();
+  it.each([
+    {
+      label: 'a relative path',
+      input: { command: 'pwd', cwd: 'packages/ui' },
+      expectedPath: '/home/me/shop/packages/ui',
+    },
+    {
+      label: 'an omitted path',
+      input: { command: 'pwd' },
+      expectedPath: '/home/me/shop',
+    },
+    {
+      label: 'an absolute path',
+      input: { command: 'pwd', cwd: '/home/me/shop/src' },
+      expectedPath: '/home/me/shop/src',
+    },
+  ])(
+    'resolves $label inside the Machine Workspace',
+    ({ input, expectedPath }) => {
+      const { connector } = fixture();
 
-    const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'error',
-            type: 'timed_out',
-            durationMs: 100,
-            stdout: 'partial SECRET-',
-            stderr: '',
-            truncated: false,
-          },
-        },
-      },
-    });
-
-    const result = await runTool(
-      bashTool,
-      { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, { configuredCredentials: ['SECRET-KEY'] }),
-      5,
-    );
-
-    expect(result).toMatchObject({ status: 'error', type: 'timed_out' });
-    expect(JSON.stringify(result)).not.toContain('SECRET');
-  });
-
-  it('A remote command still ends at its deadline and is never backgrounded', async () => {
-    stubFence();
-
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { hold: true } },
-    });
-
-    const startedAt = Date.now();
-
-    const result = await runTool(
-      bashTool,
-      { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
-      context(connector),
-      0.05,
-    );
-
-    expect(peer.sessions.length).toBeGreaterThan(0);
-    expect(result).toMatchObject({ status: 'error', type: 'outcome_unknown' });
-    expect(result).not.toHaveProperty('backgrounded');
-    expect(Date.now() - startedAt).toBeLessThan(2000);
-  });
-
-  it('Proven-stopped timeout is known and the next call runs on a machine directory', async () => {
-    stubFence();
-    let answered = 0;
-
-    const { connector } = fixture({
-      answer: () =>
-        answered++ === 0
-          ? {
-              value: {
-                status: 'error',
-                type: 'timed_out',
-                durationMs: 100,
-                stdout: 'before the stop',
-                stderr: '',
-                truncated: false,
-              },
-            }
-          : { value: BASH_OK },
-    });
-
-    const call = (id: string) =>
-      runTool(
-        bashTool,
-        { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
-        context(connector, { toolCallId: id }),
-        5,
+      const routed = bashTarget(
+        context(connector, {
+          workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+        }),
+        input,
       );
 
-    const first = await call('call-1');
+      expect(routed).toMatchObject({
+        target: 'machine',
+        machine: {
+          name: 'devl',
+          path: expectedPath,
+          locator: `machine://devl${expectedPath}`,
+        },
+        input: { cwd: `machine://devl${expectedPath}` },
+      });
+    },
+  );
 
-    expect(first).toMatchObject({ status: 'error', type: 'timed_out' });
-    expect(JSON.stringify(first)).toContain('before the stop');
-    await expect(call('call-2')).resolves.toMatchObject({ status: 'success' });
-  });
+  it('preserves the declared environment in the routed job input', () => {
+    const { connector } = fixture();
 
-  it('runs in the given Machine directory without a local executor', async () => {
-    stubFence();
-
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'success', stdout: '/srv/app\n' });
-    const session = await peer.session(0);
-    expect(session.calls.at(-1)?.params).toMatchObject({
-      command: 'pwd',
-      cwd: '/srv/app',
-      envelope: { budgetMs: 5000 },
-    });
-  });
-
-  it('settles unchanged when the daemon reports no wall time', async () => {
-    stubFence();
-
-    // A daemon that predates `wallTimeMs` sends neither it nor the dropped
-    // constant fields.
-    const { connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    const result = await runTool(
-      bashTool,
-      { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector),
-      5,
-    );
-
-    expect(result).toEqual({
-      status: 'success',
-      exitCode: 0,
-      stdout: '/srv/app\n',
-      stderr: '',
-    });
-  });
-
-  it('keeps the wall time the daemon measured', async () => {
-    stubFence();
-
-    const { connector } = fixture({
-      answers: { 'proc.bash': { value: { ...BASH_OK, wallTimeMs: 1240 } } },
-    });
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'success', wallTimeMs: 1240 });
-  });
-
-  it('resolves a relative cwd inside a Machine Workspace on the Machine', async () => {
-    stubFence();
-
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    await runTool(
-      bashTool,
-      { command: 'ls', cwd: 'packages/ui' },
-      context(connector, {
-        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+    expect(
+      bashTarget(context(connector), {
+        command: 'env',
+        cwd: 'machine://devl/srv/app',
+        env: { BASH_TEST_ADDITION: 'declared-value' },
       }),
-      5,
-    );
-    const session = await peer.session(0);
-    expect(session.calls.at(-1)?.params).toMatchObject({
-      cwd: '/home/me/shop/packages/ui',
+    ).toMatchObject({
+      target: 'machine',
+      input: {
+        command: 'env',
+        cwd: 'machine://devl/srv/app',
+        env: { BASH_TEST_ADDITION: 'declared-value' },
+      },
     });
   });
 
-  it('uses the Machine Workspace root for an omitted cwd', async () => {
-    stubFence();
+  it.each([
+    {
+      label: 'a Machine listing without a path',
+      context: (connector: MachineConnector) => context(connector),
+      cwd: 'machine://devl',
+    },
+    {
+      label: 'a local path without a current Machine',
+      context: (connector: MachineConnector) =>
+        context(connector, {
+          machines: undefined,
+          localMachine: undefined,
+          defaultMachine: undefined,
+        }),
+      cwd: '/tmp',
+    },
+  ])(
+    'refuses $label before creating a job',
+    ({ context: makeContext, cwd }) => {
+      const { connector } = fixture();
 
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    await runTool(
-      bashTool,
-      { command: 'pwd' },
-      context(connector, {
-        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
-      }),
-      5,
-    );
-    const session = await peer.session(0);
-    expect(session.calls.at(-1)?.params).toMatchObject({
-      cwd: '/home/me/shop',
-    });
-  });
-
-  it('maps a bare absolute cwd in a Machine Workspace', async () => {
-    stubFence();
-
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    await runTool(
-      bashTool,
-      { command: 'pwd', cwd: '/home/me/shop/src' },
-      context(connector, {
-        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
-      }),
-      5,
-    );
-    const session = await peer.session(0);
-    expect(session.calls.at(-1)?.params).toMatchObject({
-      cwd: '/home/me/shop/src',
-    });
-  });
-
-  it('refuses a local cwd with no current Machine without opening a session', async () => {
-    const { peer, connector } = fixture();
-    await expect(
-      runTool(bashTool, { command: 'pwd', cwd: '/tmp' }, context(connector), 5),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
-    expect(peer.sessions).toHaveLength(0);
-  });
-
-  it('settles a lost command session as outcome_unknown', async () => {
-    stubFence();
-
-    const { peer, connector } = fixture({
-      answers: { 'proc.bash': { hold: true } },
-    });
-
-    const call = runTool(
-      bashTool,
-      { command: 'sleep 30', cwd: 'machine://devl/srv/app' },
-      context(connector),
-      5,
-    );
-
-    const session = await peer.session(0);
-    await session.awaitRequests(1);
-    session.drop({ code: 255, diagnostic: 'Connection reset by peer' });
-    await expect(call).resolves.toMatchObject({
-      status: 'error',
-      type: 'outcome_unknown',
-    });
-  });
-
-  it('refuses a listing form as a cwd before any effect', async () => {
-    const { peer, connector } = fixture();
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
-    expect(peer.sessions).toHaveLength(0);
-  });
-
-  it('reports a Machine refusal as a settled bash result', async () => {
-    stubFence();
-
-    const { connector } = fixture({
-      answers: { 'proc.bash': { error: 'path_not_registered' } },
-    });
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toMatchObject({
-      status: 'error',
-      type: 'path_not_registered',
-    });
-  });
+      expect(
+        bashTarget(makeContext(connector), { command: 'pwd', cwd }),
+      ).toMatchObject({ status: 'error', type: 'invalid_path' });
+    },
+  );
 });
 
 describe('Machine permission matching', () => {
@@ -1762,20 +1506,26 @@ describe('Machine permission matching', () => {
   });
 
   it('matches a Machine bash cwd as its canonical locator', async () => {
-    stubFence();
+    const { connector } = fixture();
+    const toolContext = context(connector);
 
-    const { connector } = fixture({
-      answers: {
-        'proc.bash': {
-          value: {
-            status: 'success',
-            exitCode: 0,
-            stdout: '',
-            stderr: '',
-            truncated: false,
-          },
-        },
-      },
+    const bashJobs = new BashJobRegistry(
+      toolContext.tenantDb,
+      connector,
+      { config: BUILT_IN_DEFAULTS },
+      new BashJobRegistryRunStageService(
+        toolContext.tenantDb,
+        { config: BUILT_IN_DEFAULTS },
+        { startOnSettlement: () => Promise.resolve(undefined) },
+        { wakeForChatInTransaction: () => Promise.resolve(false) },
+      ),
+    );
+
+    const executeJob = vi.spyOn(bashJobs, 'run').mockResolvedValue({
+      status: 'success',
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
     });
 
     const policy = compileToolPermissionMap(
@@ -1789,7 +1539,7 @@ describe('Machine permission matching', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'MACHINE://DEVL/srv/app' },
-        context(connector, { permissionPolicy: policy }),
+        { ...toolContext, bashJobs, permissionPolicy: policy },
         5,
       ),
     ).resolves.toMatchObject({ status: 'success' });
@@ -1797,10 +1547,11 @@ describe('Machine permission matching', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'machine://devl/srv/other' },
-        context(connector, { permissionPolicy: policy }),
+        { ...toolContext, bashJobs, permissionPolicy: policy },
         5,
       ),
     ).resolves.toMatchObject({ status: 'error', type: 'permission_denied' });
+    expect(executeJob).toHaveBeenCalledOnce();
   });
 });
 
@@ -2711,136 +2462,5 @@ describe('Machine mutation addressing and results', () => {
       operation: 'edit',
       path: 'machine://devl/srv/app/a.ts',
     });
-  });
-});
-
-describe('Machine bash working directories', () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  const BASH_OK = {
-    status: 'success',
-    exitCode: 0,
-    stdout: '',
-    stderr: '',
-    truncated: false,
-  };
-
-  it('takes a selector-shaped suffix in a Machine cwd as path text', async () => {
-    stubFence();
-    const request = vi.spyOn(MachineConnector.prototype, 'request');
-
-    const { connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    await expect(
-      bashTool.execute(context(connector), {
-        command: 'pwd',
-        cwd: 'machine://devl/srv/app:1-5',
-      }),
-    ).resolves.toMatchObject({ status: 'success' });
-
-    // grep parses no selector and bash takes its directory literally, so the
-    // daemon receives the directory the model named.
-    expect(request).toHaveBeenCalledWith(
-      'devl',
-      'proc.bash',
-      expect.objectContaining({ cwd: '/srv/app:1-5' }),
-      expect.anything(),
-    );
-  });
-
-  it('refuses a non-absolute cwd inside a Machine Workspace', async () => {
-    const { peer, connector } = fixture();
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'kb://notes' },
-        context(connector, {
-          workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
-        }),
-        5,
-      ),
-    ).resolves.toMatchObject({
-      status: 'error',
-      type: 'invalid_path',
-    });
-    expect(peer.sessions).toHaveLength(0);
-  });
-
-  it('refuses a Machine cwd without a Machine surface', async () => {
-    const disabled = new MachineConnector({
-      machines: undefined,
-      hubVersion: '9.9.9',
-      bindIdentity: () => Promise.resolve('match'),
-    });
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(disabled),
-        5,
-      ),
-    ).resolves.toEqual({
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
-    });
-  });
-
-  it('refuses an unconfigured Machine cwd before asking for a Run identity', async () => {
-    const { peer, connector } = fixture();
-
-    await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://nope/srv/app' },
-        context(connector, { runId: undefined }),
-        5,
-      ),
-    ).resolves.toMatchObject({
-      status: 'error',
-      type: 'machine_not_found',
-    });
-    expect(peer.sessions).toHaveLength(0);
-  });
-
-  it('sends the declared env and the call signal to the Machine', async () => {
-    stubFence();
-    const request = vi.spyOn(MachineConnector.prototype, 'request');
-
-    const { connector } = fixture({
-      answers: { 'proc.bash': { value: BASH_OK } },
-    });
-
-    const controller = new AbortController();
-
-    await expect(
-      bashTool.execute(context(connector, { abortSignal: controller.signal }), {
-        command: 'env',
-        cwd: 'machine://devl/srv/app',
-        env: { BASH_TEST_ADDITION: 'declared-value' },
-      }),
-    ).resolves.toMatchObject({ status: 'success' });
-
-    expect(request).toHaveBeenCalledWith(
-      'devl',
-      'proc.bash',
-      {
-        envelope: {
-          runId: 'run',
-          attemptId: 'attempt-1',
-          toolCallId: 'call',
-          deliverySeq: 1,
-          budgetMs: 300_000,
-        },
-        command: 'env',
-        cwd: '/srv/app',
-        env: { BASH_TEST_ADDITION: 'declared-value' },
-      },
-      { signal: controller.signal },
-    );
   });
 });

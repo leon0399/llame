@@ -12,21 +12,21 @@ describe('job locators', () => {
 
   it('names the artifact of a job that stored one, with the same number', () => {
     expect(
-      jobArtifactLocatorOf({ executor: 'bash', seq: 7, artifactId: 'a1' }),
+      jobArtifactLocatorOf({ kind: 'bash', seq: 7, artifactId: 'a1' }),
     ).toBe('artifact://bash-7');
     expect(
-      jobArtifactLocatorOf({ executor: 'bash', seq: 7, artifactId: null }),
+      jobArtifactLocatorOf({ kind: 'bash', seq: 7, artifactId: null }),
     ).toBeUndefined();
   });
 
   it('parses the record, the output, and an upper-case scheme', () => {
     expect(parseJobLocatorText('job://bash-4')).toEqual({
-      executor: 'bash',
+      kind: 'bash',
       seq: 4,
       output: undefined,
     });
     expect(parseJobLocatorText('JOB://bash-4/stderr')).toEqual({
-      executor: 'bash',
+      kind: 'bash',
       seq: 4,
       output: 'stderr',
     });

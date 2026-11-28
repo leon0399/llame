@@ -1,6 +1,6 @@
 /**
  * MachineTransport — the hub's `@ai-sdk/mcp` transport over one `mcp.open`
- * channel (remote-machines design D6; spec "Workspace MCP servers of a Machine
+ * bidi stream (remote-machines design D6; spec "Workspace MCP servers of a
  * Workspace run from the Machine").
  *
  * The Machine owns everything that names a process or an endpoint: it resolves
@@ -10,7 +10,7 @@
  * hub may make: the protected values of the definition the Machine actually
  * started are secrets from the moment they arrive, the diagnostics the Machine
  * relays are bounded and redacted a second time on this side, and a closed
- * channel is a crashed server rather than a transport hiccup.
+ * stream is a crashed server rather than a transport hiccup.
  */
 
 import {
@@ -20,17 +20,11 @@ import {
   type MCPTransportSendOptions,
 } from '@ai-sdk/mcp';
 import {
-  CANCEL_NOTIFICATION,
-  isSerializableRecord,
-  isStringValue,
-  MCP_MESSAGE_NOTIFICATION,
-  MCP_PROTECTED_NOTIFICATION,
-  MCP_SET_PROTOCOL_VERSION_NOTIFICATION,
-  MCP_STDERR_NOTIFICATION,
-  type JsonRpcNotification,
+  create,
   type JsonValue,
-  type MachineChannel,
-  type SerializableValue,
+  OpenSessionRequestSchema,
+  type OpenSessionRequest,
+  type OpenSessionResponse,
 } from '@workspace/machine-protocol';
 import { DiagnosticBuffer } from '@workspace/mcp-workspace';
 import {
@@ -41,10 +35,8 @@ import {
   normalizeProtectedValues,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
-
 import type { MachineConnector } from './machine-connector.service';
-import { readMcpOpenResult } from './machine-results';
-import type { MachineRequestEnvelope } from './machine-session';
+import type { MachineRequestEnvelope, MachineSession } from './machine-session';
 
 export type MachineMcpTransportOptions = {
   readonly connector: MachineConnector;
@@ -56,12 +48,61 @@ export type MachineMcpTransportOptions = {
   readonly server: string;
   /** The identity and time budget every `mcp.*` request of this session carries. */
   readonly envelope: MachineRequestEnvelope;
-  /** Aborting this closes the channel, which is how the Machine is told to
-   *  stop the server it started. */
+  /** Aborting closes the stream, which tells the Machine to stop the server. */
   readonly signal?: AbortSignal;
   /** One bounded, redacted line the Machine relayed on this server's stderr. */
   readonly onDiagnostic?: (text: string) => void;
 };
+
+class AsyncQueue<T> implements AsyncIterable<T> {
+  private readonly values: Array<T> = [];
+  private readonly readers: Array<(result: IteratorResult<T>) => void> = [];
+  private ended = false;
+
+  push(value: T): void {
+    const reader = this.readers.shift();
+
+    if (reader === undefined) this.values.push(value);
+    else reader({ done: false, value });
+  }
+
+  close(): void {
+    if (this.ended) return;
+    this.ended = true;
+
+    for (const reader of this.readers.splice(0))
+      reader({ done: true, value: undefined });
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: () => {
+        const value = this.values.shift();
+
+        if (value !== undefined) return Promise.resolve({ done: false, value });
+
+        if (this.ended)
+          return Promise.resolve({ done: true, value: undefined });
+        const deferred = Promise.withResolvers<IteratorResult<T>>();
+        this.readers.push(deferred.resolve);
+
+        return deferred.promise;
+      },
+      return: () => {
+        this.close();
+
+        return Promise.resolve({ done: true, value: undefined });
+      },
+      throw: (error: unknown) => {
+        this.close();
+
+        return Promise.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      },
+    };
+  }
+}
 
 export class MachineTransport implements MCPTransport {
   onclose?: () => void;
@@ -69,34 +110,23 @@ export class MachineTransport implements MCPTransport {
   onmessage?: (message: JSONRPCMessage) => void;
   protocolVersion?: string;
 
-  private channel: MachineChannel | undefined;
+  private input: AsyncQueue<OpenSessionRequest> | undefined;
+  private reader: AsyncIterator<OpenSessionResponse> | undefined;
+  private session: MachineSession | undefined;
+  private released = false;
+  private streamController: AbortController | undefined;
   private starting: Promise<void> | undefined;
   private diagnostics: DiagnosticBuffer | undefined;
   private values: ReadonlyArray<string> = [];
-  /** llame's own close: not a loss, so no `onclose` is reported for it. */
   private shutdown = false;
-  /** The Machine ended the channel: every later call fails. */
   private halted = false;
-  /** Whether the Machine's answer to `mcp.open` arrived, i.e. whether this
-   *  channel is one the hub published to the MCP client. */
   private published = false;
-
   constructor(private readonly options: MachineMcpTransportOptions) {}
 
-  /**
-   * Whether the Machine ended this channel before llame closed it. The MCP
-   * client reports that as a crashed server instead of a transport fault.
-   */
   get lost(): boolean {
     return this.halted;
   }
 
-  /**
-   * The values the Machine resolved for the definition it actually started,
-   * plus every value learned since (an HTTP session id). Read at each use,
-   * never cached: a value learned after discovery must still be redacted from
-   * the next declaration, result, or diagnostic.
-   */
   protectedValues(): ReadonlyArray<string> {
     return normalizeProtectedValues(this.values);
   }
@@ -112,201 +142,281 @@ export class MachineTransport implements MCPTransport {
     options?: MCPTransportSendOptions,
   ): Promise<void> {
     options?.signal?.throwIfAborted();
-    const channel = this.channel;
 
-    if (channel === undefined || this.halted || this.shutdown) {
+    if (this.input === undefined || this.halted || this.shutdown) {
       return Promise.reject(
-        new Error('The Machine Workspace MCP channel is closed.'),
+        new Error('The Machine Workspace MCP stream is closed.'),
       );
     }
 
-    channel.notify(MCP_MESSAGE_NOTIFICATION, {
-      message: toJsonValue(message),
-    });
+    this.input.push(
+      create(OpenSessionRequestSchema, {
+        message: {
+          case: 'jsonRpc',
+          value: JSON.stringify(toJsonValue(message)),
+        },
+      }),
+    );
 
     return Promise.resolve();
   }
 
   setProtocolVersion(version: string): void {
     this.protocolVersion = version;
-    this.channel?.notify(MCP_SET_PROTOCOL_VERSION_NOTIFICATION, { version });
+
+    if (this.input !== undefined && !this.shutdown && !this.halted) {
+      this.input.push(
+        create(OpenSessionRequestSchema, {
+          message: { case: 'protocolVersion', value: version },
+        }),
+      );
+    }
   }
 
-  close(): Promise<void> {
+  async close(): Promise<void> {
     this.shutdown = true;
-    const channel = this.channel;
-    this.channel = undefined;
     this.diagnostics?.flush();
-    // `cancel` is how the protocol says a stream is given up, and it is the
-    // Machine's signal to put down the server it started for this channel.
-    channel?.notify(CANCEL_NOTIFICATION, {});
-    channel?.close();
-
-    return Promise.resolve();
+    this.streamController?.abort();
+    this.input?.close();
+    await this.reader?.return?.();
+    this.releaseSession();
   }
 
   private async open(): Promise<void> {
-    if (this.shutdown) {
+    if (this.shutdown)
       throw new Error('The Machine Workspace MCP transport is closed.');
-    }
+    this.options.signal?.throwIfAborted();
 
-    const handle = await this.options.connector.openChannel(
+    const session = await this.options.connector.machineSession(
       this.options.machine,
-      'mcp.open',
-      {
-        envelope: this.options.envelope,
-        root: this.options.root,
-        server: this.options.server,
-      },
-      this.options.signal === undefined ? {} : { signal: this.options.signal },
     );
 
-    this.channel = handle.channel;
-    this.listen(handle.channel);
-    await this.publish(handle.result);
+    this.session = session;
+
+    if (this.shutdown) {
+      this.releaseSession();
+
+      return;
+    }
+
+    const input = new AsyncQueue<OpenSessionRequest>();
+    const controller = new AbortController();
+    this.input = input;
+    this.streamController = controller;
+    await this.openStream(session, input, controller);
   }
 
-  /** Every notification this channel carries, and the one way it ends. */
-  private listen(channel: MachineChannel): void {
-    channel.onNotification((notification) => this.receive(notification));
-    channel.onClose(() => {
-      // Before the Machine's answer the channel is not yet the MCP client's,
-      // so a close here is part of a failed start, not a lost server.
-      if (this.published) {
-        this.fail(new Error('The Machine closed this Workspace MCP channel.'));
-      }
-    });
-  }
+  private async openStream(
+    session: MachineSession,
+    input: AsyncQueue<OpenSessionRequest>,
+    controller: AbortController,
+  ): Promise<void> {
+    const openingController = new AbortController();
+    const signals = [controller.signal, openingController.signal];
 
-  /** The Machine's answer to `mcp.open`: the protected values of the
-   *  definition it actually started, and the point the channel becomes the
-   *  MCP client's to lose. */
-  private async publish(result: Promise<JsonValue>): Promise<void> {
-    let value: JsonValue;
+    if (this.options.signal !== undefined) signals.push(this.options.signal);
+
+    const signal = AbortSignal.any(signals);
+
+    const openingTimer = setTimeout(
+      () => openingController.abort(),
+      this.options.envelope.budgetMs,
+    );
+
+    openingTimer.unref();
 
     try {
-      value = await result;
+      const callOptions = session.callOptions({
+        signal,
+        envelope: this.options.envelope,
+      });
+
+      delete callOptions.timeoutMs;
+
+      const reader = session.clients.mcp
+        .openSession(input, callOptions)
+        [Symbol.asyncIterator]();
+
+      this.reader = reader;
+      await this.openSession(input, reader);
     } catch (error) {
-      const channel = this.channel;
-      this.channel = undefined;
-      channel?.close();
-      throw error instanceof Error ? error : new Error(String(error));
+      input.close();
+      await this.reader?.return?.();
+      throw session.mapRefusal(error, true);
+    } finally {
+      clearTimeout(openingTimer);
     }
-
-    const opened = readMcpOpenResult(value);
-
-    if (opened === undefined) {
-      this.fail(new Error('The Machine answered an unusable mcp.open result.'));
-      throw new Error('The Machine answered an unusable mcp.open result.');
-    }
-
-    this.learn(opened.protectedValues);
-    this.published = true;
   }
 
-  private receive(notification: JsonRpcNotification): void {
-    switch (notification.method) {
-      case MCP_STDERR_NOTIFICATION: {
-        this.appendDiagnostic(readText(notification.params));
+  private async openSession(
+    input: AsyncQueue<OpenSessionRequest>,
+    reader: AsyncIterator<OpenSessionResponse>,
+  ): Promise<void> {
+    input.push(
+      create(OpenSessionRequestSchema, {
+        message: {
+          case: 'open',
+          value: { workspace: this.options.root, server: this.options.server },
+        },
+      }),
+    );
 
-        return;
-      }
+    if (this.protocolVersion !== undefined) {
+      input.push(
+        create(OpenSessionRequestSchema, {
+          message: { case: 'protocolVersion', value: this.protocolVersion },
+        }),
+      );
+    }
 
-      case MCP_PROTECTED_NOTIFICATION: {
-        this.learn(readValues(notification.params));
+    const first = await reader.next();
 
-        return;
-      }
+    if (first.done)
+      throw new Error('The Machine closed the MCP stream before opening it.');
+    const message = first.value.message;
 
-      case MCP_MESSAGE_NOTIFICATION: {
-        const message = readRelayedMessage(notification.params);
+    if (message.case === 'failure') {
+      throw new Error(
+        `The Machine MCP server is unavailable: ${message.value.message}`,
+      );
+    }
 
-        if (message === undefined) {
-          this.fail(
-            new Error(
-              'The Machine relayed a message that is not a JSON-RPC message.',
-            ),
-          );
+    if (message.case !== 'opened') {
+      throw new Error('The Machine answered an unusable mcp.open response.');
+    }
+
+    this.learn(message.value.secrets?.values ?? []);
+    this.published = true;
+    void this.receiveStream(reader);
+  }
+
+  private async receiveStream(
+    reader: AsyncIterator<OpenSessionResponse>,
+  ): Promise<void> {
+    try {
+      while (true) {
+        const next = await reader.next();
+
+        if (next.done) {
+          this.handleStreamEnd();
 
           return;
         }
 
-        this.onmessage?.(message);
+        this.receive(next.value);
+      }
+    } catch (error) {
+      let reported = error instanceof Error ? error : new Error(String(error));
+
+      try {
+        reported = this.session?.mapRefusal(error, true) ?? reported;
+      } catch {
+        // Preserve the receive error if refusal mapping itself fails.
+      }
+
+      this.fail(reported);
+    }
+  }
+
+  private handleStreamEnd(): void {
+    if (this.published && !this.shutdown) {
+      this.fail(new Error('The Machine closed this Workspace MCP stream.'));
+    }
+  }
+
+  private receive(response: OpenSessionResponse): void {
+    const message = response.message;
+
+    switch (message.case) {
+      case 'jsonRpc': {
+        let decoded: JSONRPCMessage;
+
+        try {
+          decoded = validateJSONRPCMessage(JSON.parse(message.value));
+        } catch {
+          this.fail(new Error('The Machine relayed invalid JSON-RPC text.'));
+
+          return;
+        }
+
+        this.onmessage?.(decoded);
 
         return;
       }
 
-      default:
+      case 'stderr':
+        this.appendDiagnostic(message.value);
+
         return;
+      case 'secrets':
+        this.learn(message.value.values);
+
+        return;
+      case 'failure':
+        this.fail(
+          new Error(`The Machine MCP server failed: ${message.value.message}`),
+        );
+
+        return;
+      default:
+        this.fail(
+          new Error('The Machine sent an unexpected mcp.open response.'),
+        );
     }
   }
 
-  /** The channel is unusable from here on: a crashed server. A channel the
-   *  Machine still holds open is cancelled, so the server it started stops. */
   private fail(error: Error): void {
     if (this.halted || this.shutdown) return;
     this.halted = true;
-    const channel = this.channel;
-    this.channel = undefined;
+    this.input?.close();
+    const closing = this.reader?.return?.();
 
-    if (channel !== undefined && !channel.closed) {
-      channel.notify(CANCEL_NOTIFICATION, {});
-      channel.close();
+    if (closing !== undefined) void closing.catch(() => undefined);
+
+    try {
+      this.releaseSession();
+    } catch {
+      // Preserve the receive failure if session cleanup itself fails.
     }
 
-    this.diagnostics?.flush();
-    this.onerror?.(error);
-    this.onclose?.();
+    try {
+      this.diagnostics?.flush();
+    } catch {
+      // Diagnostic consumers must not escape the detached receive loop.
+    }
+
+    try {
+      this.onerror?.(error);
+    } catch {
+      // A consumer error handler must not escape the detached receive loop.
+    }
+
+    try {
+      this.onclose?.();
+    } catch {
+      // Closing is best-effort after the failure has been delivered.
+    }
   }
 
-  /** Takes protected values into the set diagnostics and results redact
-   *  against, dropping the buffer so the wider set applies from here on. */
+  private releaseSession(): void {
+    const session = this.session;
+
+    if (session === undefined || this.released) return;
+    this.released = true;
+    this.options.connector.releaseMachineSession(this.options.machine, session);
+  }
+
   private learn(values: ReadonlyArray<string>): void {
     if (values.length === 0) return;
     this.values = normalizeProtectedValues([...this.values, ...values]);
     this.diagnostics = undefined;
   }
 
-  private appendDiagnostic(text: string | undefined): void {
-    if (text === undefined) return;
+  private appendDiagnostic(text: string): void {
     this.diagnostics ??= new DiagnosticBuffer(this.values, (line) =>
       this.options.onDiagnostic?.(line),
     );
     this.diagnostics.append(text);
-  }
-}
-
-/** One line of diagnostic text the Machine relayed, if that is what it is. */
-function readText(params: JsonValue | undefined): string | undefined {
-  if (!isSerializableRecord(params)) return undefined;
-  const text = params['text'];
-
-  return isStringValue(text) ? text : undefined;
-}
-
-/** The values a later-learned protected-value notification carries. */
-function readValues(params: JsonValue | undefined): ReadonlyArray<string> {
-  if (!isSerializableRecord(params)) return [];
-  const values = params['values'];
-
-  return isTextList(values) ? values : [];
-}
-
-function isTextList(value: SerializableValue): value is ReadonlyArray<string> {
-  return Array.isArray(value) && value.every((entry) => isString(entry));
-}
-
-/** The JSON-RPC message a relayed notification carries, validated rather than
- *  asserted: everything the Machine relays is untrusted input. */
-function readRelayedMessage(
-  params: JsonValue | undefined,
-): JSONRPCMessage | undefined {
-  if (!isSerializableRecord(params)) return undefined;
-
-  try {
-    return validateJSONRPCMessage(params['message']);
-  } catch {
-    return undefined;
   }
 }
 

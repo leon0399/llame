@@ -16,20 +16,25 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
-import type { JsonValue } from '@workspace/machine-protocol';
+import {
+  type JsonValue,
+  type MachineMethod,
+  type MachineMethodParams,
+} from '@workspace/machine-protocol';
 
 import {
   createProtocolPeer,
   type ProtocolPeer,
 } from '../testing/machine-protocol-peer';
 
+import type { MachineRequestOptions } from './machine-session';
 import type { MachineTransportFactory } from './machine-transport';
 import { MachineBindingsRepository } from './machine-bindings.repository';
 import {
   MachineConnector,
   type MachineConnectorDeps,
 } from './machine-connector.service';
-import { MachineIdentityMismatchError } from './machine-session';
+import { MachineIdentityMismatchError } from './machine-session-errors';
 import type { MachineContact } from './machines-status';
 
 type SqlClient = Sql;
@@ -50,14 +55,40 @@ function transportOf(
   peers: ReadonlyArray<ProtocolPeer>,
 ): MachineTransportFactory {
   let opened = 0;
+  let active: ProtocolPeer | undefined;
 
   return {
+    requestHandler: <M extends MachineMethod>(
+      method: M,
+      params: MachineMethodParams[M],
+      options: MachineRequestOptions,
+    ) => {
+      const handler = active?.factory.requestHandler;
+
+      if (handler === undefined) {
+        throw new Error('the suite has no active peer request handler');
+      }
+
+      return handler(method, params, options);
+    },
+    streamHandler: (invocation) => {
+      const handler = active?.factory.streamHandler;
+
+      if (handler === undefined) {
+        return Promise.reject(
+          new Error('the suite has no active peer stream handler'),
+        );
+      }
+
+      return handler(invocation);
+    },
     open: (request) => {
       const peer = peers[Math.min(opened, peers.length - 1)];
 
       opened += 1;
 
       if (peer === undefined) throw new Error('the suite has no peer left');
+      active = peer;
 
       return peer.factory.open(request);
     },

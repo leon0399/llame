@@ -21,13 +21,8 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isRecord } from '@workspace/runtime-safety';
-import { and, eq } from 'drizzle-orm';
 
-import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { newChatJob } from '../testing/chat-job-rows';
 import {
   fakeResolveSelection,
   unexpectedCreateClient,
@@ -715,74 +710,6 @@ describeIfDb(
       });
     });
 
-    // background-jobs Scenario: A crash is found at the next message
-    it('settles a job of a dead worker as lost at the Run claim, before the first model request', async () => {
-      const chatId = await createChat();
-      const turn = await seedTurn(chatId);
-      const deadWorker = crypto.randomUUID();
-
-      await sql`INSERT INTO worker_instances (id, last_seen_at)
-        VALUES (${deadWorker}, now() - make_interval(secs => ${workerDeadAfterSeconds(BUILT_IN_DEFAULTS) + 5}))`;
-
-      const crashed = await tenantDb.runAs(userId, (tx) =>
-        new ChatJobsRepository(tx).insert(
-          newChatJob({
-            chatId,
-            ownerUserId: userId,
-            seq: 1,
-            runId: turn.runId,
-            workerInstanceId: deadWorker,
-          }),
-        ),
-      );
-
-      const statesAtRequest: Array<string | undefined> = [];
-
-      const model = new MockLanguageModelV3({
-        doStream: async () => {
-          const job = await tenantDb.runAs(userId, (tx) =>
-            new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
-          );
-
-          statesAtRequest.push(job?.state);
-
-          return {
-            stream: simulateReadableStream({ chunks: answerChunks('Done.') }),
-          };
-        },
-      });
-
-      try {
-        const result = await execute(turn, scriptedClient(model));
-        await result.consumeStream?.();
-        await waitForEvent(turn.runId, 'run.completed');
-
-        const settled = await tenantDb.runAs(userId, (tx) =>
-          new ChatJobsRepository(tx).findById(chatId, userId, crashed.id),
-        );
-
-        const notices = await tenantDb.runAs(userId, (tx) =>
-          tx
-            .select({ id: schema.chatDeliveries.id })
-            .from(schema.chatDeliveries)
-            .where(
-              and(
-                eq(schema.chatDeliveries.chatId, chatId),
-                eq(schema.chatDeliveries.ownerUserId, userId),
-                eq(schema.chatDeliveries.producer, 'job'),
-                eq(schema.chatDeliveries.senderRef, crashed.id),
-              ),
-            ),
-        );
-
-        expect(settled?.state).toBe('lost');
-        expect(notices).toHaveLength(1);
-        expect(statesAtRequest[0]).toBe('lost');
-      } finally {
-        await sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`;
-      }
-    });
-
     const writers: ReadonlyArray<TerminalWriter> = [
       {
         name: 'retry exhaustion (dead letter)',
@@ -892,7 +819,6 @@ describeIfDb(
             .spyOn(SystemPromptsService.prototype, 'render')
             .mockReturnValue({
               text: '',
-              chatsDisclosure: { pinned: new Set(), recent: new Set() },
             });
 
           try {

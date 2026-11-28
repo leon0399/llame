@@ -16,7 +16,7 @@ import {
   type BashTimedOutResult,
   type BashUnavailableResult,
   type BashUnknownResult,
-} from '@workspace/bash-executor';
+} from './bash-contract';
 
 import { type ToolResult } from './types';
 

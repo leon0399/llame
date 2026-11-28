@@ -32,7 +32,9 @@ import {
 import { toMessageParts, toRunUserMessage } from './chat-message-parts';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
+import { findEarliestUserMessagePerChat } from './recency-digest-message-projections';
 
+import { newChatJob } from '../testing/chat-job-rows';
 import { createCompactionContinueItem } from './compaction-continue-item';
 
 const databaseUrl = process.env['TEST_DATABASE_URL'];
@@ -184,21 +186,18 @@ describe('seeded host history boundaries', () => {
     });
 
     const job = await worker.tenantDb.runAs(owner, (tx) =>
-      new ChatJobsRepository(tx).insert({
-        chatId: seed.chat.id,
-        ownerUserId: owner,
-        executor: 'bash',
-        seq: 1,
-        runId: seed.priorRun.id,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: {
-          selector: 'system:openai:gpt-5.5',
-          permissionMode: 'default',
-        },
-      }),
+      new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: seed.chat.id,
+          ownerUserId: owner,
+          seq: 1,
+          runId: seed.priorRun.id,
+          settings: {
+            selector: 'system:openai:gpt-5.5',
+            permissionMode: 'default',
+          },
+        }),
+      ),
     );
 
     await settleBashJob(
@@ -212,12 +211,12 @@ describe('seeded host history boundaries', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'failed', result: { exitCode: 1 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: worker.moduleRef.get(JobNoticeRunService),
+        wake: { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
       },
     );
 
@@ -452,7 +451,8 @@ describe('seeded host history boundaries', () => {
         parts: noticeParts,
       });
 
-      const selected = await messages.findEarliestUserMessagePerChat(
+      const selected = await findEarliestUserMessagePerChat(
+        tx,
         [hostOnly.id, earlierHost.id, chat.id],
         owner,
       );
@@ -566,21 +566,18 @@ describe('seeded host history boundaries', () => {
     });
 
     const job = await worker.tenantDb.runAs(owner, (tx) =>
-      new ChatJobsRepository(tx).insert({
-        chatId: seed.chat.id,
-        ownerUserId: owner,
-        executor: 'bash',
-        seq: 1,
-        runId: seed.priorRun.id,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: {
-          selector: 'system:openai:gpt-5.5',
-          permissionMode: 'default',
-        },
-      }),
+      new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: seed.chat.id,
+          ownerUserId: owner,
+          seq: 1,
+          runId: seed.priorRun.id,
+          settings: {
+            selector: 'system:openai:gpt-5.5',
+            permissionMode: 'default',
+          },
+        }),
+      ),
     );
 
     await settleBashJob(
@@ -594,12 +591,12 @@ describe('seeded host history boundaries', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: worker.moduleRef.get(JobNoticeRunService),
+        wake: { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
       },
     );
 

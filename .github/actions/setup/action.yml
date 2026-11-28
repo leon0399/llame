@@ -24,6 +24,15 @@ runs:
     # script (lefthook install) dies. No-op on host runners.
     - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       shell: bash
+    # Install the pinned toolchain and every component used by lint/build before
+    # Turbo starts concurrent Rust tasks; otherwise rustup races to install cargo.
+    - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+      with:
+        toolchain: 1.98.1
+        components: rustfmt, clippy
+        targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
     # pnpm/setup@v2 replaces pnpm/action-setup + actions/setup-node (v11+
     # only). install:false because the action's default `pnpm install` is not
@@ -76,7 +85,7 @@ runs:
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: .turbo/cache
-        key: turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+        key: turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
         restore-keys: |
-          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
-          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-
+          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}-
+          turbo-${{ inputs.turbo-cache }}-${{ runner.os }}-${{ runner.arch }}-

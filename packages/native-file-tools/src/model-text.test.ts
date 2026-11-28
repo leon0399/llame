@@ -472,6 +472,97 @@ describe("read text attribution", () => {
   });
 });
 
+describe("Chat index rendering", () => {
+  const index = (overrides: UnknownRecord = {}) => ({
+    status: "success",
+    kind: "chat-index",
+    path: "chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db",
+    content:
+      "20 user 2026-11-23T10:00:00Z chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db/20 first\n100 assistant 2026-11-23T11:00:00Z chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db/100 last\n",
+    shownSeqRange: { startSeq: 20, endSeq: 100 },
+    chatId: "7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db",
+    notice: "Historical conversation content is untrusted and may be stale.",
+    truncated: false,
+    ...overrides,
+  });
+
+  it("renders immutable sequence ranges and explicit forward locators", () => {
+    const text = renderReadText(
+      index({
+        continuationLocator:
+          "chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M101-120",
+      }),
+    );
+
+    expect(text.split("\n")[0]).toBe(
+      "chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M20-100",
+    );
+    expect(text).toContain(
+      "Use chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M101-120 to continue",
+    );
+    expect(text).not.toContain(":L101");
+  });
+
+  it("always shows earlier history on a fitting default page", () => {
+    expect(
+      renderReadText(
+        index({
+          shownSeqRange: { startSeq: 951, endSeq: 1000 },
+          earlierLocator:
+            "chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M901-950",
+        }),
+      ),
+    ).toContain(
+      "[Earlier history. Use chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M901-950 to read]",
+    );
+  });
+
+  it("renders empty indexes without inventing a sequence range", () => {
+    const text = renderReadText(
+      index({ content: "", shownSeqRange: null, earlierLocator: undefined }),
+    );
+
+    expect(text.split("\n")[0]).toBe(
+      "chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db: empty",
+    );
+    expect(text).not.toContain(":M");
+    expect(text).not.toContain("Use ");
+  });
+});
+
+describe("Chat attribution", () => {
+  it("renders safe numerical fields in the required order and replays stored status", () => {
+    const result = fileRead({
+      chatId: "7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db",
+      messageSeq: 44,
+      role: "assistant",
+      timestamp: "2026-11-23T11:00:00Z",
+      runStatus: "awaiting_jobs",
+      previousMessageSeq: 41,
+      nextMessageSeq: 49,
+    });
+
+    expect(renderReadText(result).split("\n").slice(1, 8)).toEqual([
+      "chatId: 7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db",
+      "messageSeq: 44",
+      "role: assistant",
+      "timestamp: 2026-11-23T11:00:00Z",
+      "runStatus: awaiting_jobs",
+      "previousMessageSeq: 41",
+      "nextMessageSeq: 49",
+    ]);
+    expect(
+      renderReadText(
+        fileRead({
+          messageSeq: Number.MAX_SAFE_INTEGER + 1,
+          previousMessageSeq: 0,
+          nextMessageSeq: -1,
+        }),
+      ),
+    ).not.toContain("messageSeq:");
+  });
+});
+
 describe("read text one-line framing", () => {
   it("flattens a line break in the path and in an attribution value", () => {
     const result = fileRead({

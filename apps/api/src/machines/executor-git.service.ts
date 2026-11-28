@@ -8,7 +8,7 @@ import {
   type GitWorktreeAddResult,
   type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 import {
   GIT_INSPECT_METHOD,
   GIT_LOCATE_METHOD,
@@ -279,15 +279,20 @@ export class ExecutorGit {
     const entry = this.executorPath(target, gitEntry);
 
     return askGit(this.connector, target.machine, GIT_STATE_METHOD, {
-      build: (envelope, display) => ({
-        envelope,
-        options: display,
-        path,
-        gitEntry: entry,
-        limit,
-        submodules,
-        timeoutMs,
-      }),
+      build: (envelope, display) => {
+        const params = {
+          envelope,
+          options: display,
+          path,
+          gitEntry: entry,
+          limit,
+          submodules,
+        };
+
+        if (timeoutMs === undefined) return params;
+
+        return { ...params, timeoutMs };
+      },
       read: readGitStateResult,
       signal: options.signal,
       budgetMs: machineGitBudget(timeoutMs),
@@ -300,6 +305,8 @@ export class ExecutorGit {
       readonly source: string;
       readonly branch: string;
       readonly baseRef?: string;
+      /** The selected Checkout root whose included files the add copies. */
+      readonly copySource: string;
       readonly directory: string;
     },
   ): Promise<GitWorktreeAddResult> {
@@ -310,6 +317,7 @@ export class ExecutorGit {
         source: this.executorPath(target, input.source),
         branch: input.branch,
         baseRef: input.baseRef,
+        copySource: this.executorPath(target, input.copySource),
         directory: this.executorPath(target, input.directory),
       }),
       read: readGitWorktreeAddResult,

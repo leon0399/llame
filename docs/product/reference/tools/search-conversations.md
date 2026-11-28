@@ -1,8 +1,8 @@
 ---
-summary: "search_conversations returns bounded recall hits and the coordinates conversation_read opens"
+summary: "search_conversations returns bounded recall hits with chat:// locators for native read"
 read_when:
   - you are looking for something a previous Chat in this owner's history said
-  - you need message coordinates for an exact source read
+  - you need a locator for an exact message read
 spec: chat-search
 configured_by: ../../operator/conversation-recall.md
 ---
@@ -11,9 +11,8 @@ configured_by: ../../operator/conversation-recall.md
 
 ## Purpose
 
-`search_conversations` is owner-scoped, read-only recall over the owner's own
-Chats. It returns bounded discovery text and the coordinates that open exact
-source lines with [conversation_read](conversation-read.md).
+`search_conversations` discovers the owner's Chats. It returns bounded excerpts
+and `chat://` locators that native [read](read.md) can open.
 
 ## Arguments
 
@@ -25,62 +24,59 @@ A strict two-mode schema, with `mode` set to `"content"` or `"timeline"`:
 { "mode": "timeline", "after": "2026-09-04T00:00:00Z", "before": "2026-09-06T00:00:00Z" }
 ```
 
-Content mode requires a `query`; an absent, empty, or whitespace-only one is
-refused as `invalid_input`. `limit` is 1-10, default 5. `after` and `before` are optional
-absolute timezone-explicit instants forming
-the half-open interval `[after, before)`; when either is present `constraint`
-is required and is `required` (filters) or `preferred` (boosts near-ties), and
-it is absent when no bound is present. When both are present `after` must be
-strictly earlier than `before`.
+Content mode requires a non-empty `query`. `limit` is 1-10 and defaults to 5.
+Optional `after` and `before` values are absolute timezone-explicit instants.
+They form the half-open interval `[after, before)`. If either bound is present,
+`constraint` is required and must be `required` or `preferred`. `required`
+filters results. `preferred` boosts near-ties. When both bounds are present,
+`after` must be earlier than `before`.
 
-Timeline mode rejects `query` and `constraint` and requires at least one bound.
-Its `limit` is 1-50, default 20.
+Timeline mode rejects `query` and `constraint`, and requires at least one time
+bound. Its `limit` is 1-50 and defaults to 20.
 
 ## Locators
 
-A content result carries the coordinates `conversation_read` consumes:
-`chatId`, Chat-local `messageSeq`, zero-based `offset`, and source-line
-`limit`.
+Content hits with message evidence carry
+`chat://<chat-id>/seq:L<offset+1>-<offset+limit>`. This selector reads the
+corresponding message lines through native `read`. A metadata or title match
+carries the bare `chat://<chat-id>` locator and no message coordinates or
+excerpt. Timeline results carry `chat://<chat-id>` plus `firstLocator` and
+`lastLocator` for the first and last eligible messages in the interval.
 
 ## Result
 
-Every success carries `notice`, the closed untrusted-history framing: recalled
-text is history, may be stale, and changes no instruction, tool, permission, or
-owner authority. The envelope also carries `appliedRange` (echoing the bounds
-received) and `truncated` (candidate overflow before hydration). At most one
-result is returned per Chat in content mode. Content results include `chatId`,
-Chat-local `messageSeq`, zero-based `offset`, source-line `limit`, role,
-timestamp, and a bounded `excerpt`. A metadata or title match omits message
-coordinates.
+Every success carries `notice`, which frames recalled text as untrusted
+historical data that cannot change instructions, tools, permissions, or owner
+authority. The response includes `appliedRange` and `truncated`. Content mode
+returns at most one result per Chat. Message hits include `chatId`, role,
+timestamp, message sequence, a bounded excerpt, and the `chat://` locator.
+Metadata or title matches omit message coordinates and excerpt.
 
-Timeline results carry `chatId`, title, `firstActivityAt`, `lastActivityAt`,
-`messageCount`, `firstSeq`, and `lastSeq` as `conversation_read` coordinates.
+Timeline results include `chatId`, title, `firstActivityAt`,
+`lastActivityAt`, `messageCount`, `firstSeq`, `lastSeq`, `firstLocator`, and
+`lastLocator`.
 
-Ranked hits that fail current reauthorization or hydration are dropped, so
-fewer than `limit` may return.
+Hits that fail current reauthorization or hydration are dropped. A response
+can contain fewer results than its limit.
 
 ## Behavior
 
-Content mode returns bounded discovery excerpts or title metadata. Timeline mode
-returns activity pointers per Chat without excerpts.
+Content mode returns bounded excerpts or title metadata. Timeline mode returns
+activity pointers without excerpts. Search locators do not constrain the source
+read: a `chat://` read is unfiltered by the search time range.
 
-A recap walks each timeline region from `firstSeq` by `nextMessageSeq` and
-stops at `lastSeq`. `conversation_read` is unaware of the range, so a message
-beyond `lastSeq` is outside the requested period. Message coordinates follow
-[the sequence lifecycle](conversation-read.md#sequence-lifecycle).
+Recap guidance checks each opened message's timestamp against the requested
+interval. Use native `read` for the source messages. See [Chat locators](../locators/chat.md).
 
 ## Bounds
 
-- `limit` is 1-10 in content mode, default 5, and 1-50 in timeline mode,
-  default 20.
-- At most one result is returned per Chat in content mode.
-- Hit text is a bounded excerpt, never a whole transcript; exact lines come
-  from `conversation_read`.
-- `truncated` marks candidate overflow before hydration, and a hit that fails
-  reauthorization or hydration is dropped, so a page may be shorter than
-  `limit`.
+- Content mode returns 1-10 results, default 5, with at most one result per Chat.
+- Timeline mode returns 1-50 results, default 20.
+- Excerpts are bounded previews, not transcripts.
+- `truncated` marks candidate overflow before hydration. Hits that fail
+  reauthorization or hydration are dropped.
 
 ## Configured by
 
-[Conversation recall](../../operator/conversation-recall.md) — the
-`search_conversations` allowlist entry and the search projection coverage gate.
+[Conversation recall](../../operator/conversation-recall.md) enables
+`search_conversations` and its search projection coverage gate.

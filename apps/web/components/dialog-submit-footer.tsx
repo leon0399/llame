@@ -2,6 +2,8 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { DialogFooter } from "@workspace/ui/components/dialog";
+import { Kbd } from "@workspace/ui/components/kbd";
+import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 
 /**
  * DialogSubmitFooter is the Cancel + primary-action footer every form dialog
@@ -21,20 +23,41 @@ export function DialogSubmitFooter({
   onSubmit,
   submitLabel,
   submitDisabled,
+  submitShortcut = false,
 }: {
   onCancel: () => void;
   onSubmit: () => void;
   /** Label for the primary action, e.g. `"Create"`, `"Save"`, `"Move"`. */
   submitLabel: string;
   submitDisabled: boolean;
+  /** Whether the dialog submits on Ctrl/⌘+Enter, which the primary action
+   *  then names. The dialog binds the keys itself. */
+  submitShortcut?: boolean;
 }) {
+  const modifierKey = usePrimaryModifierKey();
+
   return (
     <DialogFooter>
       <Button variant="outline" onClick={onCancel}>
         Cancel
       </Button>
-      <Button onClick={onSubmit} disabled={submitDisabled}>
+      <Button
+        onClick={onSubmit}
+        disabled={submitDisabled}
+        aria-keyshortcuts={
+          submitShortcut
+            ? `${modifierKey === "⌘" ? "Meta" : "Control"}+Enter`
+            : undefined
+        }
+      >
         {submitLabel}
+        {submitShortcut ? (
+          // Announced through `aria-keyshortcuts`, not the button's name.
+          <Kbd aria-hidden="true">
+            {modifierKey}
+            <span>↵</span>
+          </Kbd>
+        ) : null}
       </Button>
     </DialogFooter>
   );

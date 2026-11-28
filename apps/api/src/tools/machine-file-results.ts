@@ -25,6 +25,10 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { type ToolResult } from './types';
+import {
+  FILE_EXISTS_MESSAGE,
+  REPLACE_TARGET_MISSING_MESSAGE,
+} from '@workspace/native-file-tools';
 
 /** One `machine://` locator naming an absolute path on its Machine. */
 export type MachinePath = Extract<MachineLocator, { kind: 'path' }>;
@@ -54,6 +58,24 @@ function canonicalReportedPath(
   if (!value.startsWith(prefix)) return undefined;
 
   return formatMachineLocator(name, value.slice(prefix.length)) ?? undefined;
+}
+
+/** A malformed directory spelling cannot expose the file it traverses. */
+export function hideMalformedMachineFileSpelling(
+  path: string,
+  result: ToolResult,
+): ToolResult {
+  if (
+    result.status !== 'error' ||
+    result.type !== 'path_not_registered' ||
+    (!path.endsWith('/') &&
+      !path
+        .split('/')
+        .some((component) => component === '.' || component === '..'))
+  )
+    return result;
+
+  return { status: 'error', type: 'not_found', message: 'File not found.' };
 }
 
 /**
@@ -135,6 +157,7 @@ function readMutationDisplay(
 function readFsWriteResult(
   value: UnknownRecord,
   path: string,
+  replacing: boolean,
 ): NativeMutationResult {
   const { created, replaced, lineCount } = value;
 
@@ -143,7 +166,7 @@ function readFsWriteResult(
     operation: 'write',
     path,
     ...(created === true && { created: true }),
-    ...(replaced === true && { replaced: true }),
+    ...((replaced === true || replacing) && { replaced: true }),
     ...(isNumber(lineCount) && { lineCount }),
   };
 }
@@ -197,10 +220,19 @@ function readFsEditResult(
 export function readFsMutateResult(
   value: JsonValue,
   editInput: MachineEditInput | undefined,
+  mode: 'edit' | 'create' | 'replace',
 ): ToolResult | undefined {
   const failure = readNativeFailure(value);
 
-  if (failure !== undefined) return failure;
+  if (failure !== undefined) {
+    if (mode === 'create' && failure.type === 'file_exists')
+      return { ...failure, message: FILE_EXISTS_MESSAGE };
+
+    if (mode === 'replace' && failure.type === 'not_found')
+      return { ...failure, message: REPLACE_TARGET_MISSING_MESSAGE };
+
+    return failure;
+  }
 
   if (!isRecord(value) || value['status'] !== 'success') return undefined;
   const { operation, path } = value;
@@ -209,6 +241,6 @@ export function readFsMutateResult(
     return undefined;
 
   return operation === 'write'
-    ? readFsWriteResult(value, path)
+    ? readFsWriteResult(value, path, mode === 'replace')
     : readFsEditResult(value, path, editInput);
 }

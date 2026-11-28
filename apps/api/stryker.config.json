@@ -28,7 +28,7 @@
     "fileName": "reports/mutation/mutation.json"
   },
   "concurrency": 4,
-  "ignoreStatic": true,
+  "ignoreStatic": false,
   "thresholds": {
     "high": 80,
     "low": 60,

@@ -1,10 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { newChatJob } from '../testing/chat-job-rows';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
-import { chatDeliveries, workerInstances, type ChatJob } from '../db/schema';
-import { appendJobOutput } from '../jobs/bash-job-store';
+import { type ChatJob } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { readJob } from '../jobs/job-reader';
 import { settleBashJob } from '../jobs/bash-job-store';
@@ -17,6 +16,7 @@ import {
 } from '../testing/run-segments.test-fixture';
 import { dispatchRun, seedRun } from './worker-harness';
 import { JobNoticeRunService } from './job-notice-run.service';
+import { RunWaitService } from './run-wait.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -37,21 +37,17 @@ describe('job notice producer-to-live-Run activation', () => {
     runId: string;
     modelId: string;
     seq?: number;
-    workerInstanceId?: string;
   }): Promise<ChatJob> {
     return fx.db((tx) =>
-      new ChatJobsRepository(tx).insert({
-        chatId: input.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: input.seq ?? 1,
-        runId: input.runId,
-        toolCallId: randomUUID(),
-        workerInstanceId: input.workerInstanceId ?? randomUUID(),
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: input.modelId, permissionMode: 'default' },
-      }),
+      new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: input.chatId,
+          ownerUserId: fx.userId,
+          seq: input.seq ?? 1,
+          runId: input.runId,
+          settings: { selector: input.modelId, permissionMode: 'default' },
+        }),
+      ),
     );
   }
 
@@ -70,12 +66,12 @@ describe('job notice producer-to-live-Run activation', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+        wake: fx.harness.moduleRef.get(RunWaitService),
       },
     );
   }
@@ -160,114 +156,6 @@ describe('job notice producer-to-live-Run activation', () => {
     expect(prompt).not.toContain('duplicate-output');
     expect(await notices(followUp.chatId)).toHaveLength(0);
   });
-
-  it.each(['tool-step', 'final-answer'] as const)(
-    'discovers a dead worker after a %s boundary and delivers retained output',
-    async (boundary) => {
-      const seeded = await fx.seed('continue after a lost background worker');
-
-      const workerInstanceId = randomUUID();
-      await fx.harness.db.insert(workerInstances).values({
-        id: workerInstanceId,
-      });
-
-      const job = await createRunningJob({
-        chatId: seeded.chatId,
-        runId: seeded.runId,
-        modelId: seeded.modelId,
-        workerInstanceId,
-      });
-
-      const retainedOutput = 'output committed before worker disappeared';
-
-      await fx.db((tx) =>
-        appendJobOutput(
-          tx,
-          job,
-          {
-            stdout: retainedOutput,
-            stderr: '',
-            truncated: false,
-            truncatedStreams: { stdout: false, stderr: false },
-          },
-          { stdout: 0, stderr: 0 },
-        ),
-      );
-
-      const firstRunSteps =
-        boundary === 'tool-step'
-          ? [
-              call('cross-step-boundary', 'read', { path: fx.directory }),
-              answer('handled lost work'),
-            ]
-          : [
-              answer('first Run reply before worker loss'),
-              answer('handled lost work'),
-            ];
-
-      const started = await fx.launch(
-        seeded,
-        firstRunSteps,
-        async (stepIndex) => {
-          if (stepIndex !== 0) return;
-
-          const liveJob = await fx.db((tx) =>
-            new ChatJobsRepository(tx).findById(job.chatId, fx.userId, job.id),
-          );
-
-          expect(liveJob?.state).toBe('running');
-          await fx.harness.db
-            .update(workerInstances)
-            .set({ lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) })
-            .where(eq(workerInstances.id, workerInstanceId));
-        },
-      );
-
-      await fx.terminal(started.runId);
-
-      const providerPrompts = started.prompts();
-      expect(providerPrompts).toHaveLength(2);
-      expect(providerPrompts[0]?.join('\n')).not.toContain(retainedOutput);
-
-      const settledJob = await fx.db((tx) =>
-        new ChatJobsRepository(tx).findById(job.chatId, fx.userId, job.id),
-      );
-
-      expect(settledJob).toMatchObject({
-        state: 'lost',
-        result: { outcomeUnknown: true },
-      });
-
-      const producedNotices = await fx.db((tx) =>
-        tx.select().from(chatDeliveries),
-      );
-
-      const jobNotices = producedNotices.filter(
-        (delivery) => delivery.senderRef === job.id,
-      );
-
-      expect(jobNotices).toHaveLength(1);
-      expect(jobNotices[0]).toMatchObject({
-        producer: 'job',
-        mode: 'notice',
-        state: 'delivered',
-        senderRef: job.id,
-      });
-      const nextProviderPrompt = providerPrompts[1]?.join('\n') ?? '';
-      expect(nextProviderPrompt).toContain(retainedOutput);
-      expect(nextProviderPrompt).toContain('outcome unknown');
-
-      if (boundary === 'final-answer') {
-        expect(nextProviderPrompt).toContain(
-          'first Run reply before worker loss',
-        );
-      }
-
-      await fx.harness.db
-        .delete(workerInstances)
-        .where(eq(workerInstances.id, workerInstanceId));
-    },
-  );
 
   it('keeps a produced notice pending when the live Run fails at its provider', async () => {
     const prior = await fx.startRun([answer('completed before failure')]);

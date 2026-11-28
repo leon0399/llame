@@ -13,12 +13,21 @@ behavior. `CLAUDE.md` and `GEMINI.md` link here.
 
 @CODING_STANDARDS.md
 
-@docs/research/harnesses/index.md
-
 @CLAUDE.local.md
 
 `CLAUDE.local.md` is optional and gitignored; tracked instructions must not
 depend on it.
+
+## Prior art
+
+Research, design, proposals, and reviews of agent or product behavior start
+from prior art: [OMP (oh-my-pi)](docs/research/harnesses/oh-my-pi.md) first for
+the agent loop, tool contracts, and coding capabilities;
+[OpenClaw](docs/research/harnesses/openclaw.md) first for broader product
+behavior such as channels, memory, and transcript search; then the ranked
+[harness index](docs/research/harnesses/index.md) for targeted alternatives.
+Adapt what you find to llame's ownership, lifecycle, provenance, and isolation
+contracts; llame's specs stay authoritative.
 
 ## Documentation authority
 
@@ -27,7 +36,8 @@ depend on it.
 - [SPEC.md](SPEC.md), [`openspec/specs`](openspec/specs): architecture and
   shipped behavior. [`openspec/changes`](openspec/changes) owns proposals and
   archives.
-- [CHANGELOG.md](CHANGELOG.md): shipped chronology.
+- [CHANGELOG.md](CHANGELOG.md): shipped chronology, compiled from
+  `.changeset/` entries ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - [DESIGN.md](DESIGN.md): UI language.
 - [docs/product/glossary.md](docs/product/glossary.md) (also at the root as
   `GLOSSARY.md`): domain terms; OpenSpec owns their behavior.
@@ -36,8 +46,6 @@ depend on it.
   [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
-- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
-  prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
 OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in
@@ -54,7 +62,8 @@ add it to the glossary when it ships.
 
 ## Repository
 
-pnpm 12 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
+pnpm 12 + Turborepo; TypeScript for web, API, and workers, and Rust for the
+Machine daemon (`apps/machine`, `crates/`); Node >=22.19 (`.node-version` pins
 22.23.1).
 
 | Path                         | Owner                                                     |

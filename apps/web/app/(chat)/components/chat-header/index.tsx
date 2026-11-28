@@ -11,7 +11,8 @@ import { useTypewriter } from "@/components/use-typewriter";
 
 import { useOpenChat } from "@/lib/services/chat/queries";
 
-import { SessionDetailsTrigger, useOpenChatId } from "../session-details";
+import { SessionDetailsTrigger } from "../session-details";
+import { useOpenChatId } from "../session-details/details-state";
 
 export interface ChatHeaderProps {
   className?: string;

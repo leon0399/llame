@@ -28,6 +28,7 @@ import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { Message, ModelToolDeclaration } from '../db/schema';
 import { PDF_PAGE_TOKENS, type MediaSizing } from '../media/epoch-admission';
 import { projectSizedText } from '../models/step-composer';
+import { isDigestOnlyHostMessage } from '../chats/message-eligibility';
 
 /**
  * Narrows a read history's `unknown[]` JSONB `parts` to `MessagePart[]`: each
@@ -441,6 +442,7 @@ export function planCompactionCheckpoint(input: {
     .filter(
       (row) =>
         (row.role === 'user' || row.role === 'assistant') &&
+        !isDigestOnlyHostMessage(row) &&
         row.seq > input.boundarySeq &&
         row.seq < input.triggeringUserSeq,
     )

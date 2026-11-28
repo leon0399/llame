@@ -215,7 +215,7 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 Every Chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
 
-All current workers coordinate through the same installation's queue and database authority. The experimental remote Machine path is a tool-execution transport: a worker starts the box's `llame-machine` daemon over SSH and keeps execution authority for the Run. No Node Protocol, Node enrollment, tunneled or dial-out executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
+All current workers coordinate through the same installation's queue and database authority. The experimental remote Machine path is a tool-execution transport: a worker attaches to the box's `llame-machine` daemon over SSH and keeps execution authority for the Run; commands run as daemon jobs that outlive the connection. No Node Protocol, Node enrollment, tunneled or dial-out executor API, Workspace mount handoff, or cross-node execution-authority transfer ships.
 
 `executeRun` returns one result whose `consumeStream()` drains every segment and resolves only when the Run is terminal. Each model client ORs the executor's `stopWhenExtra` condition into its own `stopWhen`; after a step's tool calls settle, the condition runs one owner-scoped query for a pending `steer` or `interrupt` item and for `cancel_requested_at`, so a cancellation that no signal delivered is found at the step end. A stop that this condition caused ends the model call, not the Run: the delivery transaction runs, and the delivered message starts a new attempt of the same Run in the same worker with no new claim. When the items are gone by then (the owner withdrew them), the executor sends another model request over the same reply. The step cap counts the steps of one segment, and the worker's wall-clock budget and execution ceiling count from the claim, so a delivery restarts neither. Every attempt, a crash retry included, reads the Run's current `message_id` from the Run row, not the message in the job. Recovery reads the current segment only: `hasMutation` and the reply finalizer's rebuild consider the events after the latest `run.delivered`, and the finalizer reaches the reply through the moved `message_id`, so an earlier segment's reply never changes. A cancellation recorded after a delivery and before the next segment's first request settles the Run `cancelled` and leaves the delivered message without a reply.
 
@@ -247,7 +247,7 @@ Reserved delimiters are neutralized on the user and tool rails so untrusted cont
 
 ## 13. Tools and integrations
 
-The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools are `search_conversations` (two-mode: keyword content search with optional time ranges, and timeline activity-pointer discovery), the optional `conversation_read`, the personal Knowledge readers, `web_search`, and the opt-in native file tools; operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the attempt's admitted tool catalog.
+The current Run loop interleaves model output with tool calls within an operator step cap. The code-owned tools include `search_conversations` for keyword and timeline discovery, native `read` for `chat://` collection, index, and message resources, the personal Knowledge readers, `web_search`, and the opt-in native file tools. Operators may also configure instance-scoped Streamable HTTP MCP servers through the restart-applied top-level `mcpServers` map. A tool's input schema may be declared as either Zod (code-authored) or JSON Schema (external sources), with ajv-backed dialect-aware validation; malformed or unsupported declarations refuse only that tool before it enters the attempt's admitted tool catalog.
 
 Native `read` on an `http:` or `https:` locator and `web_search` are the only code-owned web tools; `model-hosted` search requests use only the referenced, operator-configured provider endpoint. Host `bash` retains the llame process's network access. Other external network operations stay on the operator-configured MCP path, through the restart-applied top-level `mcpServers` map.
 
@@ -359,6 +359,12 @@ form, the inspected main clone, and the canonical worktree directory before any
 write; the Worktree checkout, its lease, any adopted repository and main checkout,
 the recorded `worktree` attempt and its result, and the bound root commit in one
 transaction, so a failure leaves the previous binding and generation unchanged.
+When the source checkout has a `.worktreeinclude` file, the Machine daemon also
+copies the ignored files it selects into the new worktree during creation, once,
+under the creation deadline. Creation authorizes the copy, so the copy runs no
+per-file `read` or `write` decision, and a failed copy keeps the directory and
+binds nothing. See [Worktree creation authorizes environment
+copying](docs/adr/2026-11-28-worktree-creation-authorizes-environment-copying.md).
 The owner's repository catalog records repositories by normalized remote, the
 checkouts where each exists on a Machine, and the leases that say which Chat
 created a worktree; an owner removes a clean worktree through
@@ -433,9 +439,11 @@ sources admit `read` without admitting absolute-path host authority. See
 
 ### 13.9 Managed bash contract
 
-`@workspace/bash-executor` runs the model-facing `bash` tool when `bash` is
-allowlisted and `machines.default` is configured. A command whose working
-directory resolves on the process's `machines.local` Machine runs in the worker,
+The API exposes the model-facing `bash` tool through the Rust Machine daemon's
+`proc.bash`/`JobService` path when `bash` is allowlisted and
+`machines.default` is configured. The shared API contract and model-facing text
+live in `apps/api/src/tools/bash-contract.ts`. A command whose working directory
+resolves on the process's `machines.local` Machine runs in the worker
 as `bash -c` under that Machine's OS user. A `machine://` `cwd` naming another
 Machine runs it through that Machine's daemon, and an `ssh://` `cwd` runs it on
 that host, each under that host's login user and the shared bounds. Host `bash`
@@ -604,7 +612,7 @@ The §7.1 mapping is reusable by future channels, but it does not authorize deli
 
 ## 20. Memory and search
 
-Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates reusable by the owner-authorized `conversation_read`; exact reads derive current visible text from stored message parts and return numbered, bounded content. Vector retrieval fuses a third cosine-scan leg with the existing FTS and trigram legs via RRF, with request-time query embedding bounded per surface and silent lexical fallback. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/product/operator/conversation-recall.md).
+Chats, Runs, messages, and events form the episodic record. Hybrid chat search is a rebuildable projection used by the web UI and `search_conversations`. It indexes canonical human-authored user and ordinary assistant text, not model-switch metadata, system prompts, tool receipts, generated summaries, or checkpoint envelopes. Canonical model excerpts are coverage-gated and carry message-sequence plus logical-line coordinates emitted as `chat://` locators. Native `read` opens the owner's Chat collection, eligible message index, or exact stored message text with bounded selectors. Reads use current visible text and generic historical observation replay, not an old executor. Vector retrieval fuses a third cosine-scan leg with the existing FTS and trigram legs via RRF, with request-time query embedding bounded per surface and silent lexical fallback. Semantic facts and automatic injection do not ship. See [`chat-search`](openspec/specs/chat-search/spec.md), [`search-projection`](openspec/specs/search-projection/spec.md), and the [operator runbook](docs/product/operator/conversation-recall.md).
 
 ### 20.1 Authored personalization
 
@@ -612,13 +620,11 @@ Each user may author a `preferredName`, an `about`, and `responsePreferences`, g
 
 ### 20.2 Owner-scoped memory settings
 
-`shareRecentChats` is an owner-scoped setting on its own `memory` surface, **defaulting off**, read at bind time under a row lock so a withdrawal cannot lose a race with an accepted Run. It is deliberately **not** gated by `personalization.enabled`: that switch means "use my authored profile", and conversation-derived history is a separate consent decision with a different default. Enabling is retroactive over the owner's existing corpus; disabling is not retroactive; deleting a chat is not erasure from prompts already bound. All three are disclosed together in the API contract, because stating fewer is an incomplete consent contract. See [`memory`](openspec/specs/memory/spec.md).
+`shareRecentChats` is an owner-scoped setting on its own `memory` surface, **defaulting off**, read at bind time under a row lock so a withdrawal cannot lose a race with an accepted Run. It is deliberately **not** gated by `personalization.enabled`: that switch means "use my authored profile", and conversation-derived history is a separate consent decision with a different default. Enabling is retroactive over the owner's existing eligible Chats; disabling is not retroactive; deleting a Chat does not erase its disclosure from persisted context items or historical receipts in other Chats. All three are disclosed together in the API contract. See [`memory`](openspec/specs/memory/spec.md).
 
 ### 20.3 Chat recency digest
 
-An opted-in owner's chat resolves, on its first accepted Run, a capped digest of their other pinned and recent chats — title, last-activity date, message count, and a 200-code-point excerpt of the first user message, with no chat identifiers — and **freezes** it, so the digest contributes no per-turn variation: across turns whose other effective-context inputs are unchanged, the rendered prompt stays byte-identical and the frozen baseline is reused. Personalization, the selected model's template, and an operator prompt reload are rendered per attempt, so a change to any of them changes the next attempt's prompt — the freeze is a property of the digest, not a guarantee over the whole prompt. Changes reach the model as appended server-authored events on the reminder rail, never as a restated list; compaction is the only re-bake boundary. This is **awareness, not retrieval**: it exists so the model has reason to call `search_conversations`, and the content path stays RLS-scoped and auditable.
-
-Two limits are recorded rather than glossed. The data-not-instructions framing is advisory, carried by the packaged prompt's prose and model compliance; only delimiter integrity is guaranteed. The compaction exclusion is likewise an instruction naming each delimiter — including the append rail's, which sits in the compactable prefix rather than the replayed prompt — and the structural alternative is foreclosed by putting the digest in the system prompt at all. See [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
+An opted-in Chat stores a bounded owner-scoped baseline and later changes as context items on its reminder rail. The shared Chat rows include title, `chat://` locator, activity date, message count, canonical Workspace root or `unbound`, and opening and latest visible-text excerpts of at most 100 Unicode code points each. The opening excerpt comes from the first user message; the latest excerpt can include assistant text. Digest content does not enter system prompts or tool descriptions. Later notices describe newly eligible Chats and corrections to already-announced pin or Workspace state. A checkpoint starts a new baseline epoch. Disabled compaction carries only the frozen baseline, without source reads or notices. Owners can inspect persisted item text in their Chat; system-only prompt receipts do not include it. Summary exclusion remains instruction-enforced, not structurally guaranteed. See [`chat-recency-digest`](openspec/specs/chat-recency-digest/spec.md).
 
 ## 22. Service ownership
 
@@ -634,7 +640,7 @@ The code-first OpenAPI document generated by `apps/api` owns the endpoint contra
 
 ### 23.1 Runtime stack
 
-The product is TypeScript on Node.js: Next.js, NestJS, Drizzle, and pg-boss. A second backend language or parallel execution path requires an explicit architecture decision.
+The product is TypeScript on Node.js: Next.js, NestJS, Drizzle, and pg-boss. The Machine daemon is Rust and serves a gRPC contract defined in `packages/machine-protocol/proto`; see [The Machine daemon is a Rust binary with a gRPC contract](docs/adr/2026-11-24-machine-daemon-is-rust-with-grpc-contract.md). A further backend language or parallel execution path requires an explicit architecture decision.
 
 ## 24. Storage and coordination
 

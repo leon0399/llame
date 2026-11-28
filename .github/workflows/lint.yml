@@ -75,3 +75,60 @@ jobs:
       # Whole repo via .oxfmtrc.jsonc's ignorePatterns — the same surface the
       # lefthook pre-commit hook gates per staged file (#175).
       - run: pnpm run format:check
+
+  machine-protocol:
+    name: Machine protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # buf lint, the fingerprint and version-bump check against master, and a
+      # clean diff after regenerating the committed TypeScript client.
+      - run: pnpm --filter @workspace/machine-protocol proto:check
+
+      # The bootstrap package is frozen: no breaking change against master.
+      - name: Bootstrap service stays compatible
+        run: |
+          if git cat-file -e origin/master:packages/machine-protocol/proto/stead/machine/bootstrap/v1/bootstrap.proto; then
+            pnpm --filter @workspace/machine-protocol proto:breaking
+          fi
+
+  machine-daemon:
+    name: Machine daemon
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # The runner's rustup installs the toolchain and targets that
+      # rust-toolchain.toml pins.
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets
+      - run: cargo test --locked --workspace
+      - name: Install the cross C compiler for ring
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
+      - name: Static binaries build
+        env:
+          CC_x86_64_unknown_linux_musl: cc
+          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
+        run: cargo build --locked --release -p llame-machine --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl

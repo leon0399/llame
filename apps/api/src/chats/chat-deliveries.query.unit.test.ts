@@ -6,7 +6,7 @@ import {
   type StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { migrateDatabase } from '../db/migrate';
 import postgres, { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
@@ -72,9 +72,10 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     const migrator = postgres(appUrl.href, { max: 1 });
 
     try {
-      await migrate(drizzle({ client: migrator }), {
-        migrationsFolder: path.resolve(process.cwd(), 'src/db/migrations'),
-      });
+      await migrateDatabase(
+        migrator,
+        path.resolve(process.cwd(), 'src/db/migrations'),
+      );
     } finally {
       await migrator.end();
     }
@@ -141,7 +142,6 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
           chatId: chatA,
           ownerUserId: ownerA,
           seq: 17,
-          workerInstanceId: workerId,
         }),
       );
       await tx.insert(schema.chatDeliveries).values({
@@ -162,7 +162,6 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
           chatId: chatB,
           ownerUserId: ownerB,
           seq: 23,
-          workerInstanceId: workerId,
         }),
       );
       await tx.insert(schema.chatDeliveries).values({
@@ -184,7 +183,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]).toMatchObject({
       item: { id: itemA, senderRef: jobId },
-      job: { executor: 'bash', seq: 17, state: 'running' },
+      job: { kind: 'bash', seq: 17, state: 'running' },
     });
 
     const foreign = await tenantDb.runAs(ownerA, (tx) =>

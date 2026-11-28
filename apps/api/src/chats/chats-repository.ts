@@ -53,8 +53,6 @@ import {
 
 export { MessagesRepository } from './messages-repository';
 
-export { type ConversationMessageLookup } from './conversation-message-lookup';
-
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 /**
@@ -62,8 +60,8 @@ const DEFAULT_CHAT_VISIBILITY = 'private';
  * source's creation time and frozen prompt baselines, plus the active
  * Workspace root, executor identity, and generation. Prompt re-bake markers
  * are remapped onto copied compactions; told and detach state for Workspace
- * narration are intentionally not inherited. The baseline triples travel
- * together, never a baseline without its told-set. An owner fork's stored model
+ * narration are intentionally not inherited. The skill-catalog baseline,
+ * checkpoint marker and told-set travel together. An owner fork's stored model
  * selection travels with it — hold and `revertAt` verbatim (`model-roles`: "An
  * owner fork copies the selection and the hold"). Derived from the row type so
  * the column set cannot drift.
@@ -75,9 +73,6 @@ export type ChatInheritedValues = Partial<
   Pick<
     Chat,
     | 'createdAt'
-    | 'recencyDigestBaseline'
-    | 'recencyDigestTold'
-    | 'recencyDigestRebakedFrom'
     | 'skillCatalogBaseline'
     | 'skillCatalogTold'
     | 'skillCatalogRebakedFrom'
@@ -102,6 +97,7 @@ type ChatOwnerFilter = {
   archived?: 'only' | 'with';
   limit?: number;
   excludeId?: string;
+  ids?: ReadonlyArray<string>;
   titledOnly?: boolean;
 };
 
@@ -124,6 +120,10 @@ export class ChatsRepository {
 
     if (filter.projectId !== undefined) {
       conditions.push(eq(chats.projectId, filter.projectId));
+    }
+
+    if (filter.ids !== undefined) {
+      conditions.push(inArray(chats.id, [...filter.ids]));
     }
 
     if (filter.excludeId !== undefined) {
@@ -162,6 +162,7 @@ export class ChatsRepository {
     ownerUserId: string,
     filter: ChatOwnerFilter = {},
   ): Promise<Array<Chat>> {
+    if (filter.ids?.length === 0) return [];
     const conditions = this.buildOwnerFilterConditions(ownerUserId, filter);
 
     // Pinned-only lists follow owner pin rank; every other filter stays
@@ -233,7 +234,6 @@ export class ChatsRepository {
     filter: {
       pinned: 'only' | 'with' | 'exclude';
       excludeId: string;
-      titledOnly: true;
     },
   ): Promise<number> {
     const conditions = [
@@ -241,8 +241,6 @@ export class ChatsRepository {
       isNull(chats.archivedAt),
       not(eq(chats.id, filter.excludeId)),
       isNotNull(chats.title),
-      // Same blank-title rule as the list, or the denominator counts chats the
-      // list will never show.
       sql`btrim(${chats.title}) <> ''`,
     ];
 
@@ -258,47 +256,6 @@ export class ChatsRepository {
       .where(and(...conditions));
 
     return result?.value ?? 0;
-  }
-
-  /** First writer wins; the predicate prevents divergent baseline epochs. */
-  async setRecencyDigestIfAbsent(
-    chatId: string,
-    ownerUserId: string,
-    baseline: Chat['recencyDigestBaseline'],
-    told: Chat['recencyDigestTold'],
-  ): Promise<Chat | undefined> {
-    const [updated] = await this.db
-      .update(chats)
-      .set({ recencyDigestBaseline: baseline, recencyDigestTold: told })
-      .where(
-        and(
-          eq(chats.id, chatId),
-          eq(chats.ownerUserId, ownerUserId),
-          isNull(chats.recencyDigestBaseline),
-        ),
-      )
-      .returning();
-
-    return updated;
-  }
-
-  /** Compaction starts a fresh epoch; unlike initialization it replaces both fields. */
-  async setRecencyDigest(options: {
-    chatId: string;
-    ownerUserId: string;
-    baseline: NonNullable<Chat['recencyDigestBaseline']>;
-    told: NonNullable<Chat['recencyDigestTold']>;
-    rebakedFrom: string;
-  }): Promise<void> {
-    const { chatId, ownerUserId, baseline, told, rebakedFrom } = options;
-    await this.db
-      .update(chats)
-      .set({
-        recencyDigestBaseline: baseline,
-        recencyDigestTold: told,
-        recencyDigestRebakedFrom: rebakedFrom,
-      })
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
   /**
@@ -336,7 +293,7 @@ export class ChatsRepository {
     return new Date(rows[0].now);
   }
 
-  /** Pin membership for the accumulated told-set, never the capped rendering. */
+  /** Pin membership for already-announced Chats, never the capped rendering. */
   async findPinnedChatIds(
     ownerUserId: string,
     chatIds: ReadonlyArray<string>,
@@ -358,18 +315,6 @@ export class ChatsRepository {
       );
 
     return new Set(rows.map(({ itemId }) => itemId));
-  }
-
-  /** Advances bookkeeping only after its server-authored append is persisted. */
-  async updateRecencyDigestTold(
-    chatId: string,
-    ownerUserId: string,
-    told: NonNullable<Chat['recencyDigestTold']>,
-  ): Promise<void> {
-    await this.db
-      .update(chats)
-      .set({ recencyDigestTold: told })
-      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
   /**

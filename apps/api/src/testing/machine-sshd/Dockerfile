@@ -3,16 +3,15 @@
 # task 4.2). One image serves both roles, because the difference between them is
 # only the `authorized_keys` options the suite installs before start — a
 # `restrict,port-forwarding,permitopen="box:22"` entry makes a jump host, and
-# `restrict,command="/usr/local/bin/llame-machine serve --stdio"` makes the box
-# (design D1). The daemon bundle is likewise copied in by the suite, so the
-# image never has to be rebuilt when the daemon changes.
+# `restrict,port-forwarding,command="/usr/local/bin/llame-machine-forced-command"` makes the box
+# (design D1). The forced command allows socket discovery and the direct stdio
+# protocol test, and rejects every other SSH command.
+# The test copies the static daemon binary into the container.
 #
-# Pinned by digest, the same way compose.yaml pins the dev database: a floating
-# tag would let an upstream refresh change sshd's behavior with no change here.
-# Refresh with:
-#   docker pull node:22-bookworm-slim && docker inspect \
-#     --format '{{index .RepoDigests 0}}' node:22-bookworm-slim
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392
+FROM debian:bookworm-slim
+
+COPY forced-command.sh /usr/local/bin/llame-machine-forced-command
+RUN chmod 0755 /usr/local/bin/llame-machine-forced-command
 
 # openssh-server is the fixture under test. iptables is how the suite makes a
 # hop drop packets silently: the black-hole case needs NET_ADMIN, which the
@@ -34,11 +33,7 @@ RUN useradd --create-home --shell /bin/bash box \
   && chmod 0700 /home/box/.ssh \
   && chmod 0750 /home/box/work
 
-# One registered root, at the location a daemon run by `box` looks in by
-# default (`~/.config/llame-machine/roots.json`), plus the file the suite reads
-# back through the daemon. The daemon is started by sshd, which hands the child
-# only the login environment, so nothing may depend on a Dockerfile ENV here.
-COPY roots.json /home/box/.config/llame-machine/roots.json
+# The fixture root is registered after the suite copies the daemon binary.
 COPY notes.txt /home/box/work/notes.txt
 
 # Host keys are NOT baked in: the packaged openssh-server generates its own in

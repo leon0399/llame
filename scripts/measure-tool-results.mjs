@@ -32,8 +32,8 @@
  * was measured, so the bound-limited row resumes to `:L387-2000` instead of the
  * file's last line and costs one token more.
  *
- * Run: `pnpm --filter @workspace/native-file-tools build && pnpm --filter
- * @workspace/bash-executor build && node scripts/measure-tool-results.mjs`
+ * Run: `pnpm --filter @workspace/native-file-tools build && pnpm exec tsx
+ * scripts/measure-tool-results.mjs`
  */
 
 import { execFileSync } from "node:child_process";
@@ -43,7 +43,7 @@ import { join } from "node:path";
 
 import { encode } from "gpt-tokenizer/encoding/o200k_base";
 
-import { renderBashText } from "../packages/bash-executor/dist/index.js";
+import { renderBashText } from "../apps/api/src/tools/bash-contract.ts";
 import {
   createFile,
   editFile,

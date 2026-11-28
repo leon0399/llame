@@ -23,11 +23,8 @@ type RecallScript = {
   readonly finalText?: string;
 };
 
-type ConversationCoordinates = {
-  chatId: string;
-  messageSeq: number;
-  offset: number;
-  limit: number;
+type ConversationRead = {
+  path: string;
 };
 
 const conversationSearchOutputSchema = z.object({
@@ -35,18 +32,18 @@ const conversationSearchOutputSchema = z.object({
   results: z.array(
     z.object({
       kind: z.literal('content'),
-      chatId: z.guid(),
-      messageSeq: z.number().int().positive(),
-      offset: z.number().int().nonnegative(),
-      limit: z.number().int().positive().max(2000),
+      locator: z.string(),
     }),
   ),
 });
 
 const conversationReadOutputSchema = z.object({
-  status: z.literal('success'),
+  status: z.enum(['success', 'error']),
   nextOffset: z.number().int().nonnegative().optional(),
 });
+
+const readContinuation =
+  /\[(?:\d+ more lines\. )?Use [^\r\n]*:L(\d+)-(?:\d+)? to continue\]$/u;
 
 function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
   try {
@@ -59,7 +56,6 @@ function parseJsonText<T>(value: string, schema: z.ZodType<T>): T | undefined {
   }
 }
 
-/** Parses a `tool-result` content's output — JSON already, or JSON-as-text — against `schema`. */
 function parseToolOutput<T>(
   output: LanguageModelV3ToolResultOutput,
   schema: z.ZodType<T>,
@@ -70,11 +66,36 @@ function parseToolOutput<T>(
     return parsed.success ? parsed.data : undefined;
   }
 
-  if (output.type === 'text') {
-    return parseJsonText(output.value, schema);
+  return output.type === 'text'
+    ? parseJsonText(output.value, schema)
+    : undefined;
+}
+
+/** Parses a read's structured error or its native text rendering. */
+function parseReadOutput(
+  output: LanguageModelV3ToolResultOutput,
+): z.output<typeof conversationReadOutputSchema> | undefined {
+  if (output.type === 'json') {
+    const parsed = conversationReadOutputSchema.safeParse(output.value);
+
+    return parsed.success ? parsed.data : undefined;
   }
 
-  return undefined;
+  if (output.type !== 'text') return undefined;
+
+  const serialized = parseJsonText(output.value, conversationReadOutputSchema);
+
+  if (serialized !== undefined) return serialized;
+
+  const continuation = readContinuation.exec(output.value);
+
+  if (continuation === null) return { status: 'success' };
+
+  const line = Number(continuation[1]);
+
+  return Number.isSafeInteger(line) && line > 0
+    ? { status: 'success', nextOffset: line - 1 }
+    : { status: 'success' };
 }
 
 function findSearchOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
@@ -109,16 +130,11 @@ function findReadOutputs(prompt: LanguageModelV3CallOptions['prompt']) {
     if (message.role !== 'tool') continue;
 
     for (const content of message.content) {
-      if (
-        content.type !== 'tool-result' ||
-        content.toolName !== 'conversation_read'
-      )
+      if (content.type !== 'tool-result' || content.toolName !== 'read') {
         continue;
+      }
 
-      const parsed = parseToolOutput(
-        content.output,
-        conversationReadOutputSchema,
-      );
+      const parsed = parseReadOutput(content.output);
 
       if (parsed !== undefined) outputs.push(parsed);
     }
@@ -136,7 +152,7 @@ type RecallStep =
   | {
       readonly kind: 'read';
       readonly toolCallId: string;
-      readonly input: ConversationCoordinates;
+      readonly input: ConversationRead;
     }
   | { readonly kind: 'answer' };
 
@@ -155,36 +171,42 @@ function recallStep(
   const readOutputs = findReadOutputs(prompt);
   const result = searchOutputs[0]?.results[0];
 
-  const coordinates: ConversationCoordinates | undefined =
-    result === undefined
-      ? undefined
-      : {
-          chatId: result.chatId,
-          messageSeq: result.messageSeq,
-          offset: result.offset,
-          limit: result.limit,
-        };
+  const locator = result?.locator;
 
-  if (coordinates !== undefined && readOutputs.length === 0) {
+  if (locator !== undefined && readOutputs.length === 0) {
     return {
       kind: 'read',
       toolCallId: 'conversation-read-1',
-      input: coordinates,
+      input: { path: locator },
     };
   }
 
-  const offset =
-    script.continueRead && readOutputs.length === 1
-      ? readOutputs[0]?.nextOffset
+  const continuation = readOutputs[0];
+  const selector = locator?.match(/^(.*):L\d+-(\d+)$/u);
+
+  const nextOffset =
+    script.continueRead &&
+    readOutputs.length === 1 &&
+    continuation?.status === 'success'
+      ? continuation.nextOffset
       : undefined;
 
-  if (coordinates === undefined || offset === undefined)
+  if (
+    selector === null ||
+    selector === undefined ||
+    nextOffset === undefined ||
+    nextOffset + 1 > Number(selector[2])
+  ) {
     return { kind: 'answer' };
+  }
+
+  const messagePath = selector[1];
+  const endLine = selector[2];
 
   return {
     kind: 'read',
     toolCallId: 'conversation-read-2',
-    input: { ...coordinates, offset, limit: 2 },
+    input: { path: `${messagePath}:L${nextOffset + 1}-${endLine}` },
   };
 }
 
@@ -215,8 +237,8 @@ export function conversationRecallParts(
       {
         type: 'tool-call',
         toolCallId: step.toolCallId,
-        toolName: 'conversation_read',
-        input: scriptedToolInput('conversation_read', step.input),
+        toolName: 'read',
+        input: scriptedToolInput('read', step.input),
       },
     ];
   }

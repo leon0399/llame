@@ -40,7 +40,7 @@ import {
   isExactRecord,
 } from './context-item-shared';
 import { isMachineName } from './machine-context-item-producers';
-import { isRecencyDigestDeltaPayload } from './recency-digest-item';
+import { readDigestPayload } from './recency-digest-item';
 import {
   FAILURE_CLASSES,
   type FailureClass,
@@ -700,6 +700,7 @@ export function readCheckpointText(row: Message): string {
 /** The replay selection for a stored checkpoint row. */
 export function toContextCheckpoint(row: CheckpointMessage): ContextCheckpoint {
   return {
+    id: row.id,
     text: readCheckpointText(row),
     absorbedThroughSeq: row.absorbedThroughSeq,
   };
@@ -740,12 +741,5 @@ export const checkpointSummary = (row: Message): string =>
   checkpointPayload(row).summary;
 
 export function isRecencyDigestItem(value: unknown): value is ContextItemPart {
-  if (!isContextItemPart(value) || value.data.producer !== 'recency-digest') {
-    return false;
-  }
-
-  return (
-    value.data.form === 'snapshot' ||
-    isRecencyDigestDeltaPayload(value.data.payload)
-  );
+  return isContextItemPart(value) && readDigestPayload(value) !== undefined;
 }

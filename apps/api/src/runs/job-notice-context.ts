@@ -66,9 +66,7 @@ async function createDeliveredJobNoticeItem(input: {
 
   const outputs = await readJobNoticeOutputs({
     chatId: input.chatId,
-    ownerUserId: input.ownerUserId,
     job,
-    jobs: input.jobs,
     artifacts: input.artifacts,
   });
 
@@ -90,16 +88,14 @@ async function readJobNoticeHostDirectory(
 
   return existingArtifactHostDirectory({
     chatId,
-    toolName: job.executor,
+    toolName: job.kind,
     seq: job.seq,
   });
 }
 
 export async function readJobNoticeOutputs(input: {
   readonly chatId: string;
-  readonly ownerUserId: string;
   readonly job: ChatJob;
-  readonly jobs: ChatJobsRepository;
   readonly artifacts: ArtifactsRepository;
 }): Promise<Array<{ name: string; text: string }>> {
   const outputs: Array<{ name: string; text: string }> = [];
@@ -109,25 +105,12 @@ export async function readJobNoticeOutputs(input: {
       input.job.artifactId !== null && input.job.artifactReadable
         ? await input.artifacts.readPartTail(
             input.chatId,
-            {
-              toolName: input.job.executor,
-              seq: input.job.seq,
-              part: name,
-            },
+            { toolName: input.job.kind, seq: input.job.seq, part: name },
             8000,
           )
         : undefined;
 
-    const bytes =
-      part ??
-      (await input.jobs.readOutputTail(
-        input.ownerUserId,
-        input.job.id,
-        name,
-        8000,
-      ));
-
-    outputs.push({ name, text: bytes.toString('utf8') });
+    outputs.push({ name, text: part?.toString('utf8') ?? '' });
   }
 
   return outputs;

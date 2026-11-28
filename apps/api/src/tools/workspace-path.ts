@@ -1,3 +1,4 @@
+import { CHAT_SCHEME } from '../chats/chat-locator';
 import { posix } from 'node:path';
 
 import {
@@ -228,6 +229,7 @@ const LOCATOR_SCHEMES: ReadonlySet<string> = new Set([
   JOB_SCHEME,
   PROJECT_SCHEME,
   ARTIFACT_SCHEME,
+  CHAT_SCHEME,
   SSH_SCHEME,
   'http',
   'https',

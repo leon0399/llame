@@ -1607,65 +1607,6 @@ committed record stores only the id and the state.
 - **THEN** the replayed result carries `complete: false` as the live loop sent it
 - **AND** no replay clears its payload or shows the call as complete
 
-### Requirement: Conversation read uses the attempt-local read-only tool loop
-
-The code-owned tool inventory SHALL include `conversation_read` in addition to `search_conversations` and `knowledge_search`. It SHALL declare `read_only`, require its own exact `tools.allowed` entry, and participate in the existing declaration admission, attempt-local runtime catalog, trusted executor binding, timeout, cooperative cancellation, settlement, persistence, replay, compaction, neutralization, and generic browser-rendering lifecycle. Owner authority SHALL come only from trusted Run context, never from model arguments or a message locator.
-
-The conversation reader SHALL enforce the `conversation-reads` bounds of 2,000 logical lines and 15,000 JavaScript UTF-16 code units before generic result truncation. A read whose first selected source line cannot fit SHALL return `conversation_limit_exceeded`. Bounded pages SHALL preserve exact `nextOffset` and cut-reason metadata, and generic truncation SHALL NOT clip numbered source content.
-
-Structured Chat/message sequence attribution, role/timestamp, numbered content, neighboring eligible sequences, continuation metadata, and the closed untrusted-history notice SHALL persist and render as authored through the ordinary tool UI. Replay SHALL NOT rehydrate newer message content, synthesize hashes/UUIDs/versions/part identities, remove line prefixes/notices, or normalize historical result shapes. Changing executable or Chat-local sequence semantics SHALL use a coordinated API/worker/data cutover; restart-applied description wording does not require a persisted declaration hash: quiesce new Run acceptance, drain Runs bound to the prior declaration and sequence interpretation, migrate durable sequence boundaries, deploy matching executors/declarations, then resume; rollback SHALL restore the matching prior binaries and data snapshot rather than mix locator interpretations.
-
-A persisted conversation-read observation SHALL follow the destination Chat's existing retention and deletion lifecycle. Product behavior SHALL NOT delete an individual source message. Deleting or later losing access to the source Chat SHALL make a fresh read return `conversation_source_not_found` but SHALL NOT redact or rewrite text already recorded in another owner-visible Chat. Deleting the destination Chat SHALL remove its messages, Runs, and Run events through the existing cascade lifecycle.
-
-Because the global-to-Chat-local sequence rewrite is a pre-merge alpha hard cutover, deployment SHALL preflight persisted assistant parts, compaction replacement history, and Run events before changing sequence values. If it finds an experimental canonical `search_conversations` result or `conversation_read` input/result authored under the prior global interpretation, the cutover SHALL abort before mutation. It SHALL NOT rewrite the historical observation, accept its global value as an alias, or guess between colliding locator namespaces. The unsupported experimental Chat or database must be removed/reset as a whole before retrying the cutover.
-
-#### Scenario: Conversation reader is not allowlisted
-
-- **WHEN** `conversation_read` is registered but absent from `tools.allowed`
-- **THEN** it is neither advertised nor executable for a newly prepared execution attempt
-
-#### Scenario: Allowlisted reader is bound immutably
-
-- **WHEN** the exact reader ID is eligible for a newly prepared execution attempt
-- **THEN** that attempt retains its exact declaration in memory and requires the matching code-owned executor
-- **AND** no Chat/sequence argument supplies owner authority
-
-#### Scenario: Bounded continuation survives persistence
-
-- **WHEN** a reader success returns numbered content with `nextOffset` and a cut reason
-- **THEN** live events, assistant-message settlement, browser reload, and full-payload replay preserve the exact result
-- **AND** the persisted observation is not replaced by a generic truncation preview
-
-#### Scenario: Historical read is not rehydrated
-
-- **WHEN** message content, sequence navigation, or line-rendering code changes after a read result was persisted
-- **THEN** reload and replay preserve the bounded historical observation as authored
-- **AND** they do not reread the source or rewrite its coordinates/content
-
-#### Scenario: Experimental global locator blocks the alpha cutover
-
-- **WHEN** migration preflight finds a persisted canonical search/read observation in live message parts, compaction replacement history, or Run events authored with the unmerged global sequence interpretation
-- **THEN** the cutover fails before rewriting any message or compaction sequence
-- **AND** it neither mutates that observation nor installs a global-sequence alias path
-
-#### Scenario: Source deletion does not rewrite another Chat's observation
-
-- **WHEN** a persisted conversation-read result in one owner-visible Chat quotes a source Chat later deleted or unavailable
-- **THEN** the historical result remains recorded while a fresh call returns `conversation_source_not_found`
-- **AND** deleting the destination Chat removes that observation under the existing Chat/Run cascade lifecycle
-
-#### Scenario: Generic tool UI remains the rendering floor
-
-- **WHEN** a live or historical `conversation_read` result reaches the browser
-- **THEN** the existing structured tool renderer displays its input, lifecycle state, result, or closed error
-- **AND** no specialized source card, outline, activity timeline, or conversation-only renderer is required
-
-#### Scenario: Conversation-read declaration cutover drains prior Runs
-
-- **WHEN** deployment changes code-owned conversation declarations or the interpretation of message sequence fields
-- **THEN** it stops accepting new Runs and drains Runs and queue payloads bound to the prior interpretation before migrating sequence boundaries
-- **AND** acceptance resumes only after every API and worker exposes the matching declaration, executor, and Chat-local sequence semantics
-
 ### Requirement: Trusted in-Run tool additions are admitted and made unavailable with Workspace state
 
 Only a trusted harness action entering a Workspace SHALL add tool declarations to the active
@@ -1909,49 +1850,67 @@ the field. Model replay, public shares, exports, and search MUST NOT carry it.
 
 ### Requirement: Model-authored tool intent is presentation metadata
 
-The model-facing declarations for `bash`, `read`, `edit`, `write`, `grep`, `wait`,
-`stop`, `enter_workspace`, `search_conversations`, `conversation_read`,
-`knowledge_search`, and `web_search` MUST require a nonblank string `i` of at most
-120 characters. This envelope MUST be part of the canonical model declaration.
-The executor schemas MUST remain unchanged. Before ordinary argument validation,
-permission admission, or execution, the harness MUST remove `i` from the arguments
-that it validates and executes, and retain it as the call's display-only `intent`.
-It MUST NOT alter eligibility, permission decisions, native-attempt identity, or
-the arguments sent to an MCP server.
+The declarations for `bash`, `read`, `edit`, `write`, `grep`, `wait`, `stop`, `enter_workspace`, `search_conversations`, `knowledge_search`, and `web_search` MUST require `i`. It MUST be a nonblank string of at most 120 characters in the canonical declaration. Executor schemas MUST remain unchanged. Before validation, admission, or execution, the host MUST remove `i` from executor arguments and retain it as display-only intent. It MUST alter no eligibility, permission, native-attempt identity, or MCP argument.
 
-Owner history, live streaming, kept-part replay, and event-based reconstruction
-MUST preserve that intent as a separate field. Public shares, exports, and search
-MUST NOT receive this separate display field. The stored call input and the
-model-history tool-call arguments, including refused calls, MUST keep `i` as the
-model sent it, so that the model sees the envelope on each of its earlier calls.
-SDK refusal diagnostics MUST retain their original text.
-Trusted system-origin calls MUST NOT require or fabricate an intent. MCP tools
-MUST retain their original schemas, including any server-owned argument named `i`.
+Owner history, events, kept-part replay, and live streams MUST preserve the separate intent field. Public shares, exports, and search MUST omit it. Stored inputs and model-history arguments MUST retain `i` as the model sent it, including refused calls. SDK refusal diagnostics MUST retain their original text. Trusted host calls MUST require no synthetic intent. MCP schemas and server-owned `i` arguments MUST remain unchanged.
 
 #### Scenario: A described command still receives ordinary admission
 
-- **WHEN** a model requests `bash` with `i: "Checking files"` and a command rejected by its permission group
-- **THEN** the command is rejected regardless of the intent
-- **AND** the input that admission judged contains the command and no `i`
-- **AND** the owner-facing tool part carries `intent: "Checking files"` and keeps `i` in its input
+- **WHEN** a model requests `bash` with an intent and a rejected command
+- **THEN** policy rejects the command regardless of that intent
+- **AND** admission receives the command without `i`
+- **AND** owner history preserves the separate intent and original input
 
 #### Scenario: An internal read does not need model presentation data
 
-- **WHEN** instruction loading or skill activation requests an authorized `read` with only a path
-- **THEN** the read is validated and executed under its unchanged executor schema
-- **AND** no synthetic intent is added
+- **WHEN** a trusted instruction or skill read supplies only a path
+- **THEN** its unchanged executor schema validates and executes it
+- **AND** the host invents no intent
 
 #### Scenario: Reconnection preserves the intent beside the real arguments
 
-- **WHEN** a tool part with an intent is rebuilt from events or replayed by a Continue Run
-- **THEN** its intent and its input, which keeps `i`, agree with owner history
+- **WHEN** events or Continue reconstruct a tool part with intent
+- **THEN** that intent and its input agree with owner history
 
 #### Scenario: A later request shows the model its own intent
 
-- **WHEN** the model called `bash` with `i: "Checking files"` in an earlier step or turn
-- **THEN** the next request sends that call's arguments with `i: "Checking files"`
+- **WHEN** an earlier call has `i: "Checking files"`
+- **THEN** later model history retains those exact arguments
 
 #### Scenario: An MCP argument named i keeps its server-defined meaning
 
-- **WHEN** an MCP tool declares and receives its own argument `i`
-- **THEN** the harness does not replace or strip that argument
+- **WHEN** an MCP schema defines and receives `i`
+- **THEN** the host neither replaces nor strips that server argument
+
+### Requirement: Chat reads use the existing read lifecycle
+
+Chat reads MUST declare `read_only` through `read`. They MUST use its attempt-local admission, trusted execution context, cancellation, persistence, replay, and generic owner interface. They MUST enforce conversation-reads bounds before generic truncation. They MUST require no separate Chat-reader declaration, catalog entry, or executor id.
+
+#### Scenario: Read is not admitted
+
+- **WHEN** the attempt does not admit `read`
+- **THEN** no Chat locator can invoke the removed tool or another executor
+
+#### Scenario: Bounded Chat read survives reload
+
+- **WHEN** read stores a bounded Chat observation
+- **THEN** live output, reload, and replay preserve its authored content and continuation
+
+### Requirement: Historical conversation observations survive reader retirement
+
+The system MUST preserve stored conversation_read inputs, results, and events without a live executor. It MUST NOT rehydrate, rename, or rewrite them. Source deletion MUST make a fresh Chat read fail without redacting another Chat's stored observation. Destination deletion MUST retain the existing cascade. Deployment MUST drain prior declarations and queued Runs before cutover. Rollback MUST restore matching binaries and data.
+
+#### Scenario: An old observation remains readable
+
+- **WHEN** a stored conversation_read result predates the tool retirement
+- **THEN** the owner interface and model replay use its stored observation without invoking an executor
+
+#### Scenario: A deleted source does not rewrite history
+
+- **WHEN** a destination Chat stores text from a source that the owner later deletes
+- **THEN** its stored observation remains while a fresh read returns `not_found`
+
+#### Scenario: The cutover never changes sequence interpretation
+
+- **WHEN** deployment retires the tool declaration
+- **THEN** message sequences stay unchanged and no old tool id becomes an alias

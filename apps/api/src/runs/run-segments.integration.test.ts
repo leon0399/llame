@@ -17,9 +17,8 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { chatJobChunks, type Run } from '../db/schema';
+import { type Run } from '../db/schema';
 import { waitFor } from '../testing/support';
-import type { Db } from '../db/tenant-db.service';
 import { finalizeRunReply } from './run-reply-finalizer';
 import {
   answer,
@@ -27,13 +26,13 @@ import {
   useSegmentsFixture,
   type SeededRun,
 } from '../testing/run-segments.test-fixture';
+import { newChatJob } from '../testing/chat-job-rows';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { createUser } from './worker-harness';
 import { notifyRunControl } from './run-control';
-import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -66,52 +65,28 @@ describe('run steering segments', () => {
     startRun,
   } = fx;
 
-  async function writeNoticeOutputChunks(
-    tx: Db,
-    jobId: string,
-    outputs: ReadonlyArray<{ name: string; text: string }>,
-  ) {
-    if (outputs.length === 0) return;
-    await tx.insert(chatJobChunks).values(
-      outputs.map(({ name, text }, position) => ({
-        jobId,
-        ownerUserId: fx.userId,
-        output: name,
-        position,
-        content: Buffer.from(text),
-      })),
-    );
-  }
-
   async function settleNotice(
     seeded: SeededRun,
     options: {
-      executor?: string;
       modelId?: string;
       seq?: number;
-      outputs?: ReadonlyArray<{ name: string; text: string }>;
     } = {},
   ) {
     return db(async (tx) => {
       const jobs = new ChatJobsRepository(tx);
 
-      const job = await jobs.insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: options.executor ?? 'bash',
-        seq: options.seq ?? 1,
-        runId: seeded.runId,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: options.outputs?.map(({ name }) => name) ?? [],
-        artifactReadable: false,
-        settings: {
-          selector: options.modelId ?? seeded.modelId,
-          permissionMode: 'default',
-        },
-      });
-
-      await writeNoticeOutputChunks(tx, job.id, options.outputs ?? []);
+      const job = await jobs.insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: fx.userId,
+          seq: options.seq ?? 1,
+          runId: seeded.runId,
+          settings: {
+            selector: options.modelId ?? seeded.modelId,
+            permissionMode: 'default',
+          },
+        }),
+      );
 
       const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
         state: 'failed',
@@ -124,7 +99,7 @@ describe('run steering segments', () => {
         settled,
       );
 
-      if (!notice) throw new Error('The test job notice was not inserted.');
+      if (!notice) throw new Error('The test job notice did not insert.');
 
       return { job: settled, notice };
     });
@@ -237,23 +212,18 @@ describe('run steering segments', () => {
             noticeId = (await settleNotice(seeded)).notice.id;
 
             await db((tx) =>
-              new ChatJobsRepository(tx).insert({
-                chatId: seeded.chatId,
-                ownerUserId: fx.userId,
-                executor: 'bash',
-                seq: 2,
-                runId: seeded.runId,
-                toolCallId: randomUUID(),
-                workerInstanceId: fx.harness.moduleRef.get(
-                  WorkerHeartbeatService,
-                ).instanceId,
-                outputs: [],
-                artifactReadable: false,
-                settings: {
-                  selector: seeded.modelId,
-                  permissionMode: 'default',
-                },
-              }),
+              new ChatJobsRepository(tx).insert(
+                newChatJob({
+                  chatId: seeded.chatId,
+                  ownerUserId: fx.userId,
+                  seq: 2,
+                  runId: seeded.runId,
+                  settings: {
+                    selector: seeded.modelId,
+                    permissionMode: 'default',
+                  },
+                }),
+              ),
             );
           },
         );
@@ -306,23 +276,18 @@ describe('run steering segments', () => {
         async (index, seeded) => {
           if (index === 0) {
             const running = await db((tx) =>
-              new ChatJobsRepository(tx).insert({
-                chatId: seeded.chatId,
-                ownerUserId: fx.userId,
-                executor: 'bash',
-                seq: 1,
-                runId: seeded.runId,
-                toolCallId: randomUUID(),
-                workerInstanceId: fx.harness.moduleRef.get(
-                  WorkerHeartbeatService,
-                ).instanceId,
-                outputs: [],
-                artifactReadable: false,
-                settings: {
-                  selector: seeded.modelId,
-                  permissionMode: 'default',
-                },
-              }),
+              new ChatJobsRepository(tx).insert(
+                newChatJob({
+                  chatId: seeded.chatId,
+                  ownerUserId: fx.userId,
+                  seq: 1,
+                  runId: seeded.runId,
+                  settings: {
+                    selector: seeded.modelId,
+                    permissionMode: 'default',
+                  },
+                }),
+              ),
             );
 
             jobId = running.id;
@@ -407,9 +372,6 @@ describe('run steering segments', () => {
             noticeId = (
               await settleNotice(seeded, {
                 modelId: 'different-model',
-                outputs: [
-                  { name: 'stdout', text: 'diagnostic payload from old model' },
-                ],
               })
             ).notice.id;
           }
@@ -448,11 +410,6 @@ describe('run steering segments', () => {
           ?.some((line) => line.includes('Background job job://bash-1')),
       ).toBe(true);
       expect(started.prompts()[1]).toContain('assistant:earlier reply');
-      expect(
-        started
-          .prompts()[1]
-          ?.some((line) => line.includes('diagnostic payload from old model')),
-      ).toBe(true);
     });
     it('A notice arriving during a model response is delivered at its step end', async () => {
       const gate = join(fx.directory, `notice-gate-${randomUUID()}`);
@@ -480,7 +437,7 @@ describe('run steering segments', () => {
                   20_000,
                   'the gated model call to start',
                 );
-                noticeId = (await settleNotice(seeded)).notice.id;
+                noticeId = (await settleNotice(seeded, { seq: 2 })).notice.id;
                 await writeFile(gate, '');
                 noticeReady.resolve();
               } catch (error) {
@@ -519,18 +476,18 @@ describe('run steering segments', () => {
             await proceed.promise;
             const jobs = new ChatJobsRepository(tx);
 
-            const job = await jobs.insert({
-              chatId: seeded.chatId,
-              ownerUserId: fx.userId,
-              executor: 'bash',
-              seq: 1,
-              runId: seeded.runId,
-              toolCallId: randomUUID(),
-              workerInstanceId: randomUUID(),
-              outputs: [],
-              artifactReadable: false,
-              settings: { selector: seeded.modelId, permissionMode: 'default' },
-            });
+            const job = await jobs.insert(
+              newChatJob({
+                chatId: seeded.chatId,
+                ownerUserId: fx.userId,
+                seq: 1,
+                runId: seeded.runId,
+                settings: {
+                  selector: seeded.modelId,
+                  permissionMode: 'default',
+                },
+              }),
+            );
 
             const settled = await jobs.settle(
               seeded.chatId,

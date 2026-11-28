@@ -7,6 +7,9 @@ import { type Db } from '../db/tenant-db.service';
 export const notRunningReply = sql`(${messages.usage} ->> 'status') is distinct from 'running'`;
 export const titleMessageRoles = sql`(${messages.role} = 'assistant' or (${messages.role} = 'user' and ${messages.senderUserId} is not null))`;
 
+/** At least one visible text part, used by excerpt-source queries. */
+export const hasVisibleText = sql`exists (select 1 from json_array_elements(${messages.parts}) as part where part ->> 'type' = 'text' and part ->> 'text' ~ '\\S')`;
+
 /** Recent title input rows, newest-first and owned by the requested user. */
 export async function queryLatestTitleMessages(
   db: Db,

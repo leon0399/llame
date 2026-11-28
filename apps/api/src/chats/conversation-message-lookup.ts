@@ -11,6 +11,7 @@ export type ConversationMessageLookup = {
   chatId: string;
   seq: number;
   role: 'user' | 'assistant';
+  senderUserId: string | null;
   parts: Array<unknown>;
   usage: unknown;
   createdAt: Date;
@@ -22,6 +23,7 @@ type ConversationMessageLookupRow = {
   message_chat_id: string;
   message_seq: string;
   message_role: string;
+  message_sender_user_id: string | null;
   message_parts: unknown;
   message_usage: unknown;
   message_created_at: Date | string;
@@ -44,6 +46,7 @@ function eligibleSourceCte(chatId: string, ownerUserId: string): SQL {
         m.chat_id,
         m.seq,
         m.role,
+        m.sender_user_id,
         m.parts,
         m.usage,
         m.created_at
@@ -76,6 +79,7 @@ async function selectLookupRow(
       target.chat_id AS message_chat_id,
       target.seq::text AS message_seq,
       target.role AS message_role,
+      target.sender_user_id AS message_sender_user_id,
       target.parts AS message_parts,
       target.usage AS message_usage,
       target.created_at AS message_created_at,
@@ -129,6 +133,7 @@ function toConversationMessageLookup(
     chatId: row.message_chat_id,
     seq,
     role: row.message_role,
+    senderUserId: row.message_sender_user_id,
     parts: row.message_parts,
     usage: row.message_usage,
     createdAt,

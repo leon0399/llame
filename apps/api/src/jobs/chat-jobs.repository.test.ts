@@ -1,6 +1,6 @@
 /**
  * ChatJobsRepository as compiled SQL: the owner and Chat filters, the
- * first-writer-wins condition, and the dead-worker join. Real RLS is proven in
+ * settlement, and stop requests. Real RLS is proven in
  * job-store.integration.test.ts.
  */
 
@@ -43,6 +43,69 @@ describe('ChatJobsRepository', () => {
       /order by "chat_jobs"\."started_at" asc, "chat_jobs"\."seq" asc/u,
     );
     expect(last().params).toEqual(expect.arrayContaining([CHAT, OWNER]));
+  });
+
+  it('exposes only background rows to job listing', async () => {
+    const { repository, last } = make();
+
+    await repository.listByChat(CHAT, OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toContain('background');
+  });
+
+  it('counts only background running jobs', async () => {
+    const { repository, last } = make();
+
+    await repository.countRunning(OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().sql).toContain('"chat_jobs"."state" =');
+    expect(last().params).toEqual(
+      expect.arrayContaining([OWNER, 'running', 'background']),
+    );
+  });
+
+  it('lists all bindings for lifecycle operations', async () => {
+    const { repository, last } = make();
+
+    await repository.listBindingsByChat(CHAT, OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."chat_id" =');
+    expect(last().sql).toContain('"chat_jobs"."owner_user_id" =');
+    expect(last().sql).not.toContain('"chat_jobs"."delivery" =');
+  });
+
+  it('promotes a running foreground binding to background durably', async () => {
+    const { repository, last } = make();
+
+    await repository
+      .promoteToBackground(CHAT, OWNER, JOB)
+      .catch(() => undefined);
+
+    expect(last().sql).toContain('update "chat_jobs"');
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toEqual(
+      expect.arrayContaining([
+        CHAT,
+        OWNER,
+        JOB,
+        'running',
+        'foreground',
+        'background',
+      ]),
+    );
+  });
+
+  it('keeps foreground bindings out of locator lookup', async () => {
+    const { repository, last } = make();
+
+    await repository
+      .findByLocator(CHAT, OWNER, 'bash', 1)
+      .catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toContain('background');
   });
 
   it('settles only a running job of the Chat and owner, and sets the end time', async () => {
@@ -94,19 +157,6 @@ describe('ChatJobsRepository', () => {
     expect(last().sql).toContain('"chat_jobs"."state" =');
     expect(last().params).toEqual(
       expect.arrayContaining([JOB, CHAT, OWNER, 'running', 'owner']),
-    );
-  });
-
-  it('reads the increments of one output of the owner in order', async () => {
-    const { repository, last } = make();
-
-    await repository.readOutput(OWNER, JOB, 'stdout').catch(() => undefined);
-
-    expect(last().sql).toContain('"chat_job_chunks"."owner_user_id" =');
-    expect(last().sql).toContain('"chat_job_chunks"."output" =');
-    expect(last().sql).toContain('order by "chat_job_chunks"."position"');
-    expect(last().params).toEqual(
-      expect.arrayContaining([JOB, OWNER, 'stdout']),
     );
   });
 });

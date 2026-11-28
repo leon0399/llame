@@ -45,6 +45,7 @@ import { storedToolPartMediaKey } from '../media/retained-media';
 import { createToolAvailabilityItem } from '../chats/context-item-producers';
 import { buildContext, type StoredMessage } from '../chats/context-builder';
 import { mergeRetainedMedia } from '../media/attempt-media';
+import { createRecencyDigestItem } from '../chats/recency-digest-item';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import type { Message } from '../db/schema';
 
@@ -326,6 +327,39 @@ describe('planCompactionCheckpoint', () => {
         rows: [{ ...msg('only the trigger'), seq: 1 }],
         boundarySeq: 1,
         triggeringUserSeq: 1,
+      }),
+    ).toBeNull();
+  });
+
+  it('does not compact an idle range containing only a digest carrier', () => {
+    const carrier = {
+      ...msg('digest'),
+      seq: 1,
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: {
+              kind: 'origin',
+              chatId: 'ca7e63ce-66a2-41aa-8a03-4fd8f76d76ab',
+            },
+          },
+          body: 'baseline',
+        }),
+      ],
+    };
+
+    const trigger = { ...msg('trigger'), seq: 2 };
+
+    expect(
+      planCompactionCheckpoint({
+        rows: [carrier, trigger],
+        boundarySeq: 0,
+        triggeringUserSeq: trigger.seq,
       }),
     ).toBeNull();
   });
@@ -1697,6 +1731,7 @@ describe('buildCompactionRequest', () => {
       modelId: 'test-model',
       system: CHAT_SYSTEM,
       previous: {
+        id: 'checkpoint-1',
         text: persistedCheckpoint,
         absorbedThroughSeq: 0,
       },

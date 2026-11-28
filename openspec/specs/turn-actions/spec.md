@@ -9,11 +9,9 @@ turn from its last completed step, or regenerate the turn from its user message.
 
 ### Requirement: An owner starts a follow-up Run on the latest turn
 
-A follow-up Run is a Run that an owner starts on a user message that already has a Run. The owner
-MUST start it through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. The message MUST
-be the user message with the highest `seq` of the Chat's user messages. The newest Run of the Chat
-MUST be a turn Run of that message. A checkpoint MUST NOT absorb that message. The Chat MUST NOT be
-archived. The answer MUST be the same AG-UI 1.0 event stream that a chat send returns.
+An owner MUST start a follow-up through `POST /api/v1/chats/:chatId/messages/:userMessageId/runs`. That message MUST already have a Run. It MUST be the highest-sequence user turn after exclusion of digest-only host carriers. Ordinary owner messages and job-delivery host messages MUST retain their turn semantics.
+
+The newest Run MUST remain a turn Run of that message. No checkpoint can absorb the target. The Chat MUST remain unarchived. The result MUST use the same AG-UI 1.0 stream as a Chat send. A later digest-only carrier MUST NOT block an otherwise eligible Continue or Regenerate.
 
 #### Scenario: A follow-up request on the latest turn starts a Run
 
@@ -48,6 +46,12 @@ archived. The answer MUST be the same AG-UI 1.0 event stream that a chat send re
 
 - **WHEN** a turn Run compacted at its final answer and completed, and the owner sends a Regenerate request for its user message
 - **THEN** the API answers 409 and creates no Run
+
+#### Scenario: A digest companion is not a later turn
+
+- **WHEN** pre-step compaction publishes a companion above an unabsorbed user message and its turn Run then fails
+- **THEN** an otherwise eligible Continue or Regenerate remains admitted for that message
+- **AND** the digest carrier starts no Run and creates no later-turn conflict
 
 ### Requirement: A follow-up request passes single-flight admission
 
@@ -251,10 +255,9 @@ first segment MUST hold the kept parts once, then the new parts, in stored order
 
 ### Requirement: Regenerate replaces the reply of the latest turn
 
-Regenerate MUST start when the latest Run of the message is terminal, with any terminal status. Its
-first model request MUST start from the history through the triggering user message. Its dispatch
-MUST replace the reply, also a `completed` reply of an earlier Run. The old reply MUST stay only in
-the event log of its Run. A Regenerate that ends before its dispatch MUST leave the old reply.
+Regenerate MUST require a terminal latest Run of its target message. Any terminal status can qualify. Its first request MUST use history through the triggering message, with the effective checkpoint and digest companion.
+
+Its dispatch MUST replace the old reply, including a completed reply. The old reply MUST remain only in its Run event log. A pre-dispatch failure MUST keep that reply. Replaced replies MUST remain unavailable to search and Chat reads.
 
 #### Scenario: Regenerate replaces a completed answer with another model
 
@@ -280,7 +283,7 @@ the event log of its Run. A Regenerate that ends before its dispatch MUST leave 
 #### Scenario: A replaced completed reply leaves search
 
 - **WHEN** a Regenerate Run replaces a `completed` reply and then completes
-- **THEN** `search_conversations` and `conversation_read` return no result for that reply
+- **THEN** `search_conversations` omits that reply and its Chat read returns `not_found`
 
 ### Requirement: Regenerate discloses non-read-only tool calls to the new attempt
 
@@ -494,3 +497,17 @@ of that turn MUST keep the host message and its `job` context items.
 
 - **WHEN** a notice starts a Run, the Run fails, and the owner chooses Continue
 - **THEN** the Continue Run starts on the host message, and its first request carries the same `job` context item
+
+### Requirement: Digest-only carriers do not create user turns
+
+A host row with only recency-digest context items MUST remain a transparent carrier. It MUST NOT start a Run, replace the latest user turn, satisfy a later-user-message guard, or alone make compaction eligible. This exclusion MUST NOT change ordinary owner or job-delivery turns. Existing refusals after an idle compaction Run or an absorbed latest turn MUST remain unchanged.
+
+#### Scenario: A real later message still blocks an older follow-up
+
+- **WHEN** a real owner message follows the target turn
+- **THEN** follow-up admission still rejects that older target
+
+#### Scenario: Migration carriers do not disable follow-ups
+
+- **WHEN** conversion appends digest-only host rows without a new Run
+- **THEN** the same unabsorbed latest turn remains eligible under ordinary follow-up checks

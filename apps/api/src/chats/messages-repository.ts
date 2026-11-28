@@ -14,7 +14,6 @@ import { findCheckpoint as findCheckpointQuery } from './checkpoint-message-quer
 import {
   and,
   asc,
-  count,
   desc,
   eq,
   gt,
@@ -23,12 +22,15 @@ import {
   lt,
   lte,
   isNotNull,
-  ne,
   sql,
   type SQL,
 } from 'drizzle-orm';
 import { countAbsorbedMessages } from './absorbed-message-count';
-import { notRunningReply, titleMessageRoles } from './title-message-query';
+import {
+  hasVisibleText,
+  notRunningReply,
+  titleMessageRoles,
+} from './title-message-query';
 import { type Message, type MessageRole, chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -39,18 +41,13 @@ import {
   findConversationMessage,
   type ConversationMessageLookup,
 } from './conversation-message-lookup';
-import { type ContextItemPart } from './context-item';
+import { selectEffectiveDigestMessages } from './recency-digest-replay';
+import { digestOnlyHostMessagePredicate } from './message-eligibility';
+import type { ContextItemPart } from './context-item';
 import { messageInsertChunks } from './message-insert-chunks';
 
 /** A checkpoint row; the repository guarantees its boundary is present. */
 export type CheckpointMessage = Message & { absorbedThroughSeq: number };
-
-/**
- * At least one text part with a non-whitespace character. Parts are `json`
- * since design D13, and `json_array_elements` is the set-returning function
- * that type admits.
- */
-const hasVisibleText = sql`exists (select 1 from json_array_elements(${messages.parts}) as part where part ->> 'type' = 'text' and part ->> 'text' ~ '\\S')`;
 
 /**
  * An assistant reply a writer may still replace. Atomic guard against a retry
@@ -106,6 +103,39 @@ export class MessagesRepository {
   }
 
   /**
+   * Effective replay prefix for a request. Ordinary rows stop before the
+   * triggering owner message; associated digest carriers are selected by
+   * logical association/cutoff rather than their later storage sequence.
+   */
+  async findEffectiveContextMessages(
+    chatId: string,
+    ownerUserId: string,
+    options: { throughSeq: number; checkpointId?: string },
+  ): Promise<Array<Message>> {
+    const checkpoint = options.checkpointId
+      ? await this.findById(chatId, ownerUserId, options.checkpointId)
+      : undefined;
+
+    const checkpointRow =
+      checkpoint?.role === 'checkpoint' ? checkpoint : undefined;
+
+    const boundary = checkpointRow?.absorbedThroughSeq ?? 0;
+
+    const rows = await this.windowedByPredicates([
+      eq(messages.chatId, chatId),
+      eq(chats.ownerUserId, ownerUserId),
+      gt(messages.seq, boundary),
+      sql`(${messages.seq} < ${options.throughSeq} OR ${digestOnlyHostMessagePredicate('messages')})`,
+    ]);
+
+    return selectEffectiveDigestMessages(
+      checkpointRow ? [...rows, checkpointRow] : rows,
+      chatId,
+      options,
+    );
+  }
+
+  /**
    * The rows an owner fork copies: everything up to `anchorSeq` plus the
    * checkpoint rows stored after it whose absorbed boundary is still inside
    * the copied prefix, oldest-first. No anchor means the whole chat.
@@ -122,7 +152,7 @@ export class MessagesRepository {
 
     if (anchorSeq !== undefined) {
       predicates.push(
-        sql`(${lte(messages.seq, anchorSeq)} or (${eq(messages.role, 'checkpoint')} and ${lte(messages.absorbedThroughSeq, anchorSeq)}))`,
+        sql`(${lte(messages.seq, anchorSeq)} or (${eq(messages.role, 'checkpoint')} and ${lte(messages.absorbedThroughSeq, anchorSeq)}) or ${digestOnlyHostMessagePredicate('messages')})`,
       );
     }
 
@@ -329,6 +359,7 @@ export class MessagesRepository {
         and(
           eq(messages.chatId, chats.id),
           inArray(messages.role, ['user', 'assistant']),
+          sql`not ${digestOnlyHostMessagePredicate('messages')}`,
           hasVisibleText,
           notRunningReply,
         ),
@@ -350,69 +381,6 @@ export class MessagesRepository {
       .orderBy(chats.id);
 
     return rows.map((r) => r.latest);
-  }
-
-  /**
-   * Earliest owner-authored user message per Chat: the recency excerpt source.
-   *
-   * One query for the whole set rather than one per chat. The digest reads a
-   * single message out of each candidate, so hydrating full histories would
-   * fetch every row of a long or compacted chat to use its first — and the
-   * `deltas` layer re-resolves these same capped views on every send, which
-   * would turn a per-chat cost into a per-send one.
-   *
-   * Filter host rows before DISTINCT ON, or a host before the first owner turn
-   * would hide that Chat's excerpt. Sequence order preserves insertion order.
-   *
-   * Owner-scoped via the chats join, same defense-in-depth as findByChatId.
-   */
-  async findEarliestUserMessagePerChat(
-    chatIds: ReadonlyArray<string>,
-    ownerUserId: string,
-  ): Promise<Array<Message>> {
-    if (chatIds.length === 0) {
-      return [];
-    }
-
-    const rows = await this.db
-      .selectDistinctOn([messages.chatId])
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(chats.ownerUserId, ownerUserId),
-          inArray(messages.chatId, [...chatIds]),
-          sql`(${messages.role} = 'user' and ${messages.senderUserId} is not null)`,
-        ),
-      )
-      .orderBy(messages.chatId, asc(messages.seq));
-
-    return rows.map((r) => r.messages);
-  }
-
-  /** Stored message count per chat for a bounded set, as one grouped query. */
-  async countPerChat(
-    chatIds: ReadonlyArray<string>,
-    ownerUserId: string,
-  ): Promise<Map<string, number>> {
-    if (chatIds.length === 0) {
-      return new Map();
-    }
-
-    const rows = await this.db
-      .select({ chatId: messages.chatId, value: count() })
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(chats.ownerUserId, ownerUserId),
-          inArray(messages.chatId, [...chatIds]),
-          ne(messages.role, 'checkpoint'),
-        ),
-      )
-      .groupBy(messages.chatId);
-
-    return new Map(rows.map(({ chatId, value }) => [chatId, value]));
   }
 
   /**
@@ -452,10 +420,7 @@ export class MessagesRepository {
     const predicates = [
       eq(messages.chatId, chatId),
       eq(chats.visibility, 'public'),
-      // Only the conversation is ever public — never a (future) system/tool
-      // row. Enforced at the query too (not just the DTO), matching the
-      // search path's guard, so a later tool-parts-persistence change can't
-      // silently leak internals into a shared link.
+      sql`not ${digestOnlyHostMessagePredicate('messages')}`,
       titleMessageRoles,
     ];
 
@@ -554,6 +519,7 @@ export class MessagesRepository {
           eq(chats.ownerUserId, ownerUserId),
           eq(messages.role, 'user'),
           gt(messages.seq, seq),
+          sql`not ${digestOnlyHostMessagePredicate('messages')}`,
         ),
       )
       .limit(1);

@@ -10,12 +10,13 @@ import { MessagesRepository } from '../chats/messages-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { settleBashJob } from '../jobs/bash-job-store';
-import { workerInstances, runs, type ChatJob } from '../db/schema';
+import { runs, type ChatJob } from '../db/schema';
+import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { RunWaitService } from './run-wait.service';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { TenantDbService } from '../db/tenant-db.service';
 import { asDouble, waitFor } from '../testing/support';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { newChatJob } from '../testing/chat-job-rows';
 import {
   bootWorkerHarness,
   createUser,
@@ -333,12 +334,12 @@ describe('Compaction Run execution', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'lost', result: { outcomeUnknown: true } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+        wake: harness.moduleRef.get(RunWaitService),
       },
     );
 
@@ -924,21 +925,15 @@ async function createRunningJob(input: {
   const { tenantDb, chatId, ownerUserId, runId, modelId } = input;
 
   return tenantDb.runAs(ownerUserId, async (tx) => {
-    const workerInstanceId = randomUUID();
-    await tx.insert(workerInstances).values({ id: workerInstanceId });
-
-    return new ChatJobsRepository(tx).insert({
-      chatId,
-      ownerUserId,
-      executor: 'bash',
-      seq: 1,
-      runId,
-      toolCallId: randomUUID(),
-      workerInstanceId,
-      outputs: ['stdout', 'stderr'],
-      artifactReadable: false,
-      settings: { selector: modelId, permissionMode: 'default' },
-    });
+    return new ChatJobsRepository(tx).insert(
+      newChatJob({
+        chatId,
+        ownerUserId,
+        seq: 1,
+        runId,
+        settings: { selector: modelId, permissionMode: 'default' },
+      }),
+    );
   });
 }
 
@@ -958,12 +953,12 @@ async function settleNoticeJob(
         truncatedStreams: { stdout: false, stderr: false },
       },
       settlement: { state: 'succeeded', result: { exitCode: 0 } },
-      offsets: { stdout: 0, stderr: 0 },
     },
     {
       maxBytes: 65_536,
       hostFiles: false,
       noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+      wake: harness.moduleRef.get(RunWaitService),
     },
   );
 }

@@ -3,7 +3,7 @@ import {
   type GitInspectSuccess,
   type GitWorktreeAddResult,
   type GitWorktreeRemoveResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { type Checkout } from '../db/schema';
@@ -17,7 +17,11 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { type ToolContext, type ToolResult, type WorktreeGit } from './types';
 import { adoptSource } from './workspace-worktree-adoption';
-import { executorFailure, type Failed } from './workspace-worktree-failure';
+import {
+  addFailureOutcome,
+  executorFailure,
+  type Failed,
+} from './workspace-worktree-failure';
 import { entryMachine, type EntryMachine } from './workspace-worktree-target';
 import {
   requireDerivedPermission,
@@ -114,6 +118,8 @@ type Plan = {
   readonly mainClone: string;
   /** The absolute path of the main clone, where placement does math. */
   readonly mainPath: string;
+  /** The selected Checkout root, whose included files the add copies. */
+  readonly copySource: string;
   /** The canonical locator of the new worktree directory. */
   readonly directory: string;
   readonly branch: string;
@@ -201,29 +207,13 @@ async function planWorktree(
   creation: Creation,
   inspection: GitInspectSuccess,
 ): Promise<Plan | Failed> {
-  const { context, executors, machine, target, worktree } = creation;
+  const { executors, target, worktree } = creation;
 
-  // The main tree git reports: the toplevel, or the main worktree of a linked
-  // one by its real path. A subdirectory source decides on its clone. The
-  // address is the executor's; the decision, the rows, and the catalogue see
-  // the canonical locator of the same directory.
-  const mainAddress = inspection.linked
-    ? (inspection.mainWorktree ?? inspection.toplevel)
-    : inspection.toplevel;
+  const roots = decideRoots(creation, inspection);
 
-  const mainClone = machine.locator(mainAddress);
+  if ('status' in roots) return roots;
 
-  if (mainClone !== worktree.canonical) {
-    const rejection = requireDerivedPermission(
-      context,
-      'main_clone',
-      mainClone,
-    );
-
-    if (rejection !== undefined) return { status: 'failed', result: rejection };
-  }
-
-  const mainPath = machine.pathOf(mainAddress);
+  const { mainClone, mainPath, copySource } = roots;
 
   const directoryAt = await placement(
     creation,
@@ -243,12 +233,64 @@ async function planWorktree(
   return {
     mainClone,
     mainPath,
+    copySource,
     directory: decided.directory,
     branch: name.branch,
     // An omitted base starts at the SOURCE's HEAD, not the main clone's: a
     // linked worktree can stand on a different commit than the clone behind it.
     baseRef: worktree.baseRef ?? inspection.head ?? undefined,
   };
+}
+
+/**
+ * The main clone git reports and the selected Checkout root, each decided
+ * before any write. The main clone is the toplevel, or the main worktree of a
+ * linked one by its real path; a subdirectory source decides on its clone. The
+ * address is the executor's; the decision, the rows, and the catalogue see the
+ * canonical locator of the same directory.
+ */
+function decideRoots(
+  creation: Creation,
+  inspection: GitInspectSuccess,
+):
+  | {
+      readonly mainClone: string;
+      readonly mainPath: string;
+      readonly copySource: string;
+    }
+  | Failed {
+  const { context, machine, worktree } = creation;
+
+  const mainAddress = inspection.linked
+    ? (inspection.mainWorktree ?? inspection.toplevel)
+    : inspection.toplevel;
+
+  const mainClone = machine.locator(mainAddress);
+
+  if (mainClone !== worktree.canonical) {
+    const rejection = requireDerivedPermission(
+      context,
+      'main_clone',
+      mainClone,
+    );
+
+    if (rejection !== undefined) return { status: 'failed', result: rejection };
+  }
+
+  const copySource = machine.locator(inspection.toplevel);
+
+  // A root other than the canonical path or main clone needs its own decision.
+  if (copySource !== worktree.canonical && copySource !== mainClone) {
+    const rejection = requireDerivedPermission(
+      context,
+      'copy_source',
+      copySource,
+    );
+
+    if (rejection !== undefined) return { status: 'failed', result: rejection };
+  }
+
+  return { mainClone, mainPath: machine.pathOf(mainAddress), copySource };
 }
 
 /**
@@ -300,6 +342,7 @@ async function addedWorktree(
       source: plan.mainClone,
       branch: plan.branch,
       ...(plan.baseRef !== undefined && { baseRef: plan.baseRef }),
+      copySource: plan.copySource,
       directory: plan.directory,
     });
   } catch (error) {
@@ -312,7 +355,7 @@ async function addedWorktree(
   }
 
   if (added.status === 'error')
-    return settledFailure(creation, gitFailureOutcome(added));
+    return settledFailure(creation, addFailureOutcome(added, plan.directory));
   const refused = await refuseElsewhere(creation, plan);
 
   return refused === undefined
@@ -340,6 +383,9 @@ async function settledFailure(
           status: 'error',
           type: failed.result.type,
           message: failed.result.message,
+          ...(failed.result.leftDirectory !== undefined && {
+            leftDirectory: failed.result.leftDirectory,
+          }),
         },
       }),
     );

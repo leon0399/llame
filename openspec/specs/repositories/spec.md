@@ -332,7 +332,7 @@ error.
 
 #### Scenario: An outdated daemon answers 503
 
-- **WHEN** registration targets a Machine whose daemon lists no git methods
+- **WHEN** registration targets a Machine whose daemon reports another protocol version or answers a git method with UNIMPLEMENTED
 - **THEN** the request answers 503 with `machine_update_required` and stores no
   row
 

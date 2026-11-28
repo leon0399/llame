@@ -1,4 +1,4 @@
-import type { SerializableRecord, SerializableValue } from "./json-rpc";
+import type { SerializableRecord, SerializableValue } from "./json-types";
 
 /** Whether a parsed value is a JSON object; a JSON array is not one. */
 export function isSerializableRecord(
@@ -13,9 +13,4 @@ export function isStringValue(value: SerializableValue): value is string {
 
 export function isIntegerValue(value: SerializableValue): value is number {
   return typeof value === "number" && Number.isInteger(value);
-}
-
-/** A JSON-RPC id: a whole number or a string. */
-export function isIdValue(value: SerializableValue): value is number | string {
-  return isStringValue(value) || isIntegerValue(value);
 }

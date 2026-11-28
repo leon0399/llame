@@ -9,8 +9,6 @@
 
 import {
   FS_GREP_METHOD,
-  FS_STAT_METHOD,
-  MachineProtocolError,
   type FsGrepConsumed,
   type FsGrepPassage,
   type FsGrepSuccess,
@@ -19,45 +17,23 @@ import {
 } from '@workspace/machine-protocol';
 import {
   formatPassageLocator,
-  normalizeHostScope,
-  splitGrepScope,
+  GREP_LIMITS,
+  parsePassageLocator,
   type GrepBudget,
   type GrepIgnored,
   type GrepPassage,
-  type GrepScope,
 } from '@workspace/native-file-tools';
 
-import {
-  MachineUnavailableError,
-  type MachineConnector,
-} from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
-import {
-  MACHINE_NAME_PATTERN,
-  parseMachineLocator,
-} from '../machines/machine-locator';
-import {
-  readFsGrepResult,
-  readFsStatResult,
-} from '../machines/machine-results';
+import type { MachineConnector } from '../machines/machine-connector.service';
+import { readFsGrepResult } from '../machines/machine-results';
 import { type GrepReadAdmission } from './grep-admission';
+import { machineUnsupportedResult, type GrepToolError } from './grep-results';
 import {
-  invalidPathResult,
-  machineUnsupportedResult,
-  unsupportedGlobResult,
-  type GrepToolError,
-} from './grep-results';
-import {
-  MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
   machineCallEnvelope,
   machineConnector,
-  machineIdentityMismatchResult,
   machineNotFoundResult,
-  machineProtocolFailureResult,
-  machineUnavailableResult,
   machineUnusableResult,
-  type MachineFailureResult,
 } from './machine-call';
 import {
   admitMachineFile,
@@ -69,7 +45,15 @@ import {
   type IgnoredAccumulator,
 } from './grep-machine-wire';
 import { budgetAfter } from './grep-page';
+import { machineGrepFailure } from './grep-machine-failure';
 import { type ToolContext, type ToolResult } from './types';
+
+export {
+  isMachineGrepScope,
+  machineScopeOf,
+  resolveMachineScope,
+  resolveParsedMachineScope,
+} from './grep-machine-resolve';
 
 /** One Machine scope: the prefix the daemon searches and its glob suffix. */
 export type MachineGrepScope = {
@@ -148,18 +132,6 @@ export type MachineGrepSearch = {
   readonly keepPassages: (passages: ReadonlyArray<GrepPassage>) => boolean;
 };
 
-/** Whether a resolved scope is a Machine one, for the call's ordering. */
-export function isMachineGrepScope(
-  scope: GrepScope | MachineGrepScope,
-): scope is MachineGrepScope {
-  return !('port' in scope);
-}
-
-/** The resolution of one `machine://` scope: its search target, or a refusal. */
-export type MachineScopeResolution =
-  | { readonly machine: MachineGrepScope }
-  | { readonly result: GrepToolError };
-
 /** One Machine scope's resolution: its text, ordinal, admission, and clock. */
 export type MachineScopeRequest = {
   readonly context: ToolContext;
@@ -169,199 +141,6 @@ export type MachineScopeRequest = {
   /** The absolute instant the walk stops, which bounds the probe. */
   readonly deadlineAt: number;
 };
-
-/**
- * One `machine://` scope, or the result that ends the call. The path is split
- * at its first glob segment before any decoding — so `%2A` stays a literal
- * filename character — and normalized lexically, exactly as a host scope. A
- * glob-free scope is probed first: a regular file the `read` group refuses, or
- * a directory spelling that names one, answers the `not_found` a missing path
- * gets, while a directory scope is walked with a per-file check.
- */
-export async function resolveMachineScope(
-  request: MachineScopeRequest,
-): Promise<MachineScopeResolution> {
-  const { context, scope, index, admission, deadlineAt } = request;
-  const parsed = machineScopeOf(scope, index);
-
-  if ('status' in parsed) return { result: parsed };
-
-  return resolveParsedMachineScope(context, parsed, admission, deadlineAt);
-}
-
-/**
- * One Machine scope already parsed: its Machine must be reachable and
- * configured, then the exact-path rule runs on the daemon. A caller that
- * builds the scope itself — a skill package on a Machine, whose locators are
- * `skill://` — settles the text before this point and passes the walk clock.
- */
-export async function resolveParsedMachineScope(
-  context: ToolContext,
-  scope: MachineGrepScope,
-  admission: GrepReadAdmission,
-  deadlineAt: number,
-): Promise<MachineScopeResolution> {
-  const connector = machineConnector(context);
-
-  if (connector === undefined) return { result: machineUnsupportedResult() };
-
-  if (!connector.isConfigured(scope.name))
-    return { result: machineNotFoundResult(scope.name) };
-
-  const verdict = await exactPathVerdict({
-    context,
-    connector,
-    scope,
-    admission,
-    deadlineAt,
-  });
-
-  if ('result' in verdict) return { result: verdict.result };
-
-  if (verdict.kind === 'refused')
-    return { result: machinePathNotFoundResult() };
-
-  return {
-    machine: verdict.singleFile ? { ...scope, singleFile: true } : scope,
-  };
-}
-
-/** What the exact-path rule settled for one glob-free Machine scope. */
-type ExactPathVerdict =
-  | { readonly kind: 'walk'; readonly singleFile: boolean }
-  | { readonly kind: 'refused' }
-  | { readonly result: GrepToolError };
-
-/** The result a missing Machine path and a `read`-refused one both answer. */
-function machinePathNotFoundResult(): GrepToolError {
-  return { status: 'error', type: 'not_found', message: NOT_FOUND_MESSAGE };
-}
-
-/** One glob-free Machine scope's exact-path probe and its walk clock. */
-type ExactPathProbe = {
-  readonly context: ToolContext;
-  readonly connector: MachineConnector;
-  readonly scope: MachineGrepScope;
-  readonly admission: GrepReadAdmission;
-  readonly deadlineAt: number;
-};
-
-/**
- * The `read` verdict for a glob-free scope that names one regular file. The
- * daemon's own stat is the probe, so a directory scope keeps its per-file
- * checks and the directory itself never counts as a refused file. A
- * directory-only spelling that names a file is not a file scope. Anything the
- * probe cannot settle — a refusal, an unusable answer — is left to the search,
- * which reports the same failure with its own message.
- */
-async function exactPathVerdict(
-  probe: ExactPathProbe,
-): Promise<ExactPathVerdict> {
-  const { scope } = probe;
-
-  if (scope.globSuffix !== undefined)
-    return { kind: 'walk', singleFile: false };
-  const locator = machineScopeLocator(scope, '');
-
-  if (locator === undefined) return { kind: 'walk', singleFile: false };
-
-  // The walk's deadline bounds the probe; an expired walk asks nothing and
-  // lets the segment loop report the incomplete result it already owes.
-  const budgetMs = Math.min(
-    probe.deadlineAt - Date.now(),
-    MACHINE_FILE_BUDGET_MS,
-  );
-
-  if (budgetMs <= 0) return { kind: 'walk', singleFile: false };
-
-  try {
-    const answer = readFsStatResult(
-      await probe.connector.request(
-        scope.name,
-        FS_STAT_METHOD,
-        {
-          envelope: machineCallEnvelope(probe.context, budgetMs),
-          path: scope.path,
-        },
-        { signal: probe.context.abortSignal },
-      ),
-    );
-
-    if (answer === undefined || answer.kind !== 'file' || answer.isLink)
-      return { kind: 'walk', singleFile: false };
-
-    if (scope.endsWithSeparator) return { kind: 'refused' };
-
-    return admitMachineFile(probe.admission, scope, '', locator)
-      ? { kind: 'walk', singleFile: true }
-      : { kind: 'refused' };
-  } catch (error) {
-    // The daemon's own budget ends at the walk's deadline: the walk is over,
-    // not failed, so the segment loop reports it as incomplete.
-    if (
-      error instanceof MachineProtocolError &&
-      error.code === 'budget_exhausted'
-    )
-      return { kind: 'walk', singleFile: false };
-
-    return { result: machineGrepFailure(scope.name, error) };
-  }
-}
-
-/** The one refusal message for a Machine scope with no path to search. */
-const NO_PATH_MESSAGE =
-  'A machine:// scope must name a Machine and an absolute path.';
-
-const BAD_NAME_MESSAGE =
-  'A machine:// scope must name a Machine as [a-z0-9-], up to 63 characters.';
-
-const BAD_PATH_MESSAGE = 'The Machine scope path is invalid.';
-
-/** What the daemon answers for a path that does not exist. */
-const NOT_FOUND_MESSAGE = 'The target does not exist.';
-
-/** The text parse of a `machine://` scope; also the pre-admission shape check. */
-export function machineScopeOf(
-  scope: string,
-  index: number,
-): MachineGrepScope | GrepToolError {
-  // `machine://` is fixed width whatever the case of the scheme.
-  const rest = scope.slice('machine://'.length);
-  const separator = rest.indexOf('/');
-
-  if (separator < 0) return invalidPathResult(NO_PATH_MESSAGE);
-  const name = rest.slice(0, separator).toLowerCase();
-
-  if (!MACHINE_NAME_PATTERN.test(name))
-    return invalidPathResult(BAD_NAME_MESSAGE);
-  const split = splitGrepScope(rest.slice(separator));
-
-  if ('error' in split) return unsupportedGlobResult(split.operator);
-
-  // The prefix is validated by the one locator grammar policy also projects
-  // with, so a literal query, fragment, backslash, control character, or
-  // encoding a path separator is refused instead of walking a path no
-  // locator can name. grep parses no read selector, so a colon is path text
-  // and is encoded here for the grammar's selector split.
-  const parsed = parseMachineLocator(
-    `machine://${name}${split.prefix.replaceAll(':', '%3A')}`,
-  );
-
-  if (parsed.kind !== 'path') return invalidPathResult(BAD_PATH_MESSAGE);
-
-  const path =
-    parsed.path !== '/' && parsed.path.endsWith('/')
-      ? parsed.path.slice(0, -1)
-      : parsed.path;
-
-  return {
-    index,
-    name,
-    path: normalizeHostScope(path),
-    globSuffix: split.globSuffix,
-    endsWithSeparator: split.endsWithSeparator,
-  };
-}
 
 /**
  * Run one Machine scope. The connector's refusals become the Machine results
@@ -409,26 +188,113 @@ type DaemonPage =
  * Progress belongs to the call: a page that got past the start point lets the
  * next request know, so its own stop hides no file behind it.
  */
+type MachinePassageBuffer = {
+  pending: GrepPassage | undefined;
+  readonly passagesByFile: Map<string, number>;
+  readonly truncatedFiles: Set<string>;
+};
+
+function passageFile(passage: GrepPassage): string {
+  return parsePassageLocator(passage.locator)?.file ?? passage.locator;
+}
+
+function mergeMachinePassages(
+  previous: GrepPassage,
+  next: GrepPassage,
+): GrepPassage | undefined {
+  const first = parsePassageLocator(previous.locator);
+  const second = parsePassageLocator(next.locator);
+
+  if (
+    first === undefined ||
+    second === undefined ||
+    first.file !== second.file ||
+    first.endLine !== second.startLine
+  )
+    return undefined;
+
+  const previousLines = previous.content.split('\n');
+  const nextLines = next.content.split('\n');
+
+  return {
+    locator: formatPassageLocator(first.file, first.startLine, second.endLine),
+    content: [...previousLines.slice(0, -1), ...nextLines].join('\n'),
+    matches: [...new Set([...previous.matches, ...next.matches])],
+    ...(next.cut === true && { cut: true as const }),
+    ...((previous.truncated === true || next.truncated === true) && {
+      truncated: true as const,
+    }),
+  };
+}
+
+function keepMachinePassages(
+  search: MachineGrepSearch,
+  buffer: MachinePassageBuffer,
+  passages: ReadonlyArray<GrepPassage>,
+): boolean {
+  const ready: Array<GrepPassage> = [];
+
+  for (const passage of passages) {
+    const file = passageFile(passage);
+
+    if (buffer.truncatedFiles.has(file)) continue;
+
+    if (buffer.pending !== undefined) {
+      const merged = mergeMachinePassages(buffer.pending, passage);
+
+      if (merged !== undefined) {
+        buffer.pending = merged;
+
+        continue;
+      }
+
+      ready.push(buffer.pending);
+      buffer.pending = undefined;
+    }
+
+    const count = buffer.passagesByFile.get(file) ?? 0;
+
+    if (count >= GREP_LIMITS.passagesPerFile) {
+      const previous = ready.at(-1);
+
+      if (previous !== undefined && passageFile(previous) === file)
+        ready[ready.length - 1] = { ...previous, truncated: true };
+
+      buffer.truncatedFiles.add(file);
+
+      continue;
+    }
+
+    buffer.passagesByFile.set(file, count + 1);
+    buffer.pending = passage;
+
+    if (passage.truncated === true) buffer.truncatedFiles.add(file);
+  }
+
+  if (ready.length > 0 && !search.keepPassages(ready)) {
+    buffer.pending = undefined;
+
+    return false;
+  }
+
+  return true;
+}
+
 async function runDaemonPages(
   search: MachineGrepSearch,
   connector: MachineConnector,
   deadlineAt: number,
 ): Promise<MachineGrepSegment> {
-  const run: MachineSegmentPage = {
-    budget: budgetAfter(
-      search.budget,
-      { files: 0, entries: 0, bytes: 0 },
-      deadlineAt,
-    ),
-    warnings: new Map(),
-    consumed: { files: 0, entries: 0, bytes: 0 },
-    ignored: ignoredAccumulator(search.scope),
-    deadlineAt,
-    cursor: undefined,
-    progressed: search.progressed,
-    last: undefined,
-    unfinished: undefined,
+  const run = initialMachineSegmentPage(search, deadlineAt);
+
+  const passageBuffer: MachinePassageBuffer = {
+    pending: undefined,
+    passagesByFile: new Map(),
+    truncatedFiles: new Set(),
   };
+
+  const keepPagePassages = (passages: ReadonlyArray<GrepPassage>) =>
+    keepMachinePassages(search, passageBuffer, passages);
 
   while (canAskPage(run.budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
@@ -438,12 +304,15 @@ async function runDaemonPages(
     });
 
     if ('result' in asked) return { status: 'error', result: asked.result };
-    const step = takePage(search, run, asked.page);
+    const step = takePage(search, run, asked.page, keepPagePassages);
 
     if ('result' in step) return { status: 'error', result: step.result };
 
     if (step.ended) break;
   }
+
+  if (passageBuffer.pending !== undefined)
+    search.keepPassages([passageBuffer.pending]);
 
   return segmentOfPages(search, run);
 }
@@ -462,6 +331,27 @@ type MachineSegmentPage = {
   unfinished: string | undefined;
 };
 
+function initialMachineSegmentPage(
+  search: MachineGrepSearch,
+  deadlineAt: number,
+): MachineSegmentPage {
+  return {
+    budget: budgetAfter(
+      search.budget,
+      { files: 0, entries: 0, bytes: 0 },
+      deadlineAt,
+    ),
+    warnings: new Map(),
+    consumed: { files: 0, entries: 0, bytes: 0 },
+    ignored: ignoredAccumulator(search.scope),
+    deadlineAt,
+    cursor: undefined,
+    progressed: search.progressed,
+    last: undefined,
+    unfinished: undefined,
+  };
+}
+
 /** One page's effect on the run; `ended` says the scope has no next page. */
 type PageStep =
   | { readonly ended: boolean }
@@ -472,6 +362,7 @@ function takePage(
   search: MachineGrepSearch,
   run: MachineSegmentPage,
   page: FsGrepSuccess,
+  keepPassages: (passages: ReadonlyArray<GrepPassage>) => boolean,
 ): PageStep {
   run.last = page;
   mergePage(run.warnings, run.consumed, run.ignored, page);
@@ -482,7 +373,7 @@ function takePage(
   if (refused !== undefined) return { result: refused };
 
   // The artifact bound can cut a daemon page, so the walk stops asking here.
-  if (!search.keepPassages(kept)) return { ended: true };
+  if (!keepPassages(kept)) return { ended: true };
 
   if (page.unfinished !== undefined) {
     // A second stop inside a file ends the scope at the first one: one call
@@ -644,31 +535,6 @@ async function requestPage(
   return { page: result };
 }
 
-/** The Machine failure vocabulary, as `read` maps it, plus the missing method. */
-function machineGrepFailure(
-  name: string,
-  error: unknown,
-): MachineFailureResult {
-  // Before the unavailable branch: a mismatch extends it and is its own result.
-  if (error instanceof MachineIdentityMismatchError)
-    return machineIdentityMismatchResult(name);
-
-  if (error instanceof MachineUnavailableError)
-    return machineUnavailableResult(name, error.reason);
-
-  if (error instanceof MachineProtocolError) {
-    // A daemon older than this hub refuses an unknown method as `internal`.
-    // `invalid_params` on `fs.grep` means a build that reads another request
-    // shape: the hub validates the patterns and owns the cursor and the
-    // bounds, so the only cause is a daemon of another build (design D8).
-    return error.code === 'internal' || error.code === 'invalid_params'
-      ? machineUnusableResult(name)
-      : machineProtocolFailureResult(name, error);
-  }
-
-  throw error;
-}
-
 /** Every passage's Machine locator, or undefined when one cannot be spelled. */
 function locatorsOf(
   search: MachineGrepSearch,
@@ -754,6 +620,4 @@ function renderPage(
       continue;
     into.push(keptPassage(passage, locator));
   }
-
-  return undefined;
 }

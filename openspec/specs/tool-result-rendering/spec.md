@@ -164,9 +164,9 @@ read MUST render its content without prefixes.
 
 ### Requirement: The read header names the source and the shown lines
 
-A `read` text MUST begin with one of these headers, with the shown range of the result. It can
-also begin with the bare-locator header that its own requirement defines. Each range MUST carry the unit letter
-`L` in the canonical spelling. The headers are these:
+A read MUST begin with its shown-range header or the bare-locator header that its source defines. A message-index header MUST use `<locator>:M<start>-<end>`. Other source ranges MUST use `L`. All units MUST use canonical spelling.
+
+The line headers are these:
 
 - `<locator>:L<start>-<end>` for a single range,
 - `<locator>:L<a>-<b>,L<c>-<d>` for a multi-range read,
@@ -246,7 +246,7 @@ render it as an attribution line.
 
 The attribution fields MUST render in this order: `realPath`, `finalUrl`, `method`, `adapter`,
 `notes`, `knowledgeSpaceName`, `knowledgeSpaceId`, `notice`, `locator`, `sourceDirectory`,
-`resolvedPath`, `skillDirectory`, `realSkillDirectory`, `skillPathInstruction`. `adapter` MUST
+`resolvedPath`, `skillDirectory`, `realSkillDirectory`, `skillPathInstruction`, `chatId`, `messageSeq`, `role`, `timestamp`, `runStatus`, `previousMessageSeq`, `nextMessageSeq`. `adapter` MUST
 render `id route` and `origin` when present. `notes` MUST render one line per entry. A notice MUST
 keep its stored text.
 
@@ -318,14 +318,19 @@ follow the replacement count, so `2 -> 1 line` and `1 -> 2 lines`.
 
 ### Requirement: Continuation is one bracketed notice line
 
-When a `read` result carries `truncated: true` and a `nextOffset`, the text
-MUST carry one bracketed line that names the next read, in the canonical
-spelling. The next read starts at line `nextOffset + 1`. It ends at the stored
-requested end while that end is not reached. It is open `L<n>-` in three
-cases: the requested end is reached, the line reaches the stored `lineCount`,
-or the result stores no line count. A directory listing stores no line count,
-and its entries are lines. A locator that takes no selector states the
-remainder alone.
+A truncated line read with `nextOffset` MUST end with one bracketed continuation notice. The next read MUST start at line `nextOffset + 1`. It MUST retain the requested end until that end is reached.
+
+Use an open `L<n>-` continuation after the requested end, at the stored line count, or without a stored line count. Directory entries MUST retain their line-index rule. A locator without selector support MUST state only its remainder.
+
+A Chat index with unserved selected sequences MUST supply a canonical continuation locator. The renderer MUST use its sequence and `M` unit without line-number conversion. It MUST retain a finite requested end. A complete selected window MUST NOT invent another continuation. Chat collections MUST retain line-index continuations. Message text MUST retain line continuations.
+
+A default Chat index with earlier eligible messages MUST end with one bracketed earlier-history notice naming its supplied canonical finite `M` locator. This notice MUST render even when the newest selected window fits completely. The renderer MUST distinguish it from an explicit range's forward continuation.
+
+#### Scenario: A complete recent page exposes earlier history
+
+- **WHEN** a default index shows sequences 951-1000 and supplies `chat://<id>:M901-950`
+- **THEN** the rendered result ends with `[Earlier history. Use chat://<id>:M901-950 to read]`
+- **AND** completeness of the recent window does not suppress that notice
 
 #### Scenario: A truncated read tells how to continue
 
@@ -362,6 +367,12 @@ remainder alone.
 - **WHEN** a directory listing of 120 entries stops with `nextOffset` 50 and `entryCount` 120
 - **THEN** the text ends with `[70 more entries. Use <locator>:L51- to continue]`
 - **AND** the next read is open
+
+#### Scenario: A Chat index continues in message units
+
+- **WHEN** a `chat://<id>:M20-100` page stops before sequence 70
+- **THEN** the continuation names `chat://<id>:M70-100`
+- **AND** it never emits `L70` or treats sequence 70 as an entry index
 
 ### Requirement: The continuation count names the source lines after the cut
 
@@ -787,10 +798,13 @@ omitted-range line, the text MUST end with one `[left out: <count> <noun>;
 full result not stored]` line. `<noun>` is
 `lines`, `files`, or `results`. An omitted-range line without an artifact MUST
 read `[lines <a>-<b> omitted; full result not stored]`.
+A failed durable daemon-job artifact write MUST instead leave settlement
+uncommitted under `tool-artifacts` "Artifact failure preserves daemon
+reconciliation"; this fallback MUST NOT replace that retained output.
 
 #### Scenario: A failed write keeps the bash tail inline
 
-- **WHEN** a `bash` stdout of 5,000 lines does not fit and its artifact write fails
+- **WHEN** a standalone `ssh://` `bash` stdout of 5,000 lines does not fit and its artifact write fails
 - **THEN** the text holds its head, `[lines 41-4880 omitted; full result not stored]`, and its tail
 
 #### Scenario: A grep result without a reader counts its files
@@ -1004,3 +1018,17 @@ tool result does.
 
 - **WHEN** a `wait` returns with one settled job
 - **THEN** the model receives one JSON object with `ended` and `jobs`
+
+### Requirement: Chat read attribution stays separate from shared rows
+
+A Chat message read MUST render its role, timestamp, current `runStatus`, and eligible neighbor sequences as attribution after its header. A Chat index MUST render its current `runStatus` after its header. Collection status MUST accompany each read row outside the shared Chat row. These values MUST count toward the rendered bound. Generic replay MUST use stored values rather than query newer Run state.
+
+#### Scenario: A Chat body read identifies activity
+
+- **WHEN** read returns a message from a Chat with an `awaiting_jobs` Run
+- **THEN** its plain-text attribution includes role, timestamp, and `runStatus: awaiting_jobs`
+
+#### Scenario: Historical activity annotation remains historical
+
+- **WHEN** the Chat becomes idle after read stores its result
+- **THEN** replay retains the stored status without a newer status query

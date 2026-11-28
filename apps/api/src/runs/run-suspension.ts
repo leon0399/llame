@@ -171,10 +171,6 @@ function quotaSuspensionPayload(
     baselines:
       input.baselines === undefined
         ? undefined
-        : {
-            recencyDigestInitialization:
-              input.baselines.recencyDigestInitialization,
-            skillCatalogFreeze: input.baselines.skillCatalogFreeze,
-          },
+        : { skillCatalogFreeze: input.baselines.skillCatalogFreeze },
   };
 }

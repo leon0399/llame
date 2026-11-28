@@ -1,7 +1,7 @@
 /**
- * A revised reply leaves the evidence (turn-actions D7, conversation-reads,
+ * A revised reply leaves the evidence (turn-actions D7, Chat reads,
  * search-projection): after a Regenerate replaced a `completed` reply, the
- * lexical rebuild drops its text, `conversation_read` cannot address it, and
+ * lexical rebuild drops its text, a Chat message read cannot address it, and
  * timeline discovery no longer counts it. The owner scope of every read still
  * decides what the caller may see.
  *
@@ -159,7 +159,7 @@ describeIfDb('a revised reply', () => {
     expect(text).toContain('ask the question');
   });
 
-  it('cannot be addressed by conversation_read, and skips it as a neighbour', async () => {
+  it('cannot be read, and skips it as a neighbour', async () => {
     const seeded = await seedAnsweredChat();
     await markRevised(seeded.replyId);
 

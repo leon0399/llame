@@ -4,9 +4,7 @@ import { neutralizeReservedDelimiters } from '@workspace/runtime-safety';
 import { ChatsRepository } from '../chats/chats-repository';
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   formatJobLocator,
   jobArtifactLocatorOf,
@@ -131,14 +129,6 @@ function resolveWaitJobs(
       return;
 
     const jobs = new ChatJobsRepository(tx);
-
-    await jobs.settleOnDeadWorkers(
-      context.chatId,
-      context.userId,
-      context.workerDeadAfterSeconds ??
-        workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
-    );
-
     const found: Array<ChatJob> = [];
 
     for (const locator of locators) {
@@ -147,7 +137,7 @@ function resolveWaitJobs(
       const job = await jobs.findByLocator(
         context.chatId,
         context.userId,
-        locator.executor,
+        locator.kind,
         locator.seq,
       );
 
@@ -207,7 +197,7 @@ async function waitResultEntry(
   artifacts: ArtifactsRepository,
 ): Promise<WaitResultEntry> {
   const entry: WaitResultEntry = {
-    locator: formatJobLocator(job.executor, job.seq),
+    locator: formatJobLocator(job.kind, job.seq),
     state: job.state,
   };
 
@@ -215,9 +205,7 @@ async function waitResultEntry(
 
   const outputs = await readJobNoticeOutputs({
     chatId: scope.chatId,
-    ownerUserId: scope.userId,
     job,
-    jobs,
     artifacts,
   });
 

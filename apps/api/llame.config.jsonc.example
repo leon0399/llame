@@ -694,8 +694,8 @@
     // returns a kb:// locator that "read" opens. "knowledge_read" was removed
     // and now fails boot as an unknown id.
     // Allowlisting search_conversations makes complete canonical projection
-    // coverage a startup gate. Add conversation_read independently for exact
-    // line reads; see docs/product/operator/conversation-recall.md.
+    // coverage a startup gate. Add "read" independently for exact Chat locators;
+    // see docs/product/operator/conversation-recall.md.
     // Add "wait" independently to wait for owner-scoped background job records.
     // Jobs continue after a wait timeout or interruption; they are not stopped.
     // To enable Workspace entry/exit on the current Machine, also add
@@ -797,9 +797,9 @@
     // (default ["default"]) to keep both unavailable.
     // "permissionModes": ["default", "read-only", "bypass"],
     // Optional whole-file replacements for llame-owned tool descriptions,
-    // keyed by registered tool id (bash, conversation_read, edit, enter_workspace,
-    // exit_workspace, grep, knowledge_search, read, search_conversations, stop,
-    // wait, web_search, write); MCP ids are rejected.
+    // keyed by registered tool id (bash, edit, enter_workspace, exit_workspace,
+    // grep, knowledge_search, read, search_conversations, stop, wait,
+    // web_search, write); MCP ids are rejected.
     // A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
@@ -975,9 +975,6 @@
       "search_conversations": {
         "allow": true,
       },
-      "conversation_read": {
-        "allow": true,
-      },
       "wait": {
         "allow": true,
       },
@@ -1052,17 +1049,11 @@
     // "artifacts": {
     //   "maxBytes": 8388608
     // },
-    // The most managed commands one worker process runs at one time. It counts
-    // foreground host commands and `ssh://` commands. Unset (as here) means 64.
-    // An integer of at least 1, or a {env:...}/{path:...} token; a smaller
-    // value, a fraction, an unsafe integer, or an unknown key fails boot. A
-    // call past the bound gets `limit_reached`.
     // A foreground host command that runs longer than backgroundAfterSeconds
     // (default 120) moves to the background as a job and keeps running. The
     // lesser of this value and callTimeoutSeconds applies. An integer of at
     // least 1, or a {env:...}/{path:...} token.
     // "bash": {
-    //   "maxProcesses": 64,
     //   "backgroundAfterSeconds": 120
     // },
     // Lifetime of a job from command start, in seconds. Default: 7200.

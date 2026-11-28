@@ -17,6 +17,7 @@ import {
 import { alias } from 'drizzle-orm/pg-core';
 import { chats, messages } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { digestOnlyHostMessagePredicate } from './message-eligibility';
 
 const checkpoint = alias(messages, 'checkpoint');
 const previous = alias(messages, 'previous_checkpoint');
@@ -62,6 +63,7 @@ export async function countAbsorbedMessages(
       and(
         eq(messages.chatId, checkpoint.chatId),
         inArray(messages.role, ['user', 'assistant']),
+        sql`not ${digestOnlyHostMessagePredicate('messages')}`,
         lte(messages.seq, checkpoint.absorbedThroughSeq),
         gt(messages.seq, previousBoundary(db)),
       ),

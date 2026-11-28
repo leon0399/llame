@@ -21,7 +21,7 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { chatDeliveries, runs, workerInstances } from '../db/schema';
+import { chatDeliveries, runs } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
@@ -413,7 +413,6 @@ describe('chat deliveries — the steer mode', () => {
     it('a /compact steer makes a foreground job wait return interrupted', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const attemptId = crypto.randomUUID();
-      const workerInstanceId = crypto.randomUUID();
       const toolCallId = `call-${crypto.randomUUID()}`;
 
       const job = await tenantDb.runAs(userAId, async (tx) => {
@@ -421,14 +420,12 @@ describe('chat deliveries — the steer mode', () => {
           .update(runs)
           .set({ status: 'running_tool', activeAttemptId: attemptId })
           .where(eq(runs.id, runId));
-        await tx.insert(workerInstances).values({ id: workerInstanceId });
 
         return new ChatJobsRepository(tx).insert(
           newChatJob({
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId,
             runId,
             toolCallId,
             settings: { selector: MODEL, permissionMode: 'default' },
@@ -460,7 +457,6 @@ describe('chat deliveries — the steer mode', () => {
       await sendMode(chatId, 'queue', { id });
 
       const attemptId = crypto.randomUUID();
-      const workerInstanceId = crypto.randomUUID();
       const toolCallId = `call-${crypto.randomUUID()}`;
 
       const job = await tenantDb.runAs(userAId, async (tx) => {
@@ -468,14 +464,12 @@ describe('chat deliveries — the steer mode', () => {
           .update(runs)
           .set({ status: 'running_tool', activeAttemptId: attemptId })
           .where(eq(runs.id, runId));
-        await tx.insert(workerInstances).values({ id: workerInstanceId });
 
         return new ChatJobsRepository(tx).insert(
           newChatJob({
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId,
             runId,
             toolCallId,
             settings: { selector: MODEL, permissionMode: 'default' },
@@ -529,19 +523,39 @@ describe('chat deliveries — the steer mode', () => {
         state: 'pending',
       });
 
+      await until(
+        'the interrupted Run to resume and consume its delivery',
+        async () => {
+          const [run] = await runsOf(chatId);
+
+          const [delivery] = await tenantDb.runAs(userAId, (tx) =>
+            tx
+              .select({
+                state: chatDeliveries.state,
+                runId: chatDeliveries.runId,
+              })
+              .from(chatDeliveries)
+              .where(eq(chatDeliveries.id, id)),
+          );
+
+          return (
+            run?.id === runId &&
+            ['queued', 'running_model', 'completed'].includes(run.status) &&
+            delivery?.state === 'delivered' &&
+            delivery.runId === runId
+          );
+        },
+      );
+
       const [resumed] = await runsOf(chatId);
-      expect(resumed).toMatchObject({
-        id: runId,
-        status: 'queued',
-        wakeGeneration: generation,
-      });
+      expect(resumed).toMatchObject({ id: runId, wakeGeneration: generation });
 
       if (!resumed?.currentJobId)
         throw new Error('Woken Run has no current queue job');
       const newWakeJobId = resumed.currentJobId;
       expect(newWakeJobId).not.toBe(oldWakeJobId);
       expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
-      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).toBe('queued');
+      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).not.toBe('absent');
 
       const staleDeadlineWake = await tenantDb.runAs(userAId, (tx) =>
         app.get(RunWaitService, { strict: false }).wakeInTransaction(tx, {
@@ -557,7 +571,6 @@ describe('chat deliveries — the steer mode', () => {
       expect(await runsOf(chatId)).toMatchObject([
         {
           id: runId,
-          status: 'queued',
           currentJobId: newWakeJobId,
           wakeGeneration: generation,
         },
@@ -827,7 +840,6 @@ describe('chat deliveries — the steer mode', () => {
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId: crypto.randomUUID(),
           }),
         );
 

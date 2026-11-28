@@ -7,6 +7,12 @@
 
 import { type Chat, type MessageRole } from '../db/schema';
 import { type ChatInheritedValues } from './chats-repository';
+import { digestCarrierPayload } from './recency-digest-replay';
+import {
+  readDigestPayload,
+  type DigestAssociation,
+} from './recency-digest-item';
+import { isContextItemPart, type ContextItemPart } from './context-item';
 
 /**
  * A source row either fork path copies. `createdAt`/`usage` are the owner
@@ -31,6 +37,11 @@ export type CopyableMessage = {
  */
 type SequencedCopyableMessage = CopyableMessage & { seq: number };
 
+type ImportedCutoff = {
+  latestTurnSeq: number;
+  lastOriginalSeq: number;
+};
+
 /**
  * Owner forks copy ordinary conversation rows through the anchor and copy a
  * checkpoint when the conversation rows it absorbed end at or before it. A
@@ -40,21 +51,67 @@ type SequencedCopyableMessage = CopyableMessage & { seq: number };
 export function selectForkMessages(
   messages: ReadonlyArray<SequencedCopyableMessage>,
   maxSeq: number | undefined,
+  sourceChatId?: string,
 ): Array<SequencedCopyableMessage> {
-  return messages.filter((message) => {
-    if (message.role === 'checkpoint') {
-      return (
-        message.absorbedThroughSeq !== undefined &&
-        message.absorbedThroughSeq !== null &&
-        (maxSeq === undefined || message.absorbedThroughSeq <= maxSeq)
-      );
-    }
+  const selectedCheckpoints = selectedForkCheckpoints(messages, maxSeq);
 
+  return messages.filter((message) =>
+    shouldCopyForkMessage(message, maxSeq, sourceChatId, selectedCheckpoints),
+  );
+}
+
+function selectedForkCheckpoints(
+  messages: ReadonlyArray<SequencedCopyableMessage>,
+  maxSeq: number | undefined,
+): Set<string> {
+  const selected = new Set<string>();
+
+  for (const message of messages) {
+    if (
+      message.role === 'checkpoint' &&
+      message.absorbedThroughSeq !== undefined &&
+      message.absorbedThroughSeq !== null &&
+      (maxSeq === undefined || message.absorbedThroughSeq <= maxSeq)
+    ) {
+      selected.add(message.id);
+    }
+  }
+
+  return selected;
+}
+
+function shouldCopyForkMessage(
+  message: SequencedCopyableMessage,
+  maxSeq: number | undefined,
+  sourceChatId: string | undefined,
+  selectedCheckpoints: ReadonlySet<string>,
+): boolean {
+  if (message.role === 'checkpoint') return selectedCheckpoints.has(message.id);
+
+  if (message.role !== 'user' && message.role !== 'assistant') return false;
+
+  const payload = digestCarrierPayload(message);
+
+  if (payload === undefined) {
+    return maxSeq === undefined || message.seq <= maxSeq;
+  }
+
+  if (payload.kind === 'baseline') {
     return (
-      (message.role === 'user' || message.role === 'assistant') &&
-      (maxSeq === undefined || message.seq <= maxSeq)
+      (payload.association?.kind === 'origin' &&
+        (sourceChatId === undefined ||
+          payload.association.chatId === sourceChatId)) ||
+      (payload.association?.kind === 'checkpoint' &&
+        selectedCheckpoints.has(payload.association.checkpointId))
     );
-  });
+  }
+
+  return (
+    payload.importedCutoff !== undefined &&
+    (maxSeq === undefined ||
+      (maxSeq >= payload.importedCutoff.latestTurnSeq &&
+        maxSeq >= payload.importedCutoff.lastOriginalSeq))
+  );
 }
 
 /**
@@ -100,13 +157,6 @@ export function inheritForkedChatState(
     messageIds,
     inherited: {
       createdAt: source.createdAt,
-      recencyDigestBaseline: source.recencyDigestBaseline,
-      recencyDigestTold: source.recencyDigestTold,
-      recencyDigestRebakedFrom: remapRebakeMarker(
-        source.recencyDigestRebakedFrom,
-        copiedCheckpointIds,
-        activeCheckpointId,
-      ),
       skillCatalogBaseline: source.skillCatalogBaseline,
       skillCatalogTold: source.skillCatalogTold,
       skillCatalogRebakedFrom: remapRebakeMarker(
@@ -167,6 +217,96 @@ function checkpointBoundaryForCopy(
   return copiedBoundary;
 }
 
+function remapDigestParts(
+  message: CopyableMessage,
+  chatId: string,
+  messageIds: ReadonlyMap<string, string>,
+  newSeqBySourceSeq: ReadonlyMap<number, number>,
+): Array<unknown> {
+  if (!message.parts.some(isContextItemPart)) return message.parts;
+
+  return message.parts.map((part) =>
+    isContextItemPart(part)
+      ? remapDigestPart(part, chatId, messageIds, newSeqBySourceSeq)
+      : part,
+  );
+}
+
+function remapDigestPart(
+  part: ContextItemPart,
+  chatId: string,
+  messageIds: ReadonlyMap<string, string>,
+  newSeqBySourceSeq: ReadonlyMap<number, number>,
+): ContextItemPart {
+  const payload = readDigestPayload(part);
+
+  if (payload === undefined) return part;
+
+  if (
+    payload.association === undefined &&
+    payload.importedCutoff === undefined
+  ) {
+    return part;
+  }
+
+  const remappedPayload = { ...payload };
+
+  if (payload.association !== undefined) {
+    remappedPayload.association =
+      payload.association.kind === 'origin'
+        ? { kind: 'origin', chatId }
+        : remappedCheckpointAssociation(payload.association, messageIds);
+  }
+
+  if (payload.importedCutoff !== undefined) {
+    remappedPayload.importedCutoff = remapImportedCutoff(
+      payload.importedCutoff,
+      newSeqBySourceSeq,
+    );
+  }
+
+  return {
+    ...part,
+    data: { ...part.data, payload: remappedPayload },
+  };
+}
+
+function remapImportedCutoff(
+  cutoff: ImportedCutoff,
+  newSeqBySourceSeq: ReadonlyMap<number, number>,
+): ImportedCutoff {
+  const latestTurnSeq = newSeqBySourceSeq.get(cutoff.latestTurnSeq);
+
+  if (latestTurnSeq === undefined) {
+    throw new Error('Imported digest latest turn was not copied');
+  }
+
+  let lastOriginalSeq = 0;
+  let greatestSourceSeq = -1;
+
+  for (const [sourceSeq, copiedSeq] of newSeqBySourceSeq) {
+    if (sourceSeq <= cutoff.lastOriginalSeq && sourceSeq > greatestSourceSeq) {
+      greatestSourceSeq = sourceSeq;
+      lastOriginalSeq = copiedSeq;
+    }
+  }
+
+  return { latestTurnSeq, lastOriginalSeq };
+}
+
+function remappedCheckpointAssociation(
+  association: Extract<DigestAssociation, { kind: 'checkpoint' }>,
+  messageIds: ReadonlyMap<string, string>,
+): DigestAssociation {
+  const checkpointId = messageIds.get(association.checkpointId);
+
+  if (checkpointId === undefined) {
+    throw new Error('Digest companion checkpoint was not copied');
+  }
+
+  return { kind: 'checkpoint', checkpointId };
+}
+
 /**
  * The copied message rows, in source order with dense sequences from 1. Ids
  * are pre-assigned before any insert so `inReplyTo` and checkpoint boundaries
@@ -189,7 +329,7 @@ export function copiedMessageRows(
     seq: index + 1,
     role: message.role,
     senderUserId: message.senderUserId,
-    parts: message.parts,
+    parts: remapDigestParts(message, chatId, messageIds, newSeqBySourceSeq),
     attachments: message.attachments,
     absorbedThroughSeq: checkpointBoundaryForCopy(message, newSeqBySourceSeq),
     inReplyTo: message.inReplyTo

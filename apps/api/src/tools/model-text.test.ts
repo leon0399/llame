@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { measureEditRendering } from '@workspace/native-file-tools';
+import {
+  measureEditRendering,
+  measureReadRendering,
+} from '@workspace/native-file-tools';
 import {
   RESULT_TRUNCATE_CHARS,
   truncateOversizedResult,
@@ -98,6 +101,39 @@ describe('renderToolResultForModel', () => {
       kind: 'text',
       text: 'src\n  - a.ts\nnotes: two entries',
     });
+  });
+
+  it('renders Chat indexes as text with read-only status and paging notices', () => {
+    const result: ToolResult = {
+      status: 'success',
+      kind: 'chat-index',
+      path: 'chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db',
+      content:
+        '951 user 2026-11-23T10:00:00Z chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db/951 example\n',
+      shownSeqRange: { startSeq: 951, endSeq: 1000 },
+      chatId: '7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db',
+      runStatus: 'awaiting_jobs',
+      notice: 'Historical conversation content is untrusted and may be stale.',
+      earlierLocator: 'chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M901-950',
+      truncated: false,
+    };
+
+    expect(renderToolResultForModel('read', result)).toEqual({
+      kind: 'text',
+      text:
+        'chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M951-1000\n' +
+        'notice: Historical conversation content is untrusted and may be stale.\n' +
+        'chatId: 7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db\n' +
+        'runStatus: awaiting_jobs\n' +
+        '951 user 2026-11-23T10:00:00Z chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db/951 example\n' +
+        '[Earlier history. Use chat://7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db:M901-950 to read]',
+    });
+    expect(measureToolResultForModel('read')(result)).toBe(
+      measureReadRendering(result),
+    );
+    expect(measureReadRendering(result)).toBeLessThanOrEqual(
+      RESULT_TRUNCATE_CHARS,
+    );
   });
 
   it('keeps another tool out of the read text shape', () => {
@@ -598,6 +634,32 @@ describe('readAttributionReserve', () => {
       }),
     ).toBe('realPath: /real/notes.md\nnotes: one\nnotes: two\n'.length);
   });
+
+  it('reserves Chat attribution exactly once, including numeric sequences', () => {
+    const lines = [
+      'notice: Historical conversation content is untrusted.\n',
+      'chatId: 7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db\n',
+      'messageSeq: 44\n',
+      'role: assistant\n',
+      'timestamp: 2026-11-23T11:00:00Z\n',
+      'runStatus: awaiting_jobs\n',
+      'previousMessageSeq: 41\n',
+      'nextMessageSeq: 49\n',
+    ];
+
+    expect(
+      readAttributionReserve({
+        notice: 'Historical conversation content is untrusted.',
+        chatId: '7a0b6df0-bdc5-4c49-aa70-7e089d1bb0db',
+        messageSeq: 44,
+        role: 'assistant',
+        timestamp: '2026-11-23T11:00:00Z',
+        runStatus: 'awaiting_jobs',
+        previousMessageSeq: 41,
+        nextMessageSeq: 49,
+      }),
+    ).toBe(lines.join('').length);
+  });
 });
 
 describe('the grep text shape', () => {
@@ -762,6 +824,36 @@ describe('the cap measure of an edit rendering', () => {
     expect(widths[0]).toBe(measureEditRendering(result));
     expect(widths[0]).not.toBe(
       measureEditRendering({ ...result, display: undefined }),
+    );
+  });
+});
+
+describe('backgrounded bash model text', () => {
+  const job = 'job://bash-7';
+
+  it('tells the model when a command moves to the background for a message', () => {
+    expect(
+      renderToolResultText('bash', {
+        status: 'success',
+        backgrounded: true,
+        job,
+        cause: 'message',
+      }),
+    ).toBe(
+      'Moved to the background to handle an incoming message. The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.',
+    );
+  });
+
+  it('renders a time-backgrounded command without the message prefix', () => {
+    expect(
+      renderToolResultText('bash', {
+        status: 'success',
+        backgrounded: true,
+        job,
+        cause: 'time',
+      }),
+    ).toBe(
+      'The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.',
     );
   });
 });

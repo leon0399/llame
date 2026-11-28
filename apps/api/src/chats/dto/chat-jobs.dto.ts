@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, getSchemaPath } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 
 import {
@@ -36,6 +36,25 @@ export class ChatJobResponse {
   @ApiProperty({ example: 'job://bash-4' })
   locator!: string;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Running the test suite',
+    description:
+      'The intent the model gave the tool call that started the job; null ' +
+      'when that call carried none.',
+  })
+  intent!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'pnpm --filter api test',
+    description:
+      'The shell text the job runs; null for a job recorded without one.',
+  })
+  command!: string | null;
+
   @ApiProperty({ example: 'bash' })
   executor!: string;
 
@@ -52,10 +71,10 @@ export class ChatJobResponse {
   @ApiProperty({ format: 'date-time' })
   startedAt!: Date;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
   settledAt!: Date | null;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
   stopRequestedAt!: Date | null;
 
   @ApiProperty({ enum: chatJobStoppers, nullable: true })
@@ -98,12 +117,79 @@ export class ChatJobsResponse {
   items!: Array<ChatJobResponse>;
 }
 
+export class ChatJobOutputPart {
+  @ApiProperty({ example: 'stdout' })
+  name!: string;
+
+  @ApiProperty({ description: 'The stored text of the output.' })
+  content!: string;
+
+  @ApiProperty({
+    description:
+      'True when the stored output is longer than the response bound; ' +
+      '`content` then holds its last part.',
+  })
+  cut!: boolean;
+
+  @ApiProperty({
+    type: 'integer',
+    minimum: 0,
+    example: 3_355_443,
+    description:
+      'Bytes of the output as stored, before the response bound. A stream ' +
+      'the Machine or the artifact bound already cut is stored cut.',
+  })
+  size!: number;
+}
+
+export class ChatJobStoredOutputResponse {
+  @ApiProperty({ enum: ['stored'] })
+  status!: 'stored';
+
+  @ApiProperty({
+    type: () => [ChatJobOutputPart],
+    description: 'Each declared output the job stored, empty ones included.',
+  })
+  outputs!: Array<ChatJobOutputPart>;
+}
+
+/** A settled job with no stored output, such as a lost job. */
+export class ChatJobUnavailableOutputResponse {
+  @ApiProperty({ enum: ['unavailable'] })
+  status!: 'unavailable';
+}
+
+export type ChatJobOutputResponse =
+  | ChatJobStoredOutputResponse
+  | ChatJobUnavailableOutputResponse;
+
+export const CHAT_JOB_OUTPUT_RESPONSE_MODELS = [
+  ChatJobStoredOutputResponse,
+  ChatJobUnavailableOutputResponse,
+];
+
+/** The output route's body: a union on `status`. */
+export const CHAT_JOB_OUTPUT_RESPONSE_SCHEMA = {
+  oneOf: CHAT_JOB_OUTPUT_RESPONSE_MODELS.map((model) => ({
+    $ref: getSchemaPath(model),
+  })),
+  discriminator: {
+    propertyName: 'status',
+    mapping: {
+      stored: getSchemaPath(ChatJobStoredOutputResponse),
+      unavailable: getSchemaPath(ChatJobUnavailableOutputResponse),
+    },
+  },
+};
+
 export function toChatJobResponse(job: ChatJob): ChatJobResponse {
   return {
     id: job.id,
     chatId: job.chatId,
-    locator: formatJobLocator(job.executor, job.seq),
-    executor: job.executor,
+    locator: formatJobLocator(job.kind, job.seq),
+    intent: job.intent,
+    command: job.command,
+    executor: job.kind,
     state: job.state,
     stoppedBy: job.stoppedBy,
     startedAt: job.startedAt,

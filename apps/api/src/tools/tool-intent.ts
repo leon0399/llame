@@ -14,7 +14,6 @@ const INTENT_TOOLS = new Set([
   'stop',
   'enter_workspace',
   'search_conversations',
-  'conversation_read',
   'knowledge_search',
   'web_search',
 ]);

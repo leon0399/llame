@@ -25,7 +25,7 @@ Move a completed change into the archive without losing checked history or shipp
 
    - `openspec status --change "<name>" --json` → `schemaName`, `planningHome`, `changeRoot`, `artifactPaths`, `actionContext`, and `artifacts`, the completion state. Every artifact must be `done` or `skipped`; a change that declares `skip_specs` satisfies the requirement with `skipped`.
    - Read the tasks file (typically `tasks.md`). A checkbox is complete only when its content is exactly `x` or `X` — spacing inside the brackets may vary, so `- [ x]` counts. Every other marker is incomplete: `- [ ]`, `- []`, and markers OpenSpec assigns no meaning to such as `- [~]` or `- [-]`. With no tasks file, proceed without a task warning.
-   - If either check finds incomplete work, stop and report exactly what is missing: this repo's policy — CONTRIBUTING.md and the injected archive guidance — does not archive incomplete artifacts or unchecked tasks, so there is no confirmation override to offer.
+   - If either check finds incomplete work, stop and report exactly what is missing: this repo's policy — [feature delivery](../../../docs/development/feature-delivery.md#5-finalize) and the injected archive guidance — does not archive incomplete artifacts or unchecked tasks, so there is no confirmation override to offer.
 
 3. **Assess delta-spec sync state.** Use `artifactPaths.specs.existingOutputPaths` as the only delta-spec source; when the entry is missing or empty, treat the sync as complete and proceed to step 5, and do not infer deltas from other artifacts.
 

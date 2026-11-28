@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+
 import {
   type Chat,
   type ChatDelivery,
@@ -91,11 +92,6 @@ function mockBoundaryFakes(input: ModelSwitchFakeInput) {
   vi.spyOn(
     SystemPromptReceiptsRepository.prototype,
     'findByOwnedRun',
-  ).mockResolvedValue([]);
-
-  vi.spyOn(
-    ChatJobsRepository.prototype,
-    'settleOnDeadWorkers',
   ).mockResolvedValue([]);
 
   const lockPending = vi

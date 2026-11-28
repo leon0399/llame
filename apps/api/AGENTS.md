@@ -174,10 +174,10 @@ function keeps its parameters.
   explicit boolean rather than relying on Handlebars truthiness for a number,
   since zero must be falsy and a `SafeString` wrapping an empty string is
   truthy.
-- `user`, `chats`, `skills`, `model`, `context`, and `tools` are reserved names
-  and are never supplied to a packaged rail template; the operator surfaces
-  keep those projections. A rail item is frozen into `messages.parts`, so
-  personalization must never be rendered into one.
+- `user`, `chats`, `skills`, `model`, `context`, and `tools` remain reserved
+  names in packaged rail templates. Operator templates retain `user`, `skills`,
+  `model`, `context`, and `tools`; `chats.*` is retired and fails startup.
+  A rail item is frozen into `messages.parts`, so personalization stays outside it.
 - Packaged templates compile with `noEscape`: the engine escapes nothing and
   every mustache renders raw. The producer keeps calling
   `sanitizeAuthoredText` on exactly the values it neutralizes today, before the
@@ -237,9 +237,10 @@ are a hard API/worker revision boundary. Specs:
 [memory](../../openspec/specs/memory/spec.md), and
 [recency digest](../../openspec/specs/chat-recency-digest/spec.md).
 
-`shareRecentChats` defaults off. Consent must state together: enabling scans
-existing chats; disabling does not remove already-bound baselines; deleting a
-source chat does not erase copies in prompts, appends, or receipts.
+`shareRecentChats` defaults off. Consent covers existing eligible Chats, their
+opening and latest assistant excerpts, and canonical Workspace bindings.
+Withdrawal stops new disclosure. Deletion and withdrawal leave earlier digest
+items, read observations, and historical prompt receipts intact.
 
 ## Tool schemas and MCP
 
@@ -284,7 +285,7 @@ provider. Removing an embedding model does not delete vectors; prune explicitly.
 `search_conversations` supports two modes (content keyword search with optional
 time ranges, and timeline activity-pointer discovery) and always returns
 canonical results; HTTP admission and every `runs` consumer enforce projection
-coverage. `conversation_read` is independently allowlisted. See
+coverage. Chat history reads use independently allowlisted `read` with `chat://` locators. See
 [the runbook](../../docs/product/operator/conversation-recall.md) and the
 chat-search/search-projection/conversation-read OpenSpecs.
 
@@ -294,6 +295,11 @@ chat-search/search-projection/conversation-read OpenSpecs.
   parameter.
 - Endpoints use resource verbs, class-validator DTOs, and explicit response
   allowlists. IDs use typed pipes. Nullable fields are explicit and required.
+  A streaming endpoint documents its transport contract.
+- A default is a durable contract. A setting that sends owner data to a
+  provider defaults off, and its documentation states, together, that enabling
+  it covers existing data and that a disclosure cannot be taken back.
+- Log at boundaries and failures. Per-request and per-token logs are noise.
 - `apps/api/openapi.json` is generated and committed. Any DTO/controller/Swagger
   change must run API build and commit the result. Lint, types, and tests do not
   regenerate it.

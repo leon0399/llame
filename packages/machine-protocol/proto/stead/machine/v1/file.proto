@@ -1,0 +1,356 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// FileService is the daemon's view of the filesystem under the roots: entries, bytes, lines, and
+// two exact mutations. It renders nothing. Selectors, numbering, outlines, suggestions, and page
+// bounds belong to the installation, which composes them from these calls.
+//
+// Every path is absolute. A path outside every root, or one that resolves outside, is refused with
+// PATH_NOT_REGISTERED in the same words whether or not it exists. A refusal happens before work
+// starts. Every call re-resolves its path after the effect. A read whose path moved is refused; a
+// mutation whose path moved after it started reports FILE_FAILURE_REASON_OUTCOME_UNKNOWN. Bounds
+// are in bytes and lines, never in characters.
+service FileService {
+  // GetEntry reports what is at a path without following a link at the path itself.
+  rpc GetEntry(GetEntryRequest) returns (GetEntryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ListDirectory returns one directory level, sorted by name, starting at an offset.
+  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ReadBytes streams a byte range of a regular file.
+  rpc ReadBytes(ReadBytesRequest) returns (stream ReadBytesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // ReadLines returns a window of lines of a UTF-8 text file with the file's line count.
+  rpc ReadLines(ReadLinesRequest) returns (ReadLinesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // WriteFile creates or replaces a regular file atomically.
+  rpc WriteFile(WriteFileRequest) returns (WriteFileResponse) {}
+  // ReplaceText replaces exactly one occurrence of a string in a UTF-8 text file atomically.
+  rpc ReplaceText(ReplaceTextRequest) returns (ReplaceTextResponse) {}
+  // SearchFiles streams matches of patterns in files under a path until a bound, with the
+  // position to resume from.
+  rpc SearchFiles(SearchFilesRequest) returns (stream SearchFilesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  ENTRY_KIND_SYMLINK = 3;
+  // Anything else, such as a device, socket, or pipe. Kept last so a later specific kind slots
+  // in before it. Callers normalize unknown enum numbers to OTHER when displaying them.
+  ENTRY_KIND_OTHER = 255;
+}
+
+// A directory entry, or what a path names.
+message Entry {
+  // The entry's name within its directory; the full path for GetEntry.
+  string name = 1;
+  EntryKind kind = 2;
+  // Bytes of a regular file; unset otherwise.
+  optional uint64 size = 3;
+  optional google.protobuf.Timestamp modified_at = 4;
+  // For a symlink: the link text as stored.
+  optional string link_target = 5;
+  // For a symlink: what the target is, or UNSPECIFIED when it dangles or resolves outside the roots.
+  optional EntryKind target_kind = 6;
+  // The canonical path resolved by the daemon's root guard.
+  optional string canonical_path = 7;
+}
+
+// Why a file operation that started did not succeed.
+enum FileFailureReason {
+  FILE_FAILURE_REASON_UNSPECIFIED = 0;
+  FILE_FAILURE_REASON_NOT_FOUND = 1;
+  // A regular file was needed, or a directory was.
+  FILE_FAILURE_REASON_WRONG_KIND = 2;
+  FILE_FAILURE_REASON_NOT_UTF8 = 3;
+  FILE_FAILURE_REASON_ALREADY_EXISTS = 4;
+  FILE_FAILURE_REASON_TEXT_NOT_FOUND = 5;
+  // `ambiguous_text` lists the occurrences.
+  FILE_FAILURE_REASON_TEXT_AMBIGUOUS = 6;
+  // The effect may or may not have happened; the installation never repeats it.
+  FILE_FAILURE_REASON_OUTCOME_UNKNOWN = 7;
+  // The directory has more entries than the daemon walks.
+  FILE_FAILURE_REASON_DIRECTORY_TOO_LARGE = 8;
+  FILE_FAILURE_REASON_FILE_TOO_LARGE = 9;
+  // Any other filesystem error; `message` names it. Kept last for the same reason as ENTRY_KIND_OTHER.
+  FILE_FAILURE_REASON_IO = 255;
+}
+
+message FileFailure {
+  FileFailureReason reason = 1;
+  // For the owner, never parsed.
+  string message = 2;
+  // Data some reasons carry, so the caller can act without another read.
+  oneof details {
+    // With TEXT_AMBIGUOUS.
+    AmbiguousText ambiguous_text = 3;
+  }
+}
+
+// Where `old_text` occurs, so the caller can widen it and try again.
+message AmbiguousText {
+  // Every occurrence.
+  uint32 count = 1;
+  // The first occurrences, at most 10.
+  repeated Occurrence occurrences = 2;
+}
+
+message Occurrence {
+  // The line the occurrence starts on.
+  uint32 line = 1;
+  // The lines the occurrence spans plus one line of context on each side, without line endings;
+  // each line is cut at 200 bytes.
+  repeated string excerpt = 2;
+}
+
+message GetEntryRequest {
+  string path = 1;
+}
+
+message GetEntryResponse {
+  oneof result {
+    Entry entry = 1;
+    FileFailure failure = 2;
+  }
+}
+
+message ListDirectoryRequest {
+  string path = 1;
+  // Entries to skip, in name order.
+  uint32 offset = 2;
+  // Most entries to return; 0 means the daemon's default of 1000.
+  uint32 limit = 3;
+}
+
+message ListDirectoryResponse {
+  oneof result {
+    Directory directory = 1;
+    FileFailure failure = 2;
+  }
+}
+
+message Directory {
+  repeated Entry entries = 1;
+  // Every entry the directory holds.
+  uint32 total = 2;
+}
+
+message ReadBytesRequest {
+  string path = 1;
+  uint64 offset = 2;
+  // Most bytes to send; 0 means to the end.
+  uint64 limit = 3;
+}
+
+message ReadBytesResponse {
+  oneof result {
+    // First: the file's size.
+    uint64 size = 1;
+    // Then: up to 512 KiB each.
+    bytes chunk = 2;
+    FileFailure failure = 3;
+  }
+}
+
+message ReadLinesRequest {
+  string path = 1;
+  // 1-based; 0 means 1.
+  uint32 start_line = 2;
+  // Most lines to return; 0 means to the end.
+  uint32 limit = 3;
+  // Most bytes of lines to return; 0 means the daemon's default of 4 MiB. A line that would cross
+  // it is not returned, and `truncated` is set.
+  uint64 max_bytes = 4;
+}
+
+message ReadLinesResponse {
+  oneof result {
+    Lines lines = 1;
+    FileFailure failure = 2;
+  }
+}
+
+message Lines {
+  // Without their line endings.
+  repeated string lines = 1;
+  // The number of the first returned line.
+  uint32 start_line = 2;
+  // The file's line count.
+  uint32 line_count = 3;
+  // `max_bytes` stopped the window before `limit` or the end.
+  bool truncated = 4;
+  // "\n" or "\r\n", from the first line ending.
+  string line_ending = 5;
+}
+
+enum WriteMode {
+  WRITE_MODE_UNSPECIFIED = 0;
+  // Fail with ALREADY_EXISTS when the path exists.
+  WRITE_MODE_CREATE = 1;
+  // Fail with NOT_FOUND when the path does not exist.
+  WRITE_MODE_REPLACE = 2;
+  WRITE_MODE_CREATE_OR_REPLACE = 3;
+}
+
+message WriteFileRequest {
+  // Per AIP-155: a UUID the installation draws per call. A resend returns the first result and
+  // never repeats the effect.
+  string request_id = 1;
+  string path = 2;
+  bytes content = 3;
+  WriteMode mode = 4;
+  // Create missing parent directories inside the roots.
+  bool create_parents = 5;
+}
+
+message WriteFileResponse {
+  oneof result {
+    Written written = 1;
+    FileFailure failure = 2;
+  }
+}
+
+message Written {
+  bool created = 1;
+  uint64 size = 2;
+}
+
+message ReplaceTextRequest {
+  string request_id = 1;
+  string path = 2;
+  // Must occur exactly once; empty is INVALID_ARGUMENT.
+  string old_text = 3;
+  string new_text = 4;
+}
+
+message ReplaceTextResponse {
+  oneof result {
+    Replaced replaced = 1;
+    FileFailure failure = 2;
+  }
+}
+
+message Replaced {
+  // The line the replacement starts at after the edit.
+  uint32 start_line = 1;
+  // The file's line count after the edit.
+  uint32 line_count = 2;
+}
+
+message SearchFilesRequest {
+  // A directory or a regular file.
+  string path = 1;
+  // Only files whose path relative to `path` matches; empty means every file. `*`, `**`, and `?`.
+  string glob = 2;
+  // 1 to 8 patterns in RE2 syntax, or literal text when `literal` is set.
+  repeated string patterns = 3;
+  bool literal = 4;
+  bool ignore_case = 5;
+  // Lines returned around each match.
+  uint32 context_lines = 6;
+  // Honor .gitignore and .ignore files.
+  bool respect_ignore_files = 7;
+  // Resume after this position of an earlier search with the same inputs.
+  optional SearchPosition after = 8;
+  SearchBounds bounds = 9;
+}
+
+// Where a search is in its walk. Files are walked in a stable order.
+message SearchPosition {
+  // Relative to the request path, `/`-separated.
+  string path = 1;
+  // Last fully searched line; zero means before the first line.
+  uint32 line = 2;
+  // Absolute byte offset after the fully searched prefix of this file.
+  optional uint64 byte_offset = 3;
+}
+
+// An unset bound is unbounded.
+message SearchBounds {
+  // Files opened.
+  optional uint32 files = 1;
+  // Bytes read.
+  optional uint64 bytes = 2;
+  // Skip files larger than this.
+  optional uint64 file_bytes = 3;
+  // Matches returned.
+  optional uint32 matches = 4;
+}
+
+message SearchFilesResponse {
+  oneof event {
+    Match match = 1;
+    // A file or directory the search skipped, with why.
+    Skipped skipped = 2;
+    // Last: how the search ended.
+    SearchEnd end = 3;
+    FileFailure failure = 4;
+  }
+}
+
+message Match {
+  // Relative to the request path.
+  string path = 1;
+  // 1-based.
+  uint32 line = 2;
+  // The matching line and its context, in order, without line endings.
+  repeated Line lines = 3;
+}
+
+message Line {
+  uint32 number = 1;
+  string text = 2;
+  // Byte ranges of the matches within `text`; empty for a context line.
+  repeated Span spans = 3;
+}
+
+message Span {
+  uint32 start = 1;
+  uint32 end = 2;
+}
+
+enum SkipReason {
+  SKIP_REASON_UNSPECIFIED = 0;
+  SKIP_REASON_BINARY = 1;
+  SKIP_REASON_NOT_UTF8 = 2;
+  SKIP_REASON_TOO_LARGE = 3;
+  SKIP_REASON_UNREADABLE = 4;
+  SKIP_REASON_SYMLINK = 5;
+  SKIP_REASON_IGNORED = 6;
+}
+
+message Skipped {
+  string path = 1;
+  SkipReason reason = 2;
+}
+
+enum SearchStop {
+  SEARCH_STOP_UNSPECIFIED = 0;
+  // Every file was searched.
+  SEARCH_STOP_COMPLETE = 1;
+  SEARCH_STOP_FILES = 2;
+  SEARCH_STOP_BYTES = 3;
+  SEARCH_STOP_MATCHES = 4;
+  // The gRPC deadline.
+  SEARCH_STOP_DEADLINE = 5;
+}
+
+message SearchEnd {
+  SearchStop stop = 1;
+  // Where to resume from; unset when complete.
+  optional SearchPosition position = 2;
+  uint32 files = 3;
+  uint64 bytes = 4;
+  uint32 matches = 5;
+}

@@ -8,10 +8,7 @@
  * and a file operation never binds the Run to a worker (design D15).
  */
 
-import {
-  type JsonValue,
-  type RequestEnvelope,
-} from '@workspace/machine-protocol';
+import { type JsonValue } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
   machinePrefix,
@@ -19,6 +16,7 @@ import {
   type MachineLocator,
 } from '../machines/machine-locator';
 import { readRootsListResult } from '../machines/machine-results';
+import { type MachineRequestEnvelope } from '../machines/machine-session';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { boundMachineRoots } from '../machines/machines-status';
 import {
@@ -41,6 +39,7 @@ import {
 import { readMachinePath } from './machine-file-reads';
 import {
   canonicalizeMachineResult,
+  hideMalformedMachineFileSpelling,
   machinePathLocator,
   readFsMutateResult,
   type MachinePath,
@@ -253,35 +252,52 @@ async function mutateMachinePath(
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
 
-  return runMachineMutation(
+  const request = { machine, envelope };
+
+  const result = await runMachineMutation(
     context,
     {
       name: machine.name,
       operation: call.operation,
       locator: machinePathLocator(machine),
     },
-    async () => {
-      const raw = await requestMachineMutation(context, connector, call, {
-        machine,
-        envelope,
-      });
+    () => performMachineMutation(context, connector, call, request),
+  );
 
-      const result = readFsMutateResult(
-        raw,
-        call.operation === 'edit' ? call.input : undefined,
-      );
+  return hideMalformedMachineFileSpelling(machine.path, result);
+}
 
-      return result === undefined
-        ? machineUnusableResult(machine.name)
-        : canonicalizeMachineResult(machine, result);
-    },
+async function performMachineMutation(
+  context: ToolContext,
+  connector: MachineConnector,
+  call: Exclude<MachineFileCall, { operation: 'read' }>,
+  request: MachineMutationRequest,
+): Promise<ToolResult> {
+  const { machine } = request;
+  const raw = await requestMachineMutation(context, connector, call, request);
+
+  const result = readFsMutateResult(
+    raw,
+    call.operation === 'edit' ? call.input : undefined,
+    call.operation === 'edit'
+      ? 'edit'
+      : call.input.replace === true
+        ? 'replace'
+        : 'create',
+  );
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  return canonicalizeMachineResult(
+    machine,
+    hideMalformedMachineFileSpelling(machine.path, result),
   );
 }
 
 /** The addressing and budget one Machine mutation request carries. */
 type MachineMutationRequest = {
   readonly machine: MachinePath;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
 };
 
 /** One `fs.edit` or `fs.write` request, whichever the machine call asked for. */

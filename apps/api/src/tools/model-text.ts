@@ -21,7 +21,7 @@
 
 import { z } from 'zod';
 
-import { renderBashText } from '@workspace/bash-executor';
+import { renderBashText } from './bash-contract';
 import {
   measureReadRendering,
   renderEditText,
@@ -56,12 +56,13 @@ type TextResultRenderer = (result: ToolResult) => string | undefined;
  * value renders a success, and `undefined` keeps that result's JSON rendering.
  */
 const TEXT_RESULT_RENDERERS = {
-  // A `read` success renders as text when it carries content: a file of any
-  // representation, or a directory listing. An image, PDF, or skill-catalog
-  // result carries none and keeps its JSON rendering.
+  // Read successes with source text render as text; image, PDF, and skill
+  // catalog results carry none and retain their JSON rendering.
   read: (result: ToolResult) =>
     result.status === 'success' &&
-    (result.kind === 'file' || result.kind === 'directory') &&
+    (result.kind === 'file' ||
+      result.kind === 'directory' ||
+      result.kind === 'chat-index') &&
     isString(result.content)
       ? renderReadText(result)
       : undefined,

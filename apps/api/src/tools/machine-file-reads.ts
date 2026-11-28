@@ -9,7 +9,6 @@ import {
   BYTES_NOTIFICATION,
   type JsonValue,
   type NativeFailureResult,
-  type RequestEnvelope,
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
@@ -21,6 +20,7 @@ import {
 } from '../machines/machine-results';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
+import { type MachineRequestEnvelope } from '../machines/machine-session';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -33,8 +33,10 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
+import { MEDIA_REFUSAL } from '../media/media-ingest';
 import {
   canonicalizeMachineResult,
+  hideMalformedMachineFileSpelling,
   type MachinePath,
 } from './machine-file-results';
 
@@ -57,49 +59,140 @@ export async function readMachinePath(
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
 
-  return machineReadResult(machine.name, async () => {
-    const raw = await connector.request(
-      machine.name,
-      'fs.read',
-      {
-        envelope,
-        path: machine.path,
-        options: {
-          displayPrefix: machinePrefix(machine.name),
-          ...(machine.selector !== undefined && {
-            selector: machine.selector,
-          }),
-        },
-      },
-      { signal: context.abortSignal },
-    );
+  const request = {
+    context,
+    connector,
+    machine,
+    submitted,
+    envelope,
+  };
 
-    const result = readFsReadResult(raw);
+  return machineReadResult(machine.name, () =>
+    readMachinePathResult(request),
+  ).then((result) => hideMalformedMachineFileSpelling(machine.path, result));
+}
 
-    if (result === undefined) return machineUnusableResult(machine.name);
+type MachineReadRequest = {
+  readonly context: ToolContext;
+  readonly connector: MachineConnector;
+  readonly machine: MachinePath;
+  readonly submitted: string;
+  readonly envelope: MachineRequestEnvelope;
+  readonly mediaMachine?: MachinePath;
+};
 
-    if (result.status === 'success')
-      return canonicalizeMachineResult(machine, { ...result });
+/** Read a literal selector-suffixed filename before applying selector syntax. */
+async function readMachinePathResult(
+  request: MachineReadRequest,
+): Promise<ToolResult> {
+  const { machine } = request;
 
-    // The daemon reads text only. Its media probe refuses an image or PDF by
-    // signature before any decode, and bytes that are not UTF-8 refuse too:
-    // the media path streams those bytes instead. Any other refusal is the
-    // read's own result.
-    if (result.type !== 'invalid_utf8' || context.media === undefined)
-      return result;
+  if (machine.selector !== undefined) {
+    const literal = {
+      ...machine,
+      path: `${machine.path}:${machine.selector}`,
+      selector: undefined,
+    };
 
+    const result = await readMachineLiteralPath({
+      ...request,
+      machine: literal,
+      mediaMachine: machine,
+    });
+
+    if (result !== undefined) return result;
+  }
+
+  return readMachineSelectedPath(request);
+}
+
+async function readMachineLiteralPath({
+  context,
+  connector,
+  machine,
+  submitted,
+  envelope,
+  mediaMachine,
+}: MachineReadRequest): Promise<ToolResult | undefined> {
+  const raw = await connector.request(
+    machine.name,
+    'fs.read',
+    {
+      envelope,
+      path: machine.path,
+      options: { displayPrefix: machinePrefix(machine.name) },
+    },
+    { signal: context.abortSignal },
+  );
+
+  const result = readFsReadResult(raw);
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  const settled = hideMalformedMachineFileSpelling(machine.path, result);
+
+  if (settled.status === 'success')
+    return canonicalizeMachineResult(machine, { ...settled });
+
+  if (settled.type === 'not_found') return undefined;
+
+  if (settled.type === 'invalid_utf8' && context.media !== undefined)
     return (
-      (await readMachineMedia(context, machine, submitted, envelope)) ?? result
+      (await readMachineMedia(
+        context,
+        mediaMachine ?? machine,
+        submitted,
+        envelope,
+      )) ?? settled
     );
-  });
+
+  return settled;
+}
+
+async function readMachineSelectedPath({
+  context,
+  connector,
+  machine,
+  submitted,
+  envelope,
+}: MachineReadRequest): Promise<ToolResult> {
+  const raw = await connector.request(
+    machine.name,
+    'fs.read',
+    {
+      envelope,
+      path: machine.path,
+      options: {
+        displayPrefix: machinePrefix(machine.name),
+        ...(machine.selector !== undefined && {
+          selector: machine.selector,
+        }),
+      },
+    },
+    { signal: context.abortSignal },
+  );
+
+  const result = readFsReadResult(raw);
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  const settled = hideMalformedMachineFileSpelling(machine.path, result);
+
+  if (settled.status === 'success')
+    return canonicalizeMachineResult(machine, { ...settled });
+
+  if (settled.type !== 'invalid_utf8' || context.media === undefined)
+    return settled;
+
+  return (
+    (await readMachineMedia(context, machine, submitted, envelope)) ?? settled
+  );
 }
 
 /**
- * The media read of a Machine file, through `fs.bytes` and the shared
- * byte-buffer preparation, so the result is the one a local read of the same
- * bytes produces. `undefined` means the bytes are not an image or PDF after
- * all, and the text read's refusal stands.
- *
+ * The Machine media read streams bytes through the shared byte-buffer
+ * preparation. The hub rejects bytes without an image or PDF signature as
+ * unsupported media.
  * A literal filename that ends in a selector-shaped suffix is the target the
  * daemon's text read selected, because the literal-path probe takes precedence
  * over the selector split. Its bytes are asked for first, and the split
@@ -110,7 +203,7 @@ async function readMachineMedia(
   context: ToolContext,
   machine: MachinePath,
   submitted: string,
-  envelope: RequestEnvelope,
+  envelope: MachineRequestEnvelope,
 ): Promise<ToolResult | undefined> {
   const connector = machineConnector(context);
   const store = context.media;
@@ -148,7 +241,7 @@ type MachineMediaRead = {
   readonly context: ToolContext;
   readonly connector: MachineConnector;
   readonly store: ToolMediaStore;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
   readonly submitted: string;
 };
 
@@ -183,8 +276,8 @@ async function machineMediaAttempt(
     const noTarget =
       meta.type === 'not_regular_file' || meta.type === 'not_found';
 
-    // The daemon refuses bytes matching no image or PDF signature, so the text
-    // read that asked for them is the read's result and none of them stream.
+    // The wire handler refuses non-media after sniffing its bounded first chunk,
+    // before it emits any bytes; the text read that asked for them stands.
     return noTarget
       ? { status: 'no_target', failure: meta }
       : {
@@ -230,7 +323,7 @@ async function handMachineBytes(
   media: MachineMediaBytes,
 ): Promise<ToolResult | undefined> {
   try {
-    return await readMediaBytes(
+    const result = await readMediaBytes(
       media.bytes,
       {
         path: media.locator,
@@ -240,6 +333,14 @@ async function handMachineBytes(
         media: store.readMedia(media.submitted, context.toolCallId),
         signal: context.abortSignal,
       },
+    );
+
+    return (
+      result ?? {
+        status: 'error',
+        type: MEDIA_REFUSAL.unsupportedImage.code,
+        message: MEDIA_REFUSAL.unsupportedImage.message,
+      }
     );
   } catch (error) {
     if (error instanceof NativeFileError)
@@ -257,7 +358,7 @@ async function readMachineBytes(
   context: ToolContext,
   connector: MachineConnector,
   machine: MachinePath,
-  envelope: RequestEnvelope,
+  envelope: MachineRequestEnvelope,
 ): Promise<{ readonly raw: JsonValue; readonly bytes: Buffer }> {
   const handle = await connector.openChannel(
     machine.name,

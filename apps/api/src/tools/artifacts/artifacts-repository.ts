@@ -104,6 +104,30 @@ export class ArtifactsRepository {
     return row;
   }
 
+  /** The artifact already written for one tool call, if any. */
+  async findForToolCall(
+    chatId: string,
+    runId: string,
+    toolCallId: string,
+  ): Promise<{ id: string; createdAt: Date; seq: number } | undefined> {
+    const [row] = await this.db
+      .select({
+        id: toolArtifacts.id,
+        createdAt: toolArtifacts.createdAt,
+        seq: toolArtifacts.seq,
+      })
+      .from(toolArtifacts)
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.runId, runId),
+          eq(toolArtifacts.toolCallId, toolCallId),
+        ),
+      );
+
+    return row;
+  }
+
   /** Every part of one artifact, inserted in the caller's transaction. */
   async insertParts(
     artifactId: string,
@@ -246,6 +270,43 @@ export class ArtifactsRepository {
       );
 
     return row?.content;
+  }
+
+  /**
+   * One part's stored size and its last `maxBytes + 1` bytes, without
+   * transferring the prefix. The extra byte tells the caller whether the
+   * window starts on a line.
+   */
+  async readPartWindow(
+    chatId: string,
+    locator: ArtifactLocator & { readonly part: string },
+    maxBytes: number,
+  ): Promise<{ size: number; window: Buffer } | undefined> {
+    const size = sql<number>`octet_length(${toolArtifactParts.content})`;
+    const take = maxBytes + 1;
+
+    const [row] = await this.db
+      .select({
+        size: sql<number>`${size}::int`,
+        window: sql<Buffer>`substring(
+          ${toolArtifactParts.content} from greatest(${size} - ${take} + 1, 1)
+        )`,
+      })
+      .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, locator.toolName),
+          eq(toolArtifacts.seq, locator.seq),
+          eq(toolArtifactParts.name, locator.part),
+        ),
+      );
+
+    return row;
   }
 
   /**

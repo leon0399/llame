@@ -8,6 +8,7 @@ import {
   type SeededRun,
 } from '../testing/run-segments.test-fixture';
 import { dispatchRun, seedLiveChatJob } from './worker-harness';
+import { RunWaitService } from './run-wait.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -96,12 +97,12 @@ describe('wait usage accounting across a durable wake', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+        wake: fx.harness.moduleRef.get(RunWaitService),
       },
     );
   }

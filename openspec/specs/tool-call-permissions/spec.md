@@ -59,7 +59,7 @@ After the evaluator validates the call schema, it MUST match the parsed argument
 
 An omitted or non-string field MUST NOT match, except for an omitted `bash.cwd` while a Workspace is entered. All-fields rejection MUST examine every submitted string value in nested objects and arrays separately, without concatenation. For a native path parameter, all-fields rejection MUST also examine the projected path and the canonical locator.
 
-Native `read`, `edit`, and `write` `path` values, `enter_workspace` `path` values, and `bash` `cwd` values MUST project to a canonical `machine://` locator. An absolute path `p` projects to `machine://<name>p` on the current Machine. The projected path of every Machine value is its decoded absolute path without the scheme and the Machine name. This holds for a bare path, a `file:` locator, a `machine://` locator, a `grep` scope prefix, and each derived or stored value: a canonical root, a main clone, a worktree directory, and the re-checked Workspace root. While a Workspace is entered, a relative path MUST first resolve from the canonical Workspace root. Resolution MUST be lexical like POSIX `path.posix.resolve`, it MUST keep a trailing separator, and `..` can leave the root.
+Native `read`, `edit`, and `write` `path` values, `enter_workspace` `path` values, and `bash` `cwd` values MUST project to a canonical `machine://` locator. An absolute path `p` projects to `machine://<name>p` on the current Machine. The projected path of every Machine value is its decoded absolute path without the scheme and the Machine name. This holds for a bare path, a `file:` locator, a `machine://` locator, a `grep` scope prefix, and each derived or stored value: a canonical root, a main clone, a copy source, a worktree directory, and the re-checked Workspace root. While a Workspace is entered, a relative path MUST first resolve from the canonical Workspace root. Resolution MUST be lexical like POSIX `path.posix.resolve`, it MUST keep a trailing separator, and `..` can leave the root.
 
 For `read`, the evaluator MUST remove the split-off read selector from the
 texts it matches, after resolution. The tool MUST keep the selector as the
@@ -694,7 +694,7 @@ Tool call stopped by operator permissions. Every address of the target host was 
 
 ### Requirement: Recommended portable policy with explicit replacement
 
-When `tools.permissions` is omitted, the system MUST create no permission groups, so every call is rejected. No built-in fallback policy exists. The shipped `llame.config.jsonc.example` MUST document exactly nine groups as the recommended portable map for operators to copy. The groups are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `enter_workspace`, and `exit_workspace`. It MUST also document the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below. The groups `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, and `exit_workspace` MUST each have a whole-tool allow.
+When `tools.permissions` is absent, the system MUST create no groups and reject every call. No fallback policy exists. The example MUST document ten groups. They are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `wait`, `stop`, `enter_workspace`, and `exit_workspace`. Every group except `enter_workspace` MUST have a whole-tool allow. The example MUST retain the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below.
 
 The `enter_workspace` group MUST instead use an operator-edited field allow on `path`, such as `{ "field": "path", "regex": "^machine://[^/]+/home/operator/projects/[^/]+/?$" }`. Its allow is not a whole-tool allow. It MUST contain the F1-F3 and E1-E3 path rejects against its `path` field and no other recommended rejects. Every directory that this field allow admits is trusted to run code and read secrets of its Machine through its Workspace MCP configuration.
 
@@ -780,7 +780,7 @@ They MUST match no hostname text, so the addresses that its host resolves to dec
 
 - **WHEN** both `tools.allowed` and `tools.permissions` are omitted
 - **THEN** no permission group exists and no tool is advertised or executable
-- **AND** a requested call would be rejected as `no_allow`
+- **AND** the evaluator rejects a requested call as `no_allow`
 
 #### Scenario: Operator map is the complete policy
 
@@ -812,19 +812,19 @@ They MUST match no hostname text, so the addresses that its host resolves to dec
 #### Scenario: Recommended entry policy rejects protected paths
 
 - **WHEN** the recommended policy is in force with its operator-edited `enter_workspace.path` allow admitting `/home/operator/.ssh`, `/home/operator/.ssh` is a directory, and `enter_workspace` submits `/home/operator/.ssh`
-- **THEN** the call is rejected by F1
+- **THEN** F1 rejects the call
 - **AND** no Workspace binding is established
 
 #### Scenario: Recommended write policy rejects Workspace control paths
 
 - **WHEN** the recommended example policy is in force and `write` submits `/project/.mcp.json` or `/project/.llame/skills/x/SKILL.md`
-- **THEN** each call is rejected by W1 or W2
+- **THEN** W1 or W2 rejects each call
 - **AND** no file is created or modified
 
 #### Scenario: Recommended entry policy rejects risky roots
 
 - **WHEN** the operator-edited `enter_workspace.path` allow admits `/home/operator/projects/app/node_modules`, `/tmp/project`, and `/home/operator/projects/Downloads`, and the recommended policy is in force
-- **THEN** the calls are rejected by E1, E2, and E3 respectively
+- **THEN** E1, E2, and E3 reject the respective calls
 - **AND** no Workspace binding is established for any of them
 
 #### Scenario: Recommended entry field allow names trusted roots
@@ -879,7 +879,7 @@ In `default`, each requirement of this capability MUST apply without change.
 
 In `read-only`, each evaluation of a permission group MUST occur exactly as in `default`. The read-only requirements of this capability add a ceiling before the call evaluation. The ceiling MUST NOT change any group evaluation.
 
-In `bypass`, the system MUST NOT evaluate a permission group for that attempt at any point where this capability evaluates one. These points include the per-call admission of submitted and projected arguments. They also include each derived locator of a web read and each resolved web address. They also include the submitted and canonical paths of `enter_workspace`, and the per-attempt Workspace binding re-check. The system MUST admit each of those evaluations as an allow. In that attempt, this capability MUST NOT refuse anything through a group match, the reject veto, the no-allow rejection, or the invalid-field rejection. The same applies to the inspection-bound rejection, the omitted-policy rejection, and the recommended reject list. This capability MUST NOT produce a `permission_denied` result in that attempt.
+In `bypass`, the system MUST NOT evaluate a permission group for that attempt at any point where this capability evaluates one. These points include the per-call admission of submitted and projected arguments. They also include each derived locator of a web read and each resolved web address. They also include the submitted and canonical paths of `enter_workspace`, the derived `copy_source` decision of Worktree creation, and the per-attempt Workspace binding re-check. The system MUST admit each of those evaluations as an allow. In that attempt, this capability MUST NOT refuse anything through a group match, the reject veto, the no-allow rejection, or the invalid-field rejection. The same applies to the inspection-bound rejection, the omitted-policy rejection, and the recommended reject list. This capability MUST NOT produce a `permission_denied` result in that attempt.
 The bypass list also includes the canonical-path evaluation of an instruction import when the canonical path differs from the resolved path. The system MUST admit it as an allow and MUST NOT evaluate the `read` group for it.
 
 `bypass` MUST NOT relax any other gate. These gates MUST apply exactly as in `default`. They are `tools.allowed` availability and catalog admission, owner and tenant authorization with Knowledge Space ownership, and native locator validation. The same holds for Workspace path projection of executor arguments, the other Workspace re-check conditions, and the native recovery fence. It also holds for the web-read time, size, and redirect bounds, the Run step and call-timeout bounds, and MCP environment isolation.
@@ -945,7 +945,7 @@ The bypass list also includes the canonical-path evaluation of an instruction im
 
 ### Requirement: Bypassed evaluations are recorded as bypass decisions
 
-Every evaluation that `bypass` admits SHALL still produce a trusted decision recorded wherever this capability records a decision of that kind: the call decision on `tool.requested` before any `tool.started` event or executor dispatch, each derived-locator decision of a web read, and the canonical-path decision of `enter_workspace`. A bypass decision SHALL carry the executing process's policy-instance ID, the decision `allow`, the static reason `permission_mode_bypass`, and no clause reference. Because an address record is kept only for a refused address, a `bypass` attempt SHALL produce no address record. Bypass decisions SHALL follow the existing privacy rules for decision metadata: owner-scoped, excluded from model replay, public shares, exports, and search, and carried through completion, abort settlement, and durable transcript reconstruction.
+Every evaluation that `bypass` admits SHALL still produce a trusted decision recorded wherever this capability records a decision of that kind: the call decision on `tool.requested` before any `tool.started` event or executor dispatch, each derived-locator decision of a web read, the canonical-path decision of `enter_workspace`, and the derived `copy_source` decision of Worktree creation. A bypass decision SHALL carry the executing process's policy-instance ID, the decision `allow`, the static reason `permission_mode_bypass`, and no clause reference. Because an address record is kept only for a refused address, a `bypass` attempt SHALL produce no address record. Bypass decisions SHALL follow the existing privacy rules for decision metadata: owner-scoped, excluded from model replay, public shares, exports, and search, and carried through completion, abort settlement, and durable transcript reconstruction.
 The recorded decisions also include the derived `canonical` decision attached to the first page read call of an instruction import when its canonical path differs from its resolved path; it is recorded in the completion payload's derived decisions when the call settles.
 
 #### Scenario: A bypassed call records its reason
@@ -970,6 +970,11 @@ The recorded decisions also include the derived `canonical` decision attached to
 - **WHEN** a `bypass` attempt imports an instruction file whose canonical path differs from its resolved path
 - **THEN** the import's first page read call records a derived `canonical` decision with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
 - **AND** the completion payload records it among its derived decisions when the call settles
+
+#### Scenario: A bypassed copy source records its decision
+
+- **WHEN** a `bypass` attempt creates a Worktree from a subdirectory of a linked Worktree
+- **THEN** the `copy_source` decision is recorded with `allow`, reason `permission_mode_bypass`, the process's policy-instance ID, and no clause reference
 
 ### Requirement: Grep scopes are admitted per scope and files per hit
 
@@ -1234,7 +1239,9 @@ The sixth named exception also covers each directory that a `grep` walk
 excludes by an ignore rule. The system MUST evaluate the `read` group on that
 directory locator as written and with a final separator. The system MUST NOT
 record these decisions one by one. They MUST NOT count toward the refused-file
-count of the completion audit. A `bypass` attempt MUST evaluate no such directory.
+count of the completion audit. A `bypass` attempt MUST evaluate no such
+directory. A directory the fixed set names is not such a directory, so the
+exception covers it nowhere and no result names it.
 
 #### Scenario: Directory decisions are not recorded
 
@@ -1244,9 +1251,15 @@ count of the completion audit. A `bypass` attempt MUST evaluate no such director
 
 #### Scenario: A bypassed Run names every excluded directory
 
-- **WHEN** a `bypass` attempt runs a grep walk that excludes `/home/u/repo/node_modules`
+- **WHEN** a `bypass` attempt runs a grep walk that excludes `/home/u/repo/vendor`
 - **THEN** the system evaluates no `read` group for that directory
-- **AND** `ignored.locators` holds `/home/u/repo/node_modules`
+- **AND** `ignored.locators` holds `/home/u/repo/vendor`
+
+#### Scenario: A bypassed Run names no fixed-set directory
+
+- **WHEN** a `bypass` attempt runs a grep walk whose `.gitignore` also names `node_modules/`
+- **THEN** the system evaluates no `read` group for that directory
+- **AND** `ignored.locators` holds no locator below the fixed set
 
 ### Requirement: Artifact locators match as their logical text
 
@@ -1473,3 +1486,102 @@ A reject that ends in `([/\\]|$|:)` MUST still refuse such a literal name.
 - **WHEN** a host file named `/home/u/secret:P3` exists and a reject matches `path` against `secret:P3$`
 - **THEN** the projected text is `machine://devl/home/u/secret`, so that reject does not refuse the read
 - **AND** a reject on `/home/u/secret` that ends in `([/\\]|$|:)` refuses it
+
+### Requirement: Chat reads match canonical selector-free resources
+
+The `read` group MUST authorize Chat reads on their canonical selector-free locator. Canonicalization MUST use the same parser as execution. It MUST normalize scheme and UUID case and retain a message sequence.
+
+Reject clauses MUST also inspect the submitted spelling without its selector. `chat://` MUST remain an owner collection, not a Machine path. Whole-tool allows can admit it. RLS MUST remain mandatory in every permission mode.
+
+#### Scenario: Selectors cannot evade a Chat reject
+
+- **WHEN** the read group rejects a Chat root and its message paths
+- **THEN** `CHAT://<uuid>/1:raw:L2-4` cannot evade the canonical rejection
+
+#### Scenario: A whole-tool read allow admits owned Chats
+
+- **WHEN** the example read group has `allow: true` and no matching reject
+- **THEN** an owned Chat read passes the policy without a special group
+
+#### Scenario: A narrow web allow grants no Chat read
+
+- **WHEN** only an HTTPS domain clause allows read
+- **THEN** `chat://` fails `no_allow` before any owner Chat query
+
+### Requirement: Worktree creation authorizes the selected environment copy
+
+The admitted Worktree creation MUST authorize the manifest read and selected
+file copies as one operation. The system MUST NOT apply separate `read`,
+`edit`, or `write` permission decisions to those files. Their groups and
+allowlist entries MUST NOT cause a skip or refusal of the copy. Machine roots,
+OS access, and Worktree creation gates MUST still apply.
+
+#### Scenario: A read-rejected environment file still copies
+
+- **WHEN** Worktree creation is admitted and the manifest selects `.env`
+- **AND** the `read` group rejects the source `.env`
+- **THEN** the copy includes `.env` without a separate read decision
+- **AND** the operation returns no file contents
+
+#### Scenario: No file-write tool is required
+
+- **WHEN** Worktree creation is admitted and `write` is absent from the tool allowlist
+- **THEN** selected file copies can complete without a `write` call
+
+#### Scenario: Later reads use destination permissions
+
+- **WHEN** a copied `.env` has a destination that the `read` group allows
+- **AND** the source `.env` has a path that the `read` group rejects
+- **THEN** a later admitted `read` can return the destination contents
+- **AND** a read rejection that also covers the destination still refuses that later call
+
+### Requirement: A derived copy source root needs Worktree entry admission
+
+If inspection reports a selected Checkout root whose locator differs from both the
+canonical decision and the `main_clone` decision, the system MUST decide that root
+as a derived decision of kind `copy_source` under the `enter_workspace` group
+before the copy accesses it, and before Worktree add. When the root equals either
+locator, that existing decision MUST cover it and no `copy_source` decision MUST
+be recorded. This MUST NOT substitute the main Checkout's root for the selected
+Checkout's root. A rejection, or no allow, MUST refuse the call as
+`permission_denied` and prevent the copy and Worktree add. Under `bypass`, it MUST
+record the decision as a bypass decision.
+
+#### Scenario: An allowed subdirectory does not authorize a rejected root
+
+- **WHEN** a source subdirectory of a linked Worktree is admitted but its selected Checkout root is rejected
+- **THEN** the `copy_source` decision uses that root and returns `reject`
+- **AND** creation fails before manifest access and before Worktree add
+
+#### Scenario: An existing decision covers an equal root
+
+- **WHEN** the selected Checkout root equals the canonical or `main_clone` locator
+- **THEN** no `copy_source` decision is recorded
+
+#### Scenario: Bypass records the copy source decision
+
+- **WHEN** a `bypass` attempt creates a Worktree from a subdirectory of a linked Worktree and the group rejects its root
+- **THEN** the `copy_source` decision is recorded with `allow`, reason `permission_mode_bypass`, the policy-instance ID of the process, and no clause reference
+- **AND** the copy proceeds
+
+### Requirement: Aggregate copy authority does not bypass creation refusal
+
+A refused Worktree creation MUST NOT read its manifest or copy files. A model
+attempt in `read-only` mode MUST still refuse Worktree creation. An
+owner-started Chat creation in `read-only` mode MUST retain its existing entry
+rules and can copy selected files after admission.
+
+#### Scenario: A rejected destination prevents all copying
+
+- **WHEN** the `enter_workspace` group rejects the new Worktree directory
+- **THEN** no manifest read, file copy, or Worktree add starts
+
+#### Scenario: Model read-only mode rejects the mutation
+
+- **WHEN** a model in `read-only` mode requests a Worktree
+- **THEN** the existing mode gate refuses the request before any copy
+
+#### Scenario: Owner read-only creation seeds the environment
+
+- **WHEN** the owner creates a Chat in enabled `read-only` mode with an admitted Worktree request
+- **THEN** the Worktree receives its selected files before the first Run

@@ -458,11 +458,7 @@ function resolveArtifactBounds(
   };
 }
 
-/**
- * The operator `tools.bash` block (background-jobs D7): the process bound of
- * one worker. It is a required positive safe integer; a smaller value, a
- * fraction, an unsafe integer, or an unknown key fails startup naming the path.
- */
+/** Resolve the foreground wait bound; process capacity belongs to the Machine. */
 function resolveBashBounds(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -471,19 +467,9 @@ function resolveBashBounds(
 
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.bash;
 
+  // Process capacity is enforced by each Machine daemon, not this instance.
+
   return {
-    maxProcesses: requireResolvedNumber(
-      resolveNumeric({
-        configPath: 'tools.bash.maxProcesses',
-        present: Object.hasOwn(bounds, 'maxProcesses'),
-        raw: bounds.maxProcesses,
-        builtInDefault: BUILT_IN_DEFAULTS.tools.bash.maxProcesses,
-        nullable: false,
-        env,
-        max: Number.MAX_SAFE_INTEGER,
-      }),
-      'tools.bash.maxProcesses',
-    ),
     backgroundAfterSeconds: requireResolvedNumber(
       resolveNumeric({
         configPath: 'tools.bash.backgroundAfterSeconds',
@@ -2014,7 +2000,13 @@ export function parseConfigText(
       format === 'yaml'
         ? // merge:true resolves `<<: *anchor` merge keys in addition to the
           // always-on `*alias` reference expansion.
-          parseYaml(text, { merge: true })
+          // Parser warnings can quote credentials; error-only logging still
+          // throws syntax failures, unlike the parser's silent mode.
+          parseYaml(text, {
+            merge: true,
+            logLevel: 'error',
+            prettyErrors: false,
+          })
         : parseToml(text);
   } catch (error) {
     throw new InstanceConfigError(
@@ -2464,6 +2456,12 @@ function assertValidAllowlistId(
   configPath: string,
   registered: ReadonlySet<string>,
 ): void {
+  if (id === 'conversation_read') {
+    throw new InstanceConfigError(
+      `${configPath}: "conversation_read" was retired; use "read" with chat:// locators instead`,
+    );
+  }
+
   if (id.includes('*')) {
     const match = /^mcp__([A-Za-z0-9_-]+)__\*$/u.exec(id);
 

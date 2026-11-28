@@ -1,152 +1,91 @@
-/**
- * An in-process daemon side for hub tests: framing, stream multiplexing, the
- * hello handshake, heartbeats, and scriptable answers over real pipes. A case
- * that needs the real daemon runs it in process (`machine-files-peer`); this
- * peer scripts what a real Machine cannot produce on demand, such as a
- * refusal or a lost link, and keeps the wire real in both cases.
- *
- * Deliberately under `src/testing/`: it is scaffolding, excluded from coverage
- * and from mutation (apps/api/stryker.config.json), and never imported by
- * production code.
- */
-
-import { PassThrough } from 'node:stream';
+import { Code, ConnectError } from '@connectrpc/connect';
 
 import { z } from 'zod';
 
+import { PassThrough } from 'node:stream';
+
 import {
-  createFrameMultiplexer,
-  createHeartbeat,
-  createLineFramer,
-  CONTROL_STREAM_ID,
-  decodeFrame,
-  encodeFrame,
-  HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_MISSES,
-  PING_NOTIFICATION,
+  MachineProtocolError,
   PROTOCOL_VERSION,
-  type Frame,
-  type FrameMultiplexer,
-  type Heartbeat,
-  type JsonRpcNotification,
+  type HelloResult,
   type JsonValue,
-  type MachineChannel,
   type MachineErrorCode,
   type MachineFacts,
+  type MachineMethod,
+  type MachineMethodParams,
 } from '@workspace/machine-protocol';
 
+import type {
+  MachineRequestHandler,
+  MachineRequestOptions,
+  MachineStreamInvocation,
+} from '../machines/machine-session';
 import type {
   MachineLinkEnd,
   MachineTransport,
   MachineTransportFactory,
 } from '../machines/machine-transport';
 
-/** One request the peer received, with the params its caller actually sent. */
-export type PeerCall = {
-  readonly method: string;
-  readonly params?: JsonValue;
-};
+export type PeerCall = { readonly method: string; readonly params?: JsonValue };
 
-/** What the peer answers one method with. */
 export type PeerAnswer =
   | { readonly value: JsonValue }
   | { readonly error: MachineErrorCode }
-  /** Answer later, by name, through `release`. */
-  | { readonly hold: true };
+  | { readonly hold: true }
+  | { readonly unimplemented: true };
 
 export type ProtocolPeerOptions = {
   readonly roots?: ReadonlyArray<string>;
   readonly daemonVersion?: string;
-  /** The persistent instance id the daemon reports; deterministic by default. */
   readonly instanceId?: string;
-  /** The build id the daemon reports; 12 lowercase hex chars by default. */
   readonly buildId?: string;
-  /** The static facts the daemon reports; one root disk per configured root. */
   readonly facts?: MachineFacts;
-  /** Override the version the daemon claims, to test a handshake refusal. */
   readonly helloProtocolVersion?: number;
-  /** The git methods the handshake lists; absent means a daemon that predates
-   *  them, which the hub answers with `machine_update_required`. */
   readonly methods?: ReadonlyArray<string>;
-  /** Never answer the handshake at all. */
   readonly silentHello?: boolean;
-  readonly heartbeatIntervalMs?: number;
-  readonly heartbeatMisses?: number;
   readonly answers?: Readonly<Record<string, PeerAnswer>>;
-  /**
-   * Answer one request from the request itself, taking precedence over
-   * `answers`. This is what a walk needs: the same method (`fs.stat`, `fs.list`)
-   * answers differently for each path, and `undefined` falls back to `answers`.
-   * A promise is allowed for a Machine whose answer is itself a round trip (a
-   * real filesystem, a real server); the hub's stream stays open exactly as it
-   * does until a daemon replies.
-   */
   readonly answer?: (
     call: PeerCall,
-  ) => PeerAnswer | Promise<PeerAnswer> | undefined;
-  /**
-   * Observes the notifications the HUB sends on a request stream (for example
-   * `mcp.message` and `mcp.setProtocolVersion`), keyed by the method whose
-   * stream carries them. Purely additive: omitted, the peer behaves as before.
-   */
+    options: MachineRequestOptions,
+    notify: (notification: {
+      readonly method: string;
+      readonly params?: JsonValue;
+    }) => void,
+  ) => PeerAnswer | Promise<PeerAnswer | undefined> | undefined;
   readonly onNotification?: (
     method: string,
-    notification: JsonRpcNotification,
+    notification: { readonly method: string; readonly params?: JsonValue },
   ) => void;
-  /**
-   * When it returns a diagnostic, every `open` yields a link that failed the
-   * way ssh would: an unreachable Machine. Returning undefined again makes the
-   * Machine reachable, which is how one connector's per-attempt cache is
-   * exercised across connectivity flips.
-   */
   readonly openFailure?: () => string | undefined;
 };
 
 export type PeerSession = {
-  /** Request method names, in arrival order. */
   readonly requests: ReadonlyArray<string>;
-  /** Every request in arrival order, with the params it carried. */
   readonly calls: ReadonlyArray<PeerCall>;
-  /** Hub streams this peer has open right now. */
   readonly openStreams: number;
-  /** The most hub streams this peer ever carried at once. */
   readonly maxOpenStreams: number;
-  /** Answer the oldest held request of `method`, closing its stream. */
+  readonly stopped: boolean;
   release(method: string, value: JsonValue, keepOpen?: boolean): void;
-  /** Send a notification on the newest stream that carried `method`. */
   notify(method: string, notification: string, params?: JsonValue): void;
-  /** End the peer's side abruptly, as a lost link, with ssh-like stderr. */
   drop(options?: {
     readonly code?: number | null;
     readonly diagnostic?: string;
   }): void;
-  /** Stop pinging, so the hub's own liveness check ends the session. */
   stopHeartbeat(): void;
-  /** Waits until this peer has received `count` requests. */
   awaitRequests(count: number): Promise<void>;
-  /** Waits until this peer's side has stopped. */
   awaitStop(): Promise<void>;
-  /** Whether the peer's side has stopped. */
-  readonly stopped: boolean;
 };
 
 export type ProtocolPeer = {
-  /** The factory a connector is constructed with. */
   readonly factory: MachineTransportFactory;
-  /** One entry per session the hub opened, oldest first. */
   readonly sessions: ReadonlyArray<PeerSession>;
-  /** The session the hub opened at `index`, waited for if it is not open yet. */
   session(index: number): Promise<PeerSession>;
 };
 
 const DEFAULT_ANSWER: PeerAnswer = { error: 'internal' };
-
-/** A stable instance id, so a suite can compare it without inventing one. */
 export const DEFAULT_PEER_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
-
 const DEFAULT_PEER_BUILD_ID = '0123456789ab';
 
-/** Facts for a fixed linux/x64 Machine, one 512 GiB disk per configured root. */
 export function defaultPeerFacts(roots: ReadonlyArray<string>): MachineFacts {
   return {
     os: 'linux',
@@ -158,73 +97,255 @@ export function defaultPeerFacts(roots: ReadonlyArray<string>): MachineFacts {
   };
 }
 
-/**
- * A typed result as wire JSON. The protocol's result shapes are plain data,
- * and a peer's answer union is written against `JsonValue`; the JSON schema
- * admits exactly such a value.
- */
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number(),
+    z.string(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+
 export function wireJson<T>(value: T): JsonValue {
-  return z.json().parse(value);
+  const serialized = JSON.stringify(value);
+
+  if (serialized === undefined)
+    throw new TypeError('Value cannot be serialized as JSON.');
+
+  return jsonValueSchema.parse(JSON.parse(serialized));
 }
 
-/** One peer-side session: its own multiplexer, framer, and heartbeat. */
+type Pending = { resolve(value: JsonValue): void; reject(error: Error): void };
+
+function peerHello(
+  options: ProtocolPeerOptions,
+  requestOptions: MachineRequestOptions,
+): Promise<JsonValue> | JsonValue {
+  if (options.silentHello) {
+    const { promise, reject } = Promise.withResolvers<JsonValue>();
+
+    requestOptions.signal?.addEventListener(
+      'abort',
+      () => reject(requestOptions.signal?.reason),
+      { once: true },
+    );
+
+    return promise;
+  }
+
+  const roots = options.roots ?? ['/srv/app'];
+
+  const hello: HelloResult = {
+    protocolVersion: options.helloProtocolVersion ?? PROTOCOL_VERSION,
+    daemonVersion: options.daemonVersion ?? '0.0.1',
+    roots,
+    instanceId: options.instanceId ?? DEFAULT_PEER_INSTANCE_ID,
+    buildId: options.buildId ?? DEFAULT_PEER_BUILD_ID,
+    facts: options.facts ?? defaultPeerFacts(roots),
+  };
+
+  return wireJson(hello);
+}
+
+async function answerCall(
+  peerOptions: ProtocolPeerOptions,
+  call: PeerCall,
+  requestOptions: MachineRequestOptions,
+  notify: (notification: {
+    readonly method: string;
+    readonly params?: JsonValue;
+  }) => void,
+): Promise<PeerAnswer> {
+  const override = await peerOptions.answer?.(call, requestOptions, notify);
+
+  return (
+    override ??
+    peerOptions.answers?.[call.method] ??
+    (call.method === 'roots.list'
+      ? { value: wireJson({ roots: peerOptions.roots ?? ['/srv/app'] }) }
+      : DEFAULT_ANSWER)
+  );
+}
+
 class PeerSessionImpl implements PeerSession {
   readonly requests: Array<string> = [];
   readonly calls: Array<PeerCall> = [];
-  readonly transport: MachineTransport;
-  private readonly toHub = new PassThrough();
-  private readonly fromHub = new PassThrough();
-  private readonly multiplexer: FrameMultiplexer;
-  private readonly framer = createLineFramer();
-  private readonly heartbeat: Heartbeat;
-  private readonly end = Promise.withResolvers<MachineLinkEnd>();
-  private readonly held: Array<{ method: string; channel: MachineChannel }> =
+  private readonly pending = new Map<string, Array<Pending>>();
+  private readonly requestWaiters: Array<{ count: number; resolve(): void }> =
     [];
-  private readonly streamByMethod = new Map<string, MachineChannel>();
-  private readonly requestWaiters: Array<{
-    readonly count: number;
-    readonly resolve: () => void;
-  }> = [];
+  private readonly notifications = new Map<
+    string,
+    (method: string, params?: JsonValue) => void
+  >();
+  private readonly keepOpenNotifications = new Set<string>();
   private readonly stopSignal = Promise.withResolvers<void>();
+  private readonly endSignal = Promise.withResolvers<MachineLinkEnd>();
+  private activeStreams = 0;
   private highWater = 0;
   private halted = false;
+  readonly transport: MachineTransport;
 
-  constructor(private readonly options: ProtocolPeerOptions) {
+  constructor(
+    private readonly options: ProtocolPeerOptions,
+    failure?: string,
+  ) {
+    const input = new PassThrough();
+    const output = new PassThrough();
     this.transport = {
-      input: this.toHub,
-      output: this.fromHub,
-      close: () => this.terminate(),
-      ended: this.end.promise,
+      input,
+      output,
+      close: () => this.terminate(true),
+      ended: this.endSignal.promise,
     };
-    this.multiplexer = createFrameMultiplexer({
-      send: (frame) => this.write(frame),
-      onRequest: (channel, request) => this.handle(channel, request),
-    });
-    this.heartbeat = createHeartbeat({
-      intervalMs: options.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
-      misses: options.heartbeatMisses ?? HEARTBEAT_MISSES,
-      sendPing: () => this.multiplexer.control.notify(PING_NOTIFICATION),
-      onLost: () => this.terminate(),
-    });
-    this.fromHub.on('data', (chunk: Buffer) => this.receive(chunk));
-    this.fromHub.on('end', () => this.terminate());
-    this.fromHub.on('error', () => this.terminate());
-    this.toHub.on('error', () => this.terminate());
-    this.heartbeat.start();
-  }
 
+    if (failure !== undefined) this.drop({ diagnostic: failure });
+  }
+  get openStreams(): number {
+    return this.activeStreams;
+  }
+  get maxOpenStreams(): number {
+    return this.highWater;
+  }
   get stopped(): boolean {
     return this.halted;
   }
 
-  get openStreams(): number {
-    return this.halted ? 0 : this.multiplexer.openStreams;
+  async request(
+    method: string,
+    params: JsonValue,
+    options: MachineRequestOptions,
+  ): Promise<JsonValue> {
+    if (this.halted) throw new Error('peer session stopped');
+
+    if (method === 'hello') return peerHello(this.options, options);
+
+    const call = { method, params };
+
+    const answer = await answerCall(
+      this.options,
+      call,
+      options,
+      (notification) =>
+        this.notifications.get(method)?.(
+          notification.method,
+          notification.params,
+        ),
+    );
+
+    if (this.halted) throw new Error('peer session stopped');
+
+    this.recordRequest(call);
+
+    if ('unimplemented' in answer)
+      throw new ConnectError(
+        `The Machine does not implement ${method}.`,
+        Code.Unimplemented,
+      );
+
+    if ('error' in answer)
+      throw new MachineProtocolError(
+        answer.error,
+        `The Machine refused ${method}.`,
+      );
+
+    if ('hold' in answer) return this.hold(method, options);
+
+    return answer.value;
   }
 
-  get maxOpenStreams(): number {
-    return Math.max(this.highWater, this.openStreams);
+  private recordRequest(call: PeerCall): void {
+    this.requests.push(call.method);
+    this.calls.push(call);
+
+    for (let index = this.requestWaiters.length - 1; index >= 0; index -= 1) {
+      const waiter = this.requestWaiters[index];
+
+      if (waiter !== undefined && this.requests.length >= waiter.count) {
+        this.requestWaiters.splice(index, 1);
+        waiter.resolve();
+      }
+    }
   }
 
+  private hold(
+    method: string,
+    options: MachineRequestOptions,
+  ): Promise<JsonValue> {
+    const { promise, resolve, reject } = Promise.withResolvers<JsonValue>();
+    const waiting = this.pending.get(method) ?? [];
+    const abort = () => reject(new Error('Machine request was cancelled.'));
+
+    if (options.signal?.aborted) abort();
+    else options.signal?.addEventListener('abort', abort, { once: true });
+
+    waiting.push({
+      resolve: (value) => {
+        options.signal?.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      reject: (error) => {
+        options.signal?.removeEventListener('abort', abort);
+        reject(error);
+      },
+    });
+    this.pending.set(method, waiting);
+
+    return promise;
+  }
+
+  async stream(invocation: MachineStreamInvocation): Promise<JsonValue> {
+    const { method, params, notify, options } = invocation;
+    this.activeStreams += 1;
+    this.highWater = Math.max(this.highWater, this.activeStreams);
+    this.notifications.set(method, (notificationMethod, notificationParams) => {
+      if (notificationParams === undefined)
+        notify({ method: notificationMethod });
+      else notify({ method: notificationMethod, params: notificationParams });
+    });
+
+    const abortListener = () => {
+      this.notifications.delete(method);
+      this.keepOpenNotifications.delete(method);
+    };
+
+    options.signal?.addEventListener('abort', abortListener, { once: true });
+
+    try {
+      return await this.request(method, params, options);
+    } finally {
+      this.activeStreams -= 1;
+
+      if (!this.keepOpenNotifications.delete(method))
+        this.notifications.delete(method);
+
+      options.signal?.removeEventListener('abort', abortListener);
+    }
+  }
+
+  release(method: string, value: JsonValue, keepOpen = false): void {
+    const waiting = this.pending.get(method);
+    const pending = waiting?.shift();
+
+    if (waiting?.length === 0) this.pending.delete(method);
+
+    if (keepOpen) this.keepOpenNotifications.add(method);
+
+    pending?.resolve(value);
+  }
+  notify(method: string, notification: string, params?: JsonValue): void {
+    this.notifications.get(method)?.(notification, params);
+  }
+  drop(
+    options: {
+      readonly code?: number | null;
+      readonly diagnostic?: string;
+    } = {},
+  ): void {
+    this.terminate(false, options);
+  }
+  stopHeartbeat(): void {}
   awaitRequests(count: number): Promise<void> {
     if (this.requests.length >= count) return Promise.resolve();
     const { promise, resolve } = Promise.withResolvers<void>();
@@ -232,253 +353,127 @@ class PeerSessionImpl implements PeerSession {
 
     return promise;
   }
-
   awaitStop(): Promise<void> {
     return this.stopSignal.promise;
   }
 
-  release(method: string, value: JsonValue, keepOpen = false): void {
-    const index = this.held.findIndex((entry) => entry.method === method);
-    const entry = this.held[index];
-
-    if (entry === undefined)
-      throw new Error(`The peer holds no ${method} request.`);
-    this.held.splice(index, 1);
-    entry.channel.result(value);
-
-    if (!keepOpen) entry.channel.close();
-  }
-
-  notify(method: string, notification: string, params?: JsonValue): void {
-    const channel = this.streamByMethod.get(method);
-
-    if (channel === undefined)
-      throw new Error(`The peer saw no ${method} stream.`);
-    channel.notify(notification, params);
-  }
-
-  drop(
+  private terminate(
+    closedByHub: boolean,
     options: {
       readonly code?: number | null;
       readonly diagnostic?: string;
     } = {},
   ): void {
-    this.end.resolve({
-      code: options.code === undefined ? 255 : options.code,
-      signal: null,
-      diagnostic: options.diagnostic ?? 'ssh: connection closed by remote host',
-      closedByHub: false,
-    });
-    this.stopPipes();
-  }
-
-  stopHeartbeat(): void {
-    this.heartbeat.stop();
-  }
-
-  /** The hub closed the link: an idle close or a shutdown. */
-  private terminate(): void {
-    this.end.resolve({
-      code: null,
-      signal: null,
-      diagnostic: 'closed by hub',
-      closedByHub: true,
-    });
-    this.stopPipes();
-  }
-
-  private stopPipes(): void {
     if (this.halted) return;
     this.halted = true;
-    this.heartbeat.stop();
-    this.multiplexer.close();
-    this.toHub.end();
-    this.fromHub.destroy();
-    this.stopSignal.resolve();
-  }
 
-  private write(frame: Frame): void {
-    if (this.halted) return;
-    this.toHub.write(encodeFrame(frame));
-  }
-
-  /** Wake every waiter whose request count is now satisfied. */
-  private notifyRequests(): void {
-    for (let index = this.requestWaiters.length - 1; index >= 0; index -= 1) {
-      const waiter = this.requestWaiters[index];
-
-      if (waiter === undefined || this.requests.length < waiter.count) continue;
-      this.requestWaiters.splice(index, 1);
-      waiter.resolve();
-    }
-  }
-
-  private receive(chunk: Buffer): void {
-    this.heartbeat.record();
-
-    for (const event of this.framer.push(chunk)) {
-      if (event.kind !== 'line') continue;
-      const decoded = decodeFrame(event.line);
-
-      if (decoded.ok) this.multiplexer.handle(decoded.frame);
-    }
-  }
-
-  private handle(
-    channel: MachineChannel,
-    request: { method: string; params?: JsonValue },
-  ): void {
-    if (channel.id === CONTROL_STREAM_ID) {
-      this.handleHello(channel);
-
-      return;
-    }
-
-    const answer =
-      this.options.answer?.(request) ??
-      this.options.answers?.[request.method] ??
-      DEFAULT_ANSWER;
-
-    this.requests.push(request.method);
-    this.calls.push({ method: request.method, params: request.params });
-    // Registered on the method's own stream, before the hub can send anything
-    // after its request: `onRequest` runs as the request frame is decoded.
-    channel.onNotification((notification) => {
-      this.options.onNotification?.(request.method, notification);
-    });
-    this.notifyRequests();
-    this.streamByMethod.set(request.method, channel);
-    this.highWater = Math.max(this.highWater, this.multiplexer.openStreams);
-
-    if (answer instanceof Promise) {
-      // The answer is a round trip; the stream stays open meanwhile, exactly
-      // as it does while a real daemon works.
-      void answer.then(
-        (resolved) => this.respond(channel, request.method, resolved),
-        () => this.respond(channel, request.method, { error: 'internal' }),
+    for (const waiting of this.pending.values()) {
+      waiting.forEach((pending) =>
+        pending.reject(
+          new ConnectError(
+            options.diagnostic ?? 'peer session stopped',
+            Code.Unavailable,
+          ),
+        ),
       );
-
-      return;
     }
 
-    this.respond(channel, request.method, answer);
-  }
-
-  /** Answer one request on its own stream: a value, a refusal, or a hold. */
-  private respond(
-    channel: MachineChannel,
-    method: string,
-    answer: PeerAnswer,
-  ): void {
-    if (this.halted) return;
-
-    if ('hold' in answer) {
-      this.held.push({ method, channel });
-
-      return;
-    }
-
-    if ('error' in answer) {
-      channel.error(answer.error, `the peer refused ${method}`);
-    } else {
-      channel.result(answer.value);
-    }
-
-    channel.close();
-  }
-
-  private handleHello(channel: MachineChannel): void {
-    if (this.options.silentHello === true) return;
-    const version = this.options.helloProtocolVersion ?? PROTOCOL_VERSION;
-
-    if (version !== PROTOCOL_VERSION) {
-      channel.error('incompatible_version', 'version mismatch', {
-        hubProtocolVersion: PROTOCOL_VERSION,
-        daemonProtocolVersion: version,
-      });
-
-      return;
-    }
-
-    const roots = [...(this.options.roots ?? [])];
-
-    const hello = {
-      protocolVersion: version,
-      daemonVersion: this.options.daemonVersion ?? '0.0.1',
-      roots,
-      instanceId: this.options.instanceId ?? DEFAULT_PEER_INSTANCE_ID,
-      buildId: this.options.buildId ?? DEFAULT_PEER_BUILD_ID,
-      facts: this.options.facts ?? defaultPeerFacts(roots),
-    };
-
-    const methods = this.options.methods;
-    channel.result(
-      methods === undefined ? hello : { ...hello, methods: [...methods] },
-    );
+    this.pending.clear();
+    this.stopSignal.resolve();
+    this.endSignal.resolve({
+      code: closedByHub ? null : (options.code ?? 255),
+      signal: null,
+      diagnostic: options.diagnostic ?? '',
+      closedByHub,
+    });
   }
 }
 
-/**
- * A peer factory: every `open` is one fresh session, exactly as an SSH
- * connection per session is in production.
- */
 export function createProtocolPeer(
   options: ProtocolPeerOptions = {},
 ): ProtocolPeer {
-  const sessions: Array<PeerSession> = [];
+  const sessions: Array<PeerSessionImpl> = [];
   const waiters: Array<() => void> = [];
+  let current: PeerSessionImpl | undefined;
+  const requestHandler = createRequestHandler(() => current);
 
-  const peer: ProtocolPeer = {
-    sessions,
-    factory: {
-      open: () => {
-        const failure = options.openFailure?.();
+  const factory: MachineTransportFactory = {
+    requestHandler,
+    streamHandler: (invocation: MachineStreamInvocation) =>
+      current === undefined
+        ? Promise.reject(new Error('the peer has no session'))
+        : current.stream(invocation),
+    open: () => {
+      current = openPeerSession(options, sessions, waiters);
 
-        if (failure !== undefined) return createFailedTransport(failure);
-        const session = new PeerSessionImpl(options);
-        sessions.push(session);
-
-        for (const resolve of waiters.splice(0)) resolve();
-
-        return session.transport;
-      },
-    },
-    session: async (index: number) => {
-      while (sessions.length <= index) {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        waiters.push(resolve);
-        await promise;
-      }
-
-      const session = sessions[index];
-
-      if (session === undefined)
-        throw new Error('the peer has no such session');
-
-      return session;
+      return current.transport;
     },
   };
-
-  return peer;
-}
-
-/** A link that failed the way ssh reports an unreachable Machine. */
-function createFailedTransport(diagnostic: string): MachineTransport {
-  const input = new PassThrough();
-  const output = new PassThrough();
-  // The session attaches its listeners before the link can announce its end,
-  // so the refused connection is observed exactly as a real ssh failure is.
-  setTimeout(() => input.destroy(), 0);
 
   return {
-    input,
-    output,
-    close: () => input.destroy(),
-    ended: Promise.resolve({
-      code: 255,
-      signal: null,
-      diagnostic,
-      closedByHub: false,
-    }),
+    factory,
+    sessions,
+    session: (index) => peerSession(index, sessions, waiters),
   };
+}
+
+function createRequestHandler(
+  current: () => PeerSessionImpl | undefined,
+): MachineRequestHandler {
+  function handler(
+    method: 'hello',
+    params: { readonly protocolVersion: number; readonly hubVersion: string },
+    options: MachineRequestOptions,
+  ): Promise<JsonValue>;
+  function handler<M extends MachineMethod>(
+    method: M,
+    params: MachineMethodParams[M],
+    options: MachineRequestOptions,
+  ): Promise<JsonValue>;
+  async function handler(
+    method: MachineMethod,
+    params: JsonValue,
+    options: MachineRequestOptions,
+  ): Promise<JsonValue> {
+    const session = current();
+
+    if (session === undefined) throw new Error('the peer has no session');
+
+    return session.request(method, params, options);
+  }
+
+  return handler;
+}
+
+function openPeerSession(
+  options: ProtocolPeerOptions,
+  sessions: Array<PeerSessionImpl>,
+  waiters: Array<() => void>,
+): PeerSessionImpl {
+  const failure = options.openFailure?.();
+  const session = new PeerSessionImpl(options, failure);
+
+  sessions.push(session);
+  waiters.splice(0).forEach((wake) => wake());
+
+  return session;
+}
+
+async function peerSession(
+  index: number,
+  sessions: Array<PeerSessionImpl>,
+  waiters: Array<() => void>,
+): Promise<PeerSessionImpl> {
+  while (sessions.length <= index) {
+    const { promise, resolve } = Promise.withResolvers<void>();
+
+    waiters.push(resolve);
+    await promise;
+  }
+
+  const session = sessions[index];
+
+  if (session === undefined) throw new Error('the peer has no such session');
+
+  return session;
 }

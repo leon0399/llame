@@ -40,6 +40,7 @@ export const CHUNK_ANCHOR_MAX_CHARS = 400;
 export interface ChunkerMessage {
   id: string;
   role: string;
+  senderUserId?: string | null;
   parts: Array<unknown>;
   usage?: unknown;
   /** `messages.revised_at`; a revised reply is never indexed (search-projection). */

@@ -80,7 +80,7 @@ type MutationSuccess = EditSuccess | WriteSuccess;
 /** An existing target is the create mode's refusal, and the message names the
  *  two ways forward so the caller that wanted an existing file is not left
  *  re-deriving them from the flag it passed. */
-const FILE_EXISTS_MESSAGE =
+export const FILE_EXISTS_MESSAGE =
   "The target already exists. Pass replace: true to replace its contents, or use edit for a partial change.";
 
 /** The replace mode's refusal: the caller asserted the target exists, so the

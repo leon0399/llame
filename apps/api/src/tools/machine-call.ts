@@ -19,7 +19,6 @@ import {
   PATH_NOT_REGISTERED_MESSAGE,
   type JsonValue,
   type ProcBashResult,
-  type RequestEnvelope,
   type SerializableRecord,
 } from '@workspace/machine-protocol';
 import { isBoolean, isString } from '@workspace/runtime-safety';
@@ -28,8 +27,10 @@ import type { MachineFailureReason } from '../machines/machines-status';
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-session';
-import { type MachineConnector } from '../machines/machine-connector.service';
+  MachineUpdateRequiredError,
+} from '../machines/machine-session-errors';
+import type { MachineRequestEnvelope } from '../machines/machine-session';
+import type { MachineConnector } from '../machines/machine-connector.service';
 import {
   machineEnvelope,
   machineAttemptKey as attemptKeyFor,
@@ -66,7 +67,7 @@ export function machineBudgetMs(context: ToolContext, ceiling: number): number {
 export function machineCallEnvelope(
   context: ToolContext,
   budgetMs: number,
-): RequestEnvelope {
+): MachineRequestEnvelope {
   return machineEnvelope({
     runId: context.runId,
     attemptId: context.machineAttemptKey,
@@ -170,7 +171,7 @@ export function machineUnusableResult(name: string): MachineFailureResult {
   };
 }
 
-/** A Machine's own JSON-RPC refusal, as a settled tool observation. */
+/** A Machine's own gRPC refusal, as a settled tool observation. */
 export function machineProtocolFailureResult(
   name: string,
   error: MachineProtocolError,
@@ -189,10 +190,18 @@ export function machineProtocolFailureResult(
       message: BUDGET_EXHAUSTED_MESSAGE,
     };
 
-  if (error.code === 'incompatible_version')
+  if (error.code === 'machine_job_limit')
+    return {
+      status: 'error',
+      type: 'limit_reached',
+      message:
+        'The Machine has reached its running-job limit; a later call can succeed.',
+    };
+
+  if (error.code === 'machine_update_required')
     return machineUnavailableResult(name, 'incompatible_version');
 
-  if (error.code === 'invalid_params')
+  if (error.code === 'invalid_argument')
     return {
       status: 'error',
       type: 'invalid_input',
@@ -219,6 +228,9 @@ async function machineCallResult(
     // operator-facing outcome. `sent` is false, so it is never unknown.
     if (error instanceof MachineIdentityMismatchError)
       return machineIdentityMismatchResult(name);
+
+    if (error instanceof MachineUpdateRequiredError)
+      return machineUnavailableResult(name, 'incompatible_version');
 
     if (error instanceof MachineUnavailableError)
       return error.sent && options.unknownOnSent
@@ -374,9 +386,9 @@ function isCount(value: unknown): value is number {
 }
 
 /**
- * A `proc.bash` answer, narrowed to the shape `@workspace/bash-executor`
- * returns. A Machine is untrusted input, so every field is rebuilt rather than
- * asserted; an unusable answer narrows to undefined.
+ * A `proc.bash` answer, narrowed to the Machine protocol result. A Machine is
+ * untrusted input, so every field is rebuilt rather than asserted; an unusable
+ * answer narrows to undefined.
  */
 export function readProcBashResult(
   value: JsonValue,

@@ -11,7 +11,7 @@ codecov:
   notify:
     # One per flag. The comment and statuses otherwise fire on the first
     # upload and compare a partial report against a complete base.
-    after_n_builds: 13
+    after_n_builds: 11
 
 coverage:
   status:
@@ -26,7 +26,7 @@ coverage:
 
 comment:
   layout: "header, diff, flags, components, files"
-  after_n_builds: 13
+  after_n_builds: 11
 
 flag_management:
   individual_flags:
@@ -38,8 +38,6 @@ flag_management:
       paths: [packages/ui/]
     - name: storybook
       paths: [apps/storybook/]
-    - name: bash-executor
-      paths: [packages/bash-executor/]
     - name: config-interpolation
       paths: [packages/config-interpolation/]
     - name: native-file-tools
@@ -48,8 +46,6 @@ flag_management:
       paths: [packages/oxlint-plugin-anti-slop/]
     - name: runtime-safety
       paths: [packages/runtime-safety/]
-    - name: machine
-      paths: [apps/machine/]
     - name: machine-protocol
       paths: [packages/machine-protocol/]
     - name: mcp-workspace
@@ -90,7 +86,6 @@ component_management:
         - apps/api/src/tools/**
         - apps/machine/**
         - apps/api/src/machines/**
-        - packages/bash-executor/**
         - packages/machine-protocol/**
         - packages/mcp-workspace/**
         - packages/native-file-tools/**

@@ -12,7 +12,7 @@ import path from 'node:path';
 import {
   DEFAULT_GIT_TIMEOUT_MS,
   WORKTREE_ADD_TIMEOUT_MS,
-} from '@workspace/git-executor';
+} from './git-timeouts';
 import {
   type FsStatResult,
   type GitMethod,

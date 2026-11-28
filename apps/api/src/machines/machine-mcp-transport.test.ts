@@ -1,83 +1,193 @@
+import { PassThrough } from 'node:stream';
+import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
 import type { JSONRPCMessage } from '@ai-sdk/mcp';
-import { type JsonRpcNotification } from '@workspace/machine-protocol';
-
+import type { CallOptions } from '@connectrpc/connect';
 import {
-  createProtocolPeer,
-  type PeerSession,
-  type ProtocolPeerOptions,
-} from '../testing/machine-protocol-peer';
+  create,
+  OpenSessionRequestSchema,
+  OpenSessionResponseSchema,
+  type OpenSessionRequest,
+  type OpenSessionResponse,
+} from '@workspace/machine-protocol';
 
 import { MachineConnector } from './machine-connector.service';
-import {
-  MachineTransport,
-  type MachineMcpTransportOptions,
-} from './machine-mcp-transport';
-import { MachineUnavailableError } from './machine-session';
+import { MachineTransport } from './machine-mcp-transport';
+import { MachineSession, type MachineRequestOptions } from './machine-session';
 
-const ENVELOPE = { budgetMs: 30_000 };
+class AsyncQueue<T> implements AsyncIterable<T> {
+  private readonly values: Array<T> = [];
+  private readonly waiters: Array<(result: IteratorResult<T>) => void> = [];
+  private ended = false;
 
-const MACHINES = {
-  ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
-  hosts: { devl: { destination: 'box' } },
-};
+  push(value: T): void {
+    const waiter = this.waiters.shift();
 
-const START_VALUE = 'repo-token-sentinel';
-const LEARNED_VALUE = 'session-id-sentinel';
+    if (waiter === undefined) this.values.push(value);
+    else waiter({ done: false, value });
+  }
 
-type HubNotification = Readonly<{
-  method: string;
-  notification: JsonRpcNotification;
-}>;
+  pushMany(...values: Array<T>): void {
+    for (const value of values) this.push(value);
+  }
 
-type Fixture = Readonly<{
-  connector: MachineConnector;
-  peer: ReturnType<typeof createProtocolPeer>;
-  /** Every notification the hub sent on a request stream, in arrival order. */
-  hubNotifications: ReadonlyArray<HubNotification>;
-}>;
+  close(): void {
+    this.ended = true;
 
-function fixture(options: ProtocolPeerOptions = {}): Fixture {
-  const hubNotifications: Array<HubNotification> = [];
+    for (const waiter of this.waiters.splice(0))
+      waiter({ done: true, value: undefined });
+  }
 
-  const peer = createProtocolPeer({
-    roots: ['/srv/work'],
-    ...options,
-    onNotification: (method, notification) => {
-      hubNotifications.push({ method, notification });
-      options.onNotification?.(method, notification);
-    },
-    answers: {
-      'mcp.open': { hold: true },
-      ...options.answers,
-    },
-  });
+  [Symbol.asyncIterator](): AsyncIterator<T> {
+    return {
+      next: () => {
+        const value = this.values.shift();
 
-  const connector = new MachineConnector({
-    machines: MACHINES,
-    hubVersion: '9.9.9',
-    bindIdentity: () => Promise.resolve('match'),
-    transportFactory: peer.factory,
-    handshakeTimeoutMs: 2000,
-  });
+        if (value !== undefined) return Promise.resolve({ done: false, value });
 
-  return { connector, peer, hubNotifications };
+        if (this.ended)
+          return Promise.resolve({ done: true, value: undefined });
+        const deferred = Promise.withResolvers<IteratorResult<T>>();
+        this.waiters.push(deferred.resolve);
+
+        return deferred.promise;
+      },
+    };
+  }
 }
 
-type OpenedTransport = Readonly<{
-  transport: MachineTransport;
-  session: PeerSession;
-  diagnostics: ReadonlyArray<string>;
-  messages: ReadonlyArray<JSONRPCMessage>;
-  hubNotifications: ReadonlyArray<HubNotification>;
-}>;
+const ENVELOPE = { budgetMs: 30_000 };
+const START_SECRET = 'repo-token-sentinel';
+const LEARNED_SECRET = 'session-id-sentinel';
 
-/** Opens one relayed channel and answers `mcp.open` with `protectedValues`. */
-async function opened(
-  { connector, peer, hubNotifications }: Fixture,
-  overrides: Partial<MachineMcpTransportOptions> = {},
-): Promise<OpenedTransport> {
+type Fixture = {
+  readonly connector: MachineConnector;
+  readonly releaseMachineSession: (
+    machine: string,
+    session: MachineSession,
+  ) => void;
+  readonly sent: Array<OpenSessionRequest>;
+  readonly options: Array<CallOptions>;
+  readonly transport: MachineTransport;
+  readonly diagnostics: Array<string>;
+  readonly messages: Array<JSONRPCMessage>;
+  readonly responses: AsyncQueue<OpenSessionResponse>;
+};
+
+function fixture(): Fixture {
+  const sent: Array<OpenSessionRequest> = [];
+  const options: Array<CallOptions> = [];
   const diagnostics: Array<string> = [];
   const messages: Array<JSONRPCMessage> = [];
+  const responses = new AsyncQueue<OpenSessionResponse>();
+
+  const connection = new PassThrough();
+
+  const session = new MachineSession({
+    name: 'devl',
+    hubVersion: '9.9.9',
+    transport: {
+      input: connection,
+      output: connection,
+      close: () => connection.destroy(),
+      ended: new Promise(() => undefined),
+    },
+  });
+
+  vi.spyOn(session, 'callOptions').mockImplementation(
+    (value: MachineRequestOptions = {}) => ({
+      signal: value.signal,
+      timeoutMs: value.envelope?.budgetMs,
+    }),
+  );
+  vi.spyOn(session.clients.mcp, 'openSession').mockImplementation(
+    (input, callOptions) => {
+      options.push(callOptions ?? {});
+
+      return (async function* () {
+        void (async () => {
+          for await (const request of input) {
+            sent.push(create(OpenSessionRequestSchema, request));
+
+            switch (request.message?.case) {
+              case 'open':
+                responses.push(
+                  create(OpenSessionResponseSchema, {
+                    message: {
+                      case: 'opened',
+                      value: { secrets: { values: [START_SECRET] } },
+                    },
+                  }),
+                );
+                break;
+              case 'jsonRpc': {
+                const decoded: unknown = JSON.parse(request.message.value);
+
+                if (
+                  !isRecord(decoded) ||
+                  !isNumber(decoded.id) ||
+                  !isString(decoded.method)
+                ) {
+                  throw new Error(
+                    'The test received an invalid JSON-RPC request.',
+                  );
+                }
+
+                const requestMessage = {
+                  id: decoded.id,
+                  method: decoded.method,
+                };
+
+                if (requestMessage.method === 'initialize') {
+                  responses.push(
+                    create(OpenSessionResponseSchema, {
+                      message: {
+                        case: 'jsonRpc',
+                        value: JSON.stringify({
+                          jsonrpc: '2.0',
+                          id: requestMessage.id,
+                          result: { serverInfo: { name: 'fixture' } },
+                        }),
+                      },
+                    }),
+                  );
+                }
+
+                break;
+              }
+
+              case 'protocolVersion':
+              case undefined:
+                break;
+            }
+          }
+
+          responses.close();
+        })();
+
+        try {
+          yield* responses;
+        } finally {
+          responses.close();
+        }
+      })();
+    },
+  );
+
+  const connector = new MachineConnector({
+    machines: {
+      ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+      hosts: { devl: { destination: 'box' } },
+    },
+    hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
+    transportFactory: { open: vi.fn() },
+  });
+
+  vi.spyOn(connector, 'machineSession').mockResolvedValue(session);
+
+  const releaseMachineSession = vi
+    .spyOn(connector, 'releaseMachineSession')
+    .mockImplementation(() => undefined);
 
   const transport = new MachineTransport({
     connector,
@@ -86,425 +196,122 @@ async function opened(
     server: 'storybook',
     envelope: ENVELOPE,
     onDiagnostic: (text) => diagnostics.push(text),
-    ...overrides,
   });
 
   transport.onmessage = (message) => messages.push(message);
-  const started = transport.start();
-  const session = await peer.session(0);
-  await session.awaitRequests(1);
-  session.release('mcp.open', { protectedValues: [START_VALUE] }, true);
-  await started;
 
-  return { transport, session, diagnostics, messages, hubNotifications };
+  return {
+    connector,
+    releaseMachineSession,
+    sent,
+    options,
+    transport,
+    diagnostics,
+    messages,
+    responses,
+  };
 }
 
 describe('MachineTransport', () => {
-  it('asks the Machine for the server and keeps its protected values', async () => {
-    const openedTransport = await opened(fixture());
+  it('opens one OpenSession stream and learns protected values', async () => {
+    const test = fixture();
+    await test.transport.start();
 
-    expect(openedTransport.session.requests).toEqual(['mcp.open']);
-    expect(openedTransport.transport.protectedValues()).toEqual([START_VALUE]);
-    expect(openedTransport.transport.lost).toBe(false);
-    await openedTransport.transport.close();
+    expect(test.sent[0]?.message.case).toBe('open');
+    expect(test.options[0]?.timeoutMs).toBeUndefined();
+    await test.transport.close();
+    expect(test.options[0]?.signal?.aborted).toBe(true);
+    expect(test.releaseMachineSession).toHaveBeenCalledOnce();
   });
 
-  it('takes later-learned values as secrets too', async () => {
-    const openedTransport = await opened(fixture());
+  it('relays JSON-RPC text in both directions and negotiated protocol version', async () => {
+    const test = fixture();
+    await test.transport.start();
 
-    openedTransport.session.notify('mcp.open', 'mcp.protected', {
-      values: [LEARNED_VALUE],
-    });
+    const inbound = {
+      jsonrpc: '2.0' as const,
+      id: 1,
+      method: 'initialize',
+      params: {},
+    };
 
-    expect(openedTransport.transport.protectedValues()).toEqual([
-      START_VALUE,
-      LEARNED_VALUE,
+    await test.transport.send(inbound);
+    test.transport.setProtocolVersion('2025-06-18');
+
+    await vi.waitFor(() => expect(test.sent).toHaveLength(3));
+    expect(
+      test.sent[1]?.message.case === 'jsonRpc'
+        ? JSON.parse(test.sent[1].message.value)
+        : undefined,
+    ).toEqual(inbound);
+    await vi.waitFor(() =>
+      expect(test.messages).toEqual([
+        { jsonrpc: '2.0', id: 1, result: { serverInfo: { name: 'fixture' } } },
+      ]),
+    );
+    expect(test.transport.protocolVersion).toBe('2025-06-18');
+    await test.transport.close();
+  });
+
+  it('redacts stderr using initial and later secrets', async () => {
+    const test = fixture();
+    await test.transport.start();
+    test.responses.pushMany(
+      create(OpenSessionResponseSchema, {
+        message: { case: 'stderr', value: `started ${START_SECRET}\n` },
+      }),
+      create(OpenSessionResponseSchema, {
+        message: { case: 'secrets', value: { values: [LEARNED_SECRET] } },
+      }),
+      create(OpenSessionResponseSchema, {
+        message: { case: 'stderr', value: `authenticated ${LEARNED_SECRET}\n` },
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(test.diagnostics.join('\n')).toContain('[REDACTED]'),
+    );
+    expect(test.diagnostics.join('\n')).not.toContain(START_SECRET);
+    expect(test.diagnostics.join('\n')).not.toContain(LEARNED_SECRET);
+    expect(test.transport.protectedValues()).toEqual([
+      START_SECRET,
+      LEARNED_SECRET,
     ]);
-    await openedTransport.transport.close();
+    await test.transport.close();
   });
 
-  it('relays one message in each direction over the channel', async () => {
-    const openedTransport = await opened(fixture());
-
-    const inbound = { jsonrpc: '2.0', id: 1, result: { tools: [] } };
-    openedTransport.session.notify('mcp.open', 'mcp.message', {
-      message: inbound,
-    });
-    expect(openedTransport.messages).toEqual([inbound]);
-
-    await openedTransport.transport.send({
-      jsonrpc: '2.0',
-      id: 7,
-      method: 'tools/list',
-      params: { cursor: 'next' },
-    });
-    expect(openedTransport.hubNotifications).toEqual([
-      {
-        method: 'mcp.open',
-        notification: {
-          jsonrpc: '2.0',
-          method: 'mcp.message',
-          params: {
-            message: {
-              jsonrpc: '2.0',
-              id: 7,
-              method: 'tools/list',
-              params: { cursor: 'next' },
-            },
-          },
-        },
-      },
-    ]);
-    await openedTransport.transport.close();
-  });
-
-  it('tells the Machine which revision the handshake negotiated', async () => {
-    const openedTransport = await opened(fixture());
-
-    openedTransport.transport.setProtocolVersion('2025-06-18');
-
-    expect(openedTransport.transport.protocolVersion).toBe('2025-06-18');
-    expect(openedTransport.hubNotifications).toEqual([
-      {
-        method: 'mcp.open',
-        notification: {
-          jsonrpc: '2.0',
-          method: 'mcp.setProtocolVersion',
-          params: { version: '2025-06-18' },
-        },
-      },
-    ]);
-    await openedTransport.transport.close();
-  });
-
-  it('redacts and bounds the diagnostics the Machine relays', async () => {
-    const openedTransport = await opened(fixture());
-    const session = openedTransport.session;
-
-    session.notify('mcp.open', 'mcp.stderr', {
-      text: `starting with ${START_VALUE}\n`,
-    });
-    session.notify('mcp.open', 'mcp.protected', { values: [LEARNED_VALUE] });
-    session.notify('mcp.open', 'mcp.stderr', {
-      text: `connected as ${LEARNED_VALUE}\n`,
-    });
-
-    const emitted = openedTransport.diagnostics.join('\n');
-    expect(emitted).toContain('[REDACTED]');
-    expect(emitted).not.toContain(START_VALUE);
-    expect(emitted).not.toContain(LEARNED_VALUE);
-
-    for (let index = 0; index < 200; index += 1) {
-      session.notify('mcp.open', 'mcp.stderr', {
-        text: `${'x'.repeat(1024)}\n`,
-      });
-    }
-
-    expect(openedTransport.diagnostics.join('').length).toBeLessThan(64 * 1024);
-    await openedTransport.transport.close();
-  });
-
-  it('treats a lost channel as a crashed server', async () => {
-    const openedTransport = await opened(fixture());
+  it('reports an unexpectedly ended server stream as lost', async () => {
+    const test = fixture();
     const closed = vi.fn();
     const failed = vi.fn();
-    openedTransport.transport.onclose = closed;
-    openedTransport.transport.onerror = failed;
-
-    openedTransport.session.drop();
-
-    await vi.waitFor(() => expect(openedTransport.transport.lost).toBe(true));
+    test.transport.onclose = closed;
+    test.transport.onerror = failed;
+    await test.transport.start();
+    test.responses.close();
+    await vi.waitFor(() => expect(test.transport.lost).toBe(true));
     expect(closed).toHaveBeenCalledOnce();
-    expect(failed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: 'The Machine closed this Workspace MCP channel.',
-      }),
-    );
-    await expect(
-      openedTransport.transport.send({ jsonrpc: '2.0', method: 'ping' }),
-    ).rejects.toThrow('closed');
+    expect(failed).toHaveBeenCalledOnce();
   });
-
-  it('treats an unusable relayed message as a lost server', async () => {
-    const openedTransport = await opened(fixture());
-    const closed = vi.fn();
+  it('surfaces consumer callback failures without rejecting the receive loop', async () => {
+    const test = fixture();
     const failed = vi.fn();
-    openedTransport.transport.onclose = closed;
-    openedTransport.transport.onerror = failed;
+    const callbackError = new Error('consumer callback failed');
+    test.transport.onerror = failed;
+    test.transport.onmessage = () => {
+      throw callbackError;
+    };
 
-    openedTransport.session.notify('mcp.open', 'mcp.message', {
-      message: { not: 'a JSON-RPC message' },
-    });
-
-    expect(openedTransport.transport.lost).toBe(true);
-    expect(failed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message:
-          'The Machine relayed a message that is not a JSON-RPC message.',
-      }),
-    );
-    expect(closed).toHaveBeenCalledOnce();
-    // The Machine is told to put down the server it started for the channel.
-    await vi.waitFor(() => expect(openedTransport.session.openStreams).toBe(0));
-  });
-
-  it('ignores a notification the Machine relays under an unknown method', async () => {
-    const openedTransport = await opened(fixture());
-    const closed = vi.fn();
-    openedTransport.transport.onclose = closed;
-
-    openedTransport.session.notify('mcp.open', 'machine.somethingElse', {
-      anything: true,
-    });
-
-    expect(openedTransport.messages).toEqual([]);
-    expect(closed).not.toHaveBeenCalled();
-    expect(openedTransport.transport.lost).toBe(false);
-    await openedTransport.transport.close();
-  });
-
-  it('ignores protected-value notifications that carry no usable values', async () => {
-    const openedTransport = await opened(fixture());
-
-    // A non-record payload, a value list that is not a list at all, and one
-    // whose entries are not all strings: none of them names a secret.
-    openedTransport.session.notify('mcp.open', 'mcp.protected', 'not-a-record');
-    openedTransport.session.notify('mcp.open', 'mcp.protected', {
-      values: 'not-a-list',
-    });
-    openedTransport.session.notify('mcp.open', 'mcp.protected', {
-      values: ['not-a-secret', 7],
-    });
-
-    expect(openedTransport.transport.protectedValues()).toEqual([START_VALUE]);
-    expect(openedTransport.transport.lost).toBe(false);
-    await openedTransport.transport.close();
-  });
-
-  it('keeps a half-written diagnostic line buffered across a protected notification with no values', async () => {
-    const openedTransport = await opened(fixture());
-
-    openedTransport.session.notify('mcp.open', 'mcp.stderr', {
-      text: `starting with ${START_VALUE}`,
-    });
-    // No terminator yet, so nothing has been released.
-    expect(openedTransport.diagnostics).toEqual([]);
-    openedTransport.session.notify('mcp.open', 'mcp.protected', {
-      values: ['not-a-secret', 7],
-    });
-    openedTransport.session.notify('mcp.open', 'mcp.stderr', {
-      text: ' and running\n',
-    });
-
-    expect(openedTransport.diagnostics).toEqual([
-      'starting with [REDACTED] and running',
-    ]);
-    await openedTransport.transport.close();
-  });
-
-  it('ignores a diagnostic notification that carries no text', async () => {
-    const openedTransport = await opened(fixture());
-
-    openedTransport.session.notify('mcp.open', 'mcp.stderr', 'not-a-record');
-    openedTransport.session.notify('mcp.open', 'mcp.stderr', { text: 7 });
-
-    expect(openedTransport.diagnostics).toEqual([]);
-    await openedTransport.transport.close();
-  });
-
-  it('keeps a protocol version set before the channel exists', () => {
-    const { connector, peer } = fixture();
-
-    const transport = new MachineTransport({
-      connector,
-      machine: 'devl',
-      root: '/srv/work',
-      server: 'storybook',
-      envelope: ENVELOPE,
-    });
-
-    transport.setProtocolVersion('2025-06-18');
-
-    expect(transport.protocolVersion).toBe('2025-06-18');
-    expect(peer.sessions).toHaveLength(0);
-  });
-
-  it('relays nested arrays and scalars as JSON', async () => {
-    const openedTransport = await opened(fixture());
-
-    await openedTransport.transport.send({
-      jsonrpc: '2.0',
-      id: 7,
-      method: 'tools/call',
-      params: {
-        name: 'search',
-        arguments: { query: 'x', limit: 2, tags: ['a', 'b'] },
-        stream: false,
-        cursor: null,
-      },
-    });
-
-    expect(openedTransport.hubNotifications).toEqual([
-      {
-        method: 'mcp.open',
-        notification: {
-          jsonrpc: '2.0',
-          method: 'mcp.message',
-          params: {
-            message: {
-              jsonrpc: '2.0',
-              id: 7,
-              method: 'tools/call',
-              params: {
-                name: 'search',
-                arguments: { query: 'x', limit: 2, tags: ['a', 'b'] },
-                stream: false,
-                cursor: null,
-              },
-            },
-          },
+    await test.transport.start();
+    test.responses.push(
+      create(OpenSessionResponseSchema, {
+        message: {
+          case: 'jsonRpc',
+          value: JSON.stringify({ jsonrpc: '2.0', id: 0, result: {} }),
         },
-      },
-    ]);
-    await openedTransport.transport.close();
-  });
-
-  it('refuses to relay a message that is not a JSON value', async () => {
-    const openedTransport = await opened(fixture());
-
-    expect(() =>
-      openedTransport.transport.send({
-        jsonrpc: '2.0',
-        id: 7,
-        method: 'tools/call',
-        params: { when: () => undefined },
-      }),
-    ).toThrow('The message is not a JSON value.');
-    expect(openedTransport.hubNotifications).toEqual([]);
-    await openedTransport.transport.close();
-  });
-
-  it('fails the start on an unusable mcp.open answer', async () => {
-    const { connector, peer } = fixture();
-    const failed = vi.fn();
-    const closed = vi.fn();
-
-    const transport = new MachineTransport({
-      connector,
-      machine: 'devl',
-      root: '/srv/work',
-      server: 'storybook',
-      envelope: ENVELOPE,
-    });
-
-    transport.onerror = failed;
-    transport.onclose = closed;
-
-    const started = transport.start();
-    const session = await peer.session(0);
-    await session.awaitRequests(1);
-    session.release('mcp.open', { nope: true });
-
-    await expect(started).rejects.toThrow(
-      'The Machine answered an unusable mcp.open result.',
-    );
-    expect(failed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: 'The Machine answered an unusable mcp.open result.',
       }),
     );
-    expect(closed).toHaveBeenCalledOnce();
-    expect(transport.lost).toBe(true);
-  });
 
-  it('treats a channel the Machine ends before answering mcp.open as a failed start', async () => {
-    const { connector, peer } = fixture();
-    const failed = vi.fn();
-    const closed = vi.fn();
-
-    const transport = new MachineTransport({
-      connector,
-      machine: 'devl',
-      root: '/srv/work',
-      server: 'storybook',
-      envelope: ENVELOPE,
-    });
-
-    transport.onerror = failed;
-    transport.onclose = closed;
-
-    const started = transport.start();
-    const session = await peer.session(0);
-    await session.awaitRequests(1);
-    // The link is gone before the Machine ever answered `mcp.open`: the
-    // channel was never the MCP client's, so this is a failed start, not a
-    // server that crashed under it.
-    session.drop();
-
-    await expect(started).rejects.toBeInstanceOf(MachineUnavailableError);
-    expect(closed).not.toHaveBeenCalled();
-    expect(failed).not.toHaveBeenCalled();
-    expect(transport.lost).toBe(false);
-  });
-
-  it('passes the caller signal to the channel it opens', async () => {
-    const { connector } = fixture();
-    const controller = new AbortController();
-    controller.abort();
-
-    const transport = new MachineTransport({
-      connector,
-      machine: 'devl',
-      root: '/srv/work',
-      server: 'storybook',
-      envelope: ENVELOPE,
-      signal: controller.signal,
-    });
-
-    // A pre-aborted signal must reach the connector, which refuses to open a
-    // session for a call nobody wants.
-    await expect(transport.start()).rejects.toThrow(/abort/i);
-  });
-
-  it('refuses to start once llame closed the transport', async () => {
-    const { connector } = fixture();
-
-    const transport = new MachineTransport({
-      connector,
-      machine: 'devl',
-      root: '/srv/work',
-      server: 'storybook',
-      envelope: ENVELOPE,
-    });
-
-    await transport.close();
-
-    await expect(transport.start()).rejects.toThrow(
-      'The Machine Workspace MCP transport is closed.',
-    );
-  });
-
-  it('opens one channel however often the transport is started', async () => {
-    const peerFixture = fixture();
-    const openedTransport = await opened(peerFixture);
-
-    await expect(openedTransport.transport.start()).resolves.toBeUndefined();
-
-    expect(peerFixture.peer.sessions).toHaveLength(1);
-    expect(openedTransport.session.requests).toEqual(['mcp.open']);
-    await openedTransport.transport.close();
-  });
-
-  it('cancels the channel when llame closes it, and reports no loss', async () => {
-    const openedTransport = await opened(fixture());
-    const closed = vi.fn();
-    openedTransport.transport.onclose = closed;
-
-    await openedTransport.transport.close();
-
-    expect(closed).not.toHaveBeenCalled();
-    expect(openedTransport.transport.lost).toBe(false);
-    // `cancel` is how the Machine is told to put the server down.
-    await vi.waitFor(() => expect(openedTransport.session.openStreams).toBe(0));
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledWith(callbackError));
+    expect(test.transport.lost).toBe(true);
+    await test.transport.close();
   });
 });

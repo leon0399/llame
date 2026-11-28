@@ -14,6 +14,7 @@ import {
   parseSkillLocator,
   SKILL_LOCATOR_SCHEME,
 } from '../../skills/skill-locator';
+import { CHAT_SCHEME, parseChatLocator } from '../../chats/chat-locator';
 import { JOB_SCHEME } from '../../jobs/job-locator';
 import { MACHINE_SCHEME } from '../../machines/machine-locator';
 import {
@@ -56,6 +57,14 @@ export const NATIVE_FILE_PERMISSION_TOOL_IDS: ReadonlySet<string> = new Set([
 export function withoutReadSelector(value: string): string {
   if (isFileAlias(value)) return withoutFileAliasSelector(value);
   const scheme = parsePathScheme(value);
+
+  if (scheme?.scheme === CHAT_SCHEME) {
+    try {
+      return parseChatLocator(value).locator;
+    } catch {
+      return value;
+    }
+  }
 
   const parse =
     scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME
@@ -242,6 +251,16 @@ function projectSchemeValue(projected: string): string {
     if (parsed === undefined) return projected;
 
     return withSelector(parsed.canonical, parsed.selector);
+  }
+
+  // The Chat parser supplies the lowercase UUID, normalized sequence, and
+  // selector-free policy identity. Invalid locators match their submitted text.
+  if (scheme.scheme === CHAT_SCHEME) {
+    try {
+      return parseChatLocator(projected).locator;
+    } catch {
+      return projected;
+    }
   }
 
   if (scheme.scheme in WEB_LOCATOR_SCHEMES) return projectWebLocator(projected);

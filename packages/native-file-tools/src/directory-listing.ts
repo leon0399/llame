@@ -1,5 +1,6 @@
 import { sliceWindow, type SliceOptions } from "./listing-slice";
 import { resultBudget } from "./source-lines";
+import { readsChildEntries } from "./walk-policy";
 import {
   boundFlatResult,
   directoryResult,
@@ -312,7 +313,7 @@ async function readChildDirs(
   targetPath: string,
   port: DirectoryPort,
 ): Promise<Array<ChildDir>> {
-  const dirEntries = rootEntries.filter((e) => e.kind === "directory");
+  const dirEntries = rootEntries.filter(readsChildEntries);
 
   return Promise.all(
     dirEntries.map(async (entry) => {

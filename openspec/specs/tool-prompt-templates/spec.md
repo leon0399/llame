@@ -131,13 +131,13 @@ reasons, never prompt contents, owner values, or private host paths.
 
 ### Requirement: Packaged cross-tool guidance follows membership
 
-Packaged descriptions recommending another tool SHALL gate that recommendation
+Packaged descriptions recommending another tool MUST gate that recommendation
 on its predicate while preserving independent safety and result-limit text.
-This SHALL include Bash-to-edit and search-to-conversation-read advice.
+This MUST include Bash-to-edit and search-to-Chat-read advice.
 
 #### Scenario: Reader is absent
 
-- **WHEN** search is admitted and `conversation_read` is absent
+- **WHEN** search is admitted and `read` is absent
 - **THEN** its description omits the reader invocation recommendation
 - **AND** it still identifies search excerpts as bounded and untrusted
 
@@ -145,8 +145,10 @@ This SHALL include Bash-to-edit and search-to-conversation-read advice.
 
 - **WHEN** a fresh retry admits edit alongside Bash
 - **THEN** that retry's Bash description includes the edit recommendation
-- **AND** the failed attempt supplies no earlier description to its model context; descriptions are rendered per attempt
-- **AND** the retry keeps the accepted-turn reminders already stored on the triggering user message unchanged and in place, and may store after them a reminder newly derived against the stored availability record
+- **AND** the failed attempt supplies no earlier description to model context
+- **AND** each attempt renders its own descriptions
+- **AND** the retry keeps stored accepted-turn reminders unchanged and in place
+- **AND** it can append a new reminder from comparison against stored availability
 
 ### Requirement: Templates can iterate the configured web search engines
 

@@ -21,7 +21,7 @@ import {
 } from '../runs/worker-harness';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
-import { executeConversationRead } from '../tools/conversation-read';
+import { nativeReadTool } from '../tools/native-files';
 import { SearchIndexService } from '../search/search-index.service';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
@@ -37,14 +37,13 @@ vi.setConfig({ testTimeout: 120_000 });
 const SEARCH_QUERY = 'episodic acceptance marker';
 const FOREIGN_QUERY = 'foreign owner episodic marker';
 const RETRYABLE_MARKER = 'retryable assistant must never become evidence';
-const CONVERSATION_TOOLS = ['search_conversations', 'conversation_read'];
+const CONVERSATION_TOOLS = ['search_conversations', 'read'];
 
 const canonicalContentResultSchema = z.object({
   kind: z.literal('content'),
   chatId: z.guid(),
   messageSeq: z.number().int().positive().safe(),
-  offset: z.number().int().nonnegative().safe(),
-  limit: z.number().int().positive().max(2000),
+  locator: z.string(),
   excerpt: z.string(),
 });
 
@@ -57,14 +56,18 @@ const searchToolPartSchema = z.object({
 });
 
 const readToolPartSchema = z.object({
-  type: z.literal('tool-conversation_read'),
+  type: z.literal('tool-read'),
+  input: z.object({ path: z.string() }),
   output: z.object({
     status: z.literal('success'),
+    kind: z.literal('file'),
+    path: z.string(),
+    representation: z.enum(['text', 'raw']),
     chatId: z.guid(),
     messageSeq: z.number().int().positive().safe(),
-    notice: z.string(),
     content: z.string(),
-    nextOffset: z.number().int().nonnegative().safe().optional(),
+    lineCount: z.number().int().nonnegative(),
+    continuationLocator: z.string().optional(),
   }),
 });
 
@@ -89,7 +92,7 @@ function readToolParts(parts: ReadonlyArray<unknown>) {
     const parsed = readToolPartSchema.safeParse(part);
 
     const candidate = z
-      .object({ type: z.literal('tool-conversation_read') })
+      .object({ type: z.literal('tool-read') })
       .safeParse(part);
 
     if (candidate.success && !parsed.success) {
@@ -165,7 +168,14 @@ describe('conversation provenance acceptance — queued lexical search and canon
     );
   }
 
-  it('executes queued search → exact read continuation and preserves the observation after source deletion', async () => {
+  function readAs(userId: string, chatId: string, path: string) {
+    return nativeReadTool.execute(
+      { userId, chatId, tenantDb: harness.tenantDb, configuredCredentials: [] },
+      { path },
+    );
+  }
+
+  it('executes queued search → exact native read and preserves the observation after source deletion', async () => {
     const sourceLines = Array.from({ length: 2050 }, (_, index) =>
       index === 137
         ? `${SEARCH_QUERY} 😀 source line`
@@ -195,7 +205,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
     harness.models.register(modelId, {
       kind: 'conversation-recall',
       query: SEARCH_QUERY,
-      continueRead: true,
+      continueRead: false,
       finalText: 'The canonical source was read.',
     });
 
@@ -243,6 +253,12 @@ describe('conversation provenance acceptance — queued lexical search and canon
       messageSeq: source.message.seq,
       kind: 'content',
     });
+    expect(contentResult.locator).toMatch(
+      new RegExp(
+        `^chat://${source.chatId}/${source.message.seq}:L\\d+-\\d+$`,
+        'u',
+      ),
+    );
     expect(contentResult.excerpt).toEqual(
       expect.stringContaining(SEARCH_QUERY),
     );
@@ -251,7 +267,7 @@ describe('conversation provenance acceptance — queued lexical search and canon
 
     const readParts = readToolParts(assistant.parts);
 
-    if (readParts.length !== 2) {
+    if (readParts.length !== 1) {
       const partTypes = assistant.parts.flatMap((part) => {
         const parsed = z.object({ type: z.string() }).safeParse(part);
 
@@ -259,53 +275,37 @@ describe('conversation provenance acceptance — queued lexical search and canon
       });
 
       throw new Error(
-        `Expected two persisted reads, found: ${partTypes.join(', ')}`,
+        `Expected one persisted native read, found: ${partTypes.join(', ')}`,
       );
     }
 
-    const firstReadOutput = readParts[0]?.output;
+    const firstRead = readParts[0];
 
-    if (!firstReadOutput)
-      throw new Error('Expected first persisted read output');
+    if (!firstRead) throw new Error('Expected one persisted read output');
+    const firstReadOutput = firstRead.output;
+    expect(firstRead.input.path).toBe(contentResult.locator);
     expect(firstReadOutput).toMatchObject({
       status: 'success',
+      kind: 'file',
+      path: `chat://${source.chatId}/${source.message.seq}`,
       chatId: source.chatId,
       messageSeq: source.message.seq,
     });
-    expect(firstReadOutput.notice).toContain('untrusted');
     expect(firstReadOutput.content).toMatch(/^\d+: /u);
-    expect(JSON.stringify(firstReadOutput)).toContain(SEARCH_QUERY);
-    expect(JSON.stringify(firstReadOutput)).not.toContain(
+    expect(firstReadOutput.content).toContain(SEARCH_QUERY);
+    expect(firstReadOutput.content).not.toContain(
       'reasoning must never enter evidence',
     );
-    expect(firstReadOutput.nextOffset).toBeTypeOf('number');
-
-    const secondReadOutput = readParts[1]?.output;
-
-    if (!secondReadOutput) {
-      throw new Error('Expected second persisted read output');
-    }
-
-    expect(secondReadOutput).toMatchObject({
-      status: 'success',
-      chatId: source.chatId,
-      messageSeq: source.message.seq,
-    });
-    expect(secondReadOutput.content).toMatch(/^\d+: /u);
 
     const events = await runEvents(target.runId, ownerA);
     expect(
       events
         .filter((event) => event.eventType === 'tool.completed')
         .map((event) => toolEventPayloadSchema.parse(event.payload).toolName),
-    ).toEqual([
-      'search_conversations',
-      'conversation_read',
-      'conversation_read',
-    ]);
+    ).toEqual(['search_conversations', 'read']);
     expect(
       events.filter((event) => event.eventType === 'tool.requested'),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
 
     const persistedObservations = JSON.stringify(
       readParts.map((part) => part.output),
@@ -314,17 +314,10 @@ describe('conversation provenance acceptance — queued lexical search and canon
     await removeChat(ownerA, source.chatId);
 
     await expect(
-      harness.tenantDb.runAs(ownerA, (tx) =>
-        executeConversationRead(tx, ownerA, {
-          chatId: source.chatId,
-          messageSeq: source.message.seq,
-          offset: contentResult.offset,
-          limit: contentResult.limit,
-        }),
-      ),
+      readAs(ownerA, target.chatId, contentResult.locator),
     ).resolves.toMatchObject({
       status: 'error',
-      type: 'conversation_source_not_found',
+      type: 'not_found',
     });
 
     const afterDeletion = await harness.tenantDb.runAs(ownerA, (tx) =>
@@ -339,8 +332,8 @@ describe('conversation provenance acceptance — queued lexical search and canon
 
     const persistedAfterDeletion = readToolParts(afterAssistant?.parts ?? []);
 
-    if (persistedAfterDeletion.length !== 2) {
-      throw new Error('Expected both persisted reads after source deletion');
+    if (persistedAfterDeletion.length !== 1) {
+      throw new Error('Expected the native read after source deletion');
     }
 
     expect(
@@ -408,26 +401,24 @@ describe('conversation provenance acceptance — queued lexical search and canon
     expect(JSON.stringify(search.output)).not.toContain('foreign owner source');
 
     await expect(
-      harness.tenantDb.runAs(ownerA, (tx) =>
-        executeConversationRead(tx, ownerA, {
-          chatId: foreign.chatId,
-          messageSeq: foreign.message.seq,
-        }),
+      readAs(
+        ownerA,
+        target.chatId,
+        `chat://${foreign.chatId}/${foreign.message.seq}`,
       ),
     ).resolves.toMatchObject({
       status: 'error',
-      type: 'conversation_source_not_found',
+      type: 'not_found',
     });
     await expect(
-      harness.tenantDb.runAs(ownerB, (tx) =>
-        executeConversationRead(tx, ownerB, {
-          chatId: retryable.chatId,
-          messageSeq: retryable.message.seq,
-        }),
+      readAs(
+        ownerB,
+        retryable.chatId,
+        `chat://${retryable.chatId}/${retryable.message.seq}`,
       ),
     ).resolves.toMatchObject({
       status: 'error',
-      type: 'conversation_source_not_found',
+      type: 'not_found',
     });
 
     const retryableSearchModelId = `retryable-search-${Date.now()}`;

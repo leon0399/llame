@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { MachineConnector } from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { MachineIdentityMismatchError } from '../machines/machine-session-errors';
 import { snapshotMachineSkillSources } from '../skills/machine-skill-sources';
 import {
   SkillCatalog,
@@ -692,6 +692,11 @@ describe('refuseUnsearchableGrepScopes', () => {
       message: 'A media:// locator holds no text to search.',
     });
     expect(refused(['ftp://host/path'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme cannot be searched.',
+    });
+    expect(refused(['chat://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f'])).toEqual({
       status: 'error',
       type: 'invalid_path',
       message: 'This path scheme cannot be searched.',

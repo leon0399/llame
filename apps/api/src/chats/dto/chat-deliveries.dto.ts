@@ -115,7 +115,7 @@ export function toChatDeliveryResponse({
     chatId: item.chatId,
     producer: item.producer,
     ...(job && {
-      job: formatJobLocator(job.executor, job.seq),
+      job: formatJobLocator(job.kind, job.seq),
       jobState: job.state,
     }),
     mode: item.mode,

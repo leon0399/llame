@@ -75,6 +75,7 @@
         "next-themes",
         "react-hook-form",
         "sonner",
+        "storyproof",
         "streamdown",
         "use-stick-to-bottom",
         "zod"
@@ -85,20 +86,18 @@
       "project": ["src/**/*.ts"]
     },
     "packages/machine-protocol": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
-    },
-    "packages/git-executor": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": ["src/index.ts", "src/**/*.test.ts", "src/generated/**/*.ts"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["@bufbuild/protoc-gen-es"]
     },
     "packages/mcp-workspace": {
       "entry": ["src/index.ts", "src/**/*.test.ts"],
       "project": ["src/**/*.ts"]
     },
     "apps/machine": {
-      "entry": ["src/cli.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": ["scripts/build-daemon.mjs"],
+      "project": ["scripts/**/*.mjs"],
+      "ignoreBinaries": ["rustup"]
     }
   },
   "ignore": [

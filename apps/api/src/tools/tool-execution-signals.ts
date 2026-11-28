@@ -8,49 +8,110 @@ export type PreparedToolExecution = {
   readonly dispose?: () => void;
 };
 
+type TimeoutMode = 'call' | 'promotion' | 'job';
+
 export function prepareToolExecution(
   tool: Tool,
   context: ToolContext,
   callTimeoutSeconds: number,
-  separateTimeout: boolean,
+  mode: TimeoutMode,
 ): PreparedToolExecution {
+  if (mode === 'job') return prepareDaemonJobExecution(context);
+
   const timeoutMs = (tool.timeoutSeconds ?? callTimeoutSeconds) * 1000;
 
-  const boundMs = separateTimeout
-    ? foregroundBoundMs(context.bashBackgroundAfterSeconds, timeoutMs)
-    : timeoutMs;
+  const boundMs =
+    mode === 'promotion'
+      ? foregroundBoundMs(context.bashBackgroundAfterSeconds, timeoutMs)
+      : timeoutMs;
 
-  const moveDeadlineAt = separateTimeout
-    ? performance.now() + boundMs + BASH_SETTLEMENT_GRACE_MS
-    : undefined;
+  return prepareTimedExecution(context, timeoutMs, boundMs, mode);
+}
 
-  const timeoutSignal = AbortSignal.timeout(boundMs);
+function prepareDaemonJobExecution(
+  context: ToolContext,
+): PreparedToolExecution {
+  const fallbackSignal = new AbortController().signal;
 
-  const move =
-    context.yieldSignal !== undefined && moveDeadlineAt !== undefined
-      ? prepareMoveSignal(context.yieldSignal, timeoutSignal, moveDeadlineAt)
-      : { signal: timeoutSignal, dispose: undefined };
-
-  const moveSignal = move.signal;
-
-  const composedSignal = context.abortSignal
-    ? AbortSignal.any([context.abortSignal, moveSignal])
-    : moveSignal;
+  const composedSignal =
+    context.abortSignal === undefined
+      ? (context.yieldSignal ?? fallbackSignal)
+      : context.yieldSignal === undefined
+        ? context.abortSignal
+        : AbortSignal.any([context.abortSignal, context.yieldSignal]);
 
   return {
     context: {
       ...context,
-      ...(separateTimeout
-        ? {
-            moveSignal,
-            moveDeadlineAt,
-            timeoutSignal: undefined,
-          }
-        : { abortSignal: composedSignal, timeoutSignal }),
+      moveSignal: context.yieldSignal,
+      timeoutSignal: undefined,
+      timeoutMs: undefined,
+    },
+    timeoutSignal: fallbackSignal,
+    composedSignal,
+  };
+}
+
+function prepareTimedExecution(
+  context: ToolContext,
+  timeoutMs: number,
+  boundMs: number,
+  mode: Exclude<TimeoutMode, 'job'>,
+): PreparedToolExecution {
+  const timeoutSignal = AbortSignal.timeout(boundMs);
+
+  if (mode === 'call')
+    return prepareCallExecution(context, timeoutMs, timeoutSignal);
+
+  return preparePromotionExecution(context, timeoutMs, boundMs, timeoutSignal);
+}
+
+function prepareCallExecution(
+  context: ToolContext,
+  timeoutMs: number,
+  timeoutSignal: AbortSignal,
+): PreparedToolExecution {
+  const composedSignal = context.abortSignal
+    ? AbortSignal.any([context.abortSignal, timeoutSignal])
+    : timeoutSignal;
+
+  return {
+    context: {
+      ...context,
+      abortSignal: composedSignal,
+      timeoutSignal,
       timeoutMs,
     },
     timeoutSignal,
     composedSignal,
+  };
+}
+
+function preparePromotionExecution(
+  context: ToolContext,
+  timeoutMs: number,
+  boundMs: number,
+  timeoutSignal: AbortSignal,
+): PreparedToolExecution {
+  const moveDeadlineAt = performance.now() + boundMs + BASH_SETTLEMENT_GRACE_MS;
+
+  const move =
+    context.yieldSignal === undefined
+      ? { signal: timeoutSignal, dispose: undefined }
+      : prepareMoveSignal(context.yieldSignal, timeoutSignal, moveDeadlineAt);
+
+  return {
+    context: {
+      ...context,
+      moveSignal: move.signal,
+      moveDeadlineAt,
+      timeoutSignal: undefined,
+      timeoutMs,
+    },
+    timeoutSignal,
+    composedSignal: context.abortSignal
+      ? AbortSignal.any([context.abortSignal, move.signal])
+      : move.signal,
     dispose: move.dispose,
   };
 }

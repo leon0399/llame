@@ -1,0 +1,22 @@
+[package]
+name = "machine-grep"
+description = "Machine daemon content search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+machine-core.workspace = true
+machine-protocol.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+regex.workspace = true
+tonic.workspace = true
+ignore.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

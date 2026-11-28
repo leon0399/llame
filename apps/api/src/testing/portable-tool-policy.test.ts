@@ -282,6 +282,22 @@ describe('portable web address policy', () => {
     }
   });
 
+  it('contains exactly the ten portable permission groups, without the retired reader', () => {
+    expect(Object.keys(PORTABLE_TOOL_PERMISSIONS)).toEqual([
+      'bash',
+      'read',
+      'edit',
+      'write',
+      'knowledge_search',
+      'search_conversations',
+      'wait',
+      'enter_workspace',
+      'exit_workspace',
+      'stop',
+    ]);
+    expect(PORTABLE_TOOL_PERMISSIONS).not.toHaveProperty('conversation_read');
+  });
+
   it('keeps the example read rejects identical to the portable mirror', () => {
     expect(exampleReadRejects()).toEqual(PORTABLE_TOOL_PERMISSIONS.read.reject);
   });

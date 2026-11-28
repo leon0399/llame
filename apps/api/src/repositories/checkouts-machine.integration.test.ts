@@ -247,12 +247,16 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ chatIds: [chatId] });
 
-      const machine = await harness.peer.session(0);
+      const machine = harness.peer.sessions.find((session) =>
+        session.calls.some((call) => call.method === 'fs.stat'),
+      );
+
       expect(
-        machine.calls.find((call) => call.method === 'fs.stat')?.params,
+        machine?.calls.find((call) => call.method === 'fs.stat')?.params,
       ).toMatchObject({ path: PATH });
+
       expect(
-        machine.calls.find((call) => call.method === 'git.inspect')?.params,
+        machine?.calls.find((call) => call.method === 'git.inspect')?.params,
       ).toMatchObject({
         path: PATH,
         options: { displayPrefix: `machine://${MACHINE}` },
@@ -296,13 +300,19 @@ describe('/api/v1/checkouts on a Machine', () => {
     }
   });
 
-  it('answers machine_update_required on a daemon that lists no git methods', async () => {
+  it('answers machine_update_required when GitService is unimplemented', async () => {
     const harness = await boot({
       tools: tools({
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
-      peer: { roots: ['/srv'], answers: { 'fs.stat': STAT } },
+      peer: {
+        roots: ['/srv'],
+        answers: {
+          'fs.stat': STAT,
+          'git.inspect': { unimplemented: true },
+        },
+      },
     });
 
     try {
@@ -314,18 +324,18 @@ describe('/api/v1/checkouts on a Machine', () => {
 
       const failure = failureSchema.parse(response.body);
       expect(failure.code).toBe('machine_update_required');
-      expect(failure.message).toContain(
-        'Update the daemon on that Machine to use git operations on it.',
-      );
+      expect(failure.message).toContain('Update the daemon on that Machine.');
 
-      const listed = await request(harness.http)
+      await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);
 
-      expect(listed.body).toEqual([]);
-      const machine = await harness.peer.session(0);
-      expect(machine.requests).not.toContain('git.inspect');
+      expect(
+        harness.peer.sessions.some((machine) =>
+          machine.requests.includes('git.inspect'),
+        ),
+      ).toBe(true);
     } finally {
       await harness.app.close();
     }
@@ -471,8 +481,16 @@ describe('/api/v1/checkouts on a Machine', () => {
         .expect(403);
 
       expect(failureSchema.parse(response.body).code).toBe('permission_denied');
-      // No git call ran, so the Machine was never even asked.
-      expect(harness.peer.sessions).toHaveLength(0);
+      // The job registry may keep a daemon watch open, but a denied checkout
+      // must not issue filesystem or Git requests.
+      expect(
+        harness.peer.sessions.every((machine) =>
+          machine.calls.every(
+            (call) =>
+              call.method !== 'fs.stat' && call.method !== 'git.inspect',
+          ),
+        ),
+      ).toBe(true);
     } finally {
       await harness.app.close();
     }

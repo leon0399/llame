@@ -1360,6 +1360,79 @@
         "tags": ["chats"]
       }
     },
+    "/api/v1/chats/{chatId}/jobs/{jobId}/output": {
+      "get": {
+        "operationId": "readChatJobOutput",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored outputs of a settled job, each up to 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ChatJobStoredOutputResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ChatJobUnavailableOutputResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "stored": "#/components/schemas/ChatJobStoredOutputResponse",
+                      "unavailable": "#/components/schemas/ChatJobUnavailableOutputResponse"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or job not found, or not owned"
+          },
+          "409": {
+            "description": "The job is still running"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
     "/api/v1/chats/{chatId}/jobs/{jobId}": {
       "patch": {
         "operationId": "stopChatJob",
@@ -5983,6 +6056,18 @@
             "type": "string",
             "example": "job://bash-4"
           },
+          "intent": {
+            "type": "string",
+            "nullable": true,
+            "example": "Running the test suite",
+            "description": "The intent the model gave the tool call that started the job; null when that call carried none."
+          },
+          "command": {
+            "type": "string",
+            "nullable": true,
+            "example": "pnpm --filter api test",
+            "description": "The shell text the job runs; null for a job recorded without one."
+          },
           "executor": {
             "type": "string",
             "example": "bash"
@@ -6009,12 +6094,12 @@
             "type": "string"
           },
           "settledAt": {
-            "type": "object",
+            "type": "string",
             "format": "date-time",
             "nullable": true
           },
           "stopRequestedAt": {
-            "type": "object",
+            "type": "string",
             "format": "date-time",
             "nullable": true
           },
@@ -6059,6 +6144,8 @@
           "id",
           "chatId",
           "locator",
+          "intent",
+          "command",
           "executor",
           "state",
           "stoppedBy",
@@ -6086,6 +6173,57 @@
           }
         },
         "required": ["items"]
+      },
+      "ChatJobOutputPart": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "stdout"
+          },
+          "content": {
+            "type": "string",
+            "description": "The stored text of the output."
+          },
+          "cut": {
+            "type": "boolean",
+            "description": "True when the stored output is longer than the response bound; `content` then holds its last part."
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0,
+            "example": 3355443,
+            "description": "Bytes of the output as stored, before the response bound. A stream the Machine or the artifact bound already cut is stored cut."
+          }
+        },
+        "required": ["name", "content", "cut", "size"]
+      },
+      "ChatJobStoredOutputResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["stored"]
+          },
+          "outputs": {
+            "description": "Each declared output the job stored, empty ones included.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatJobOutputPart"
+            }
+          }
+        },
+        "required": ["status", "outputs"]
+      },
+      "ChatJobUnavailableOutputResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unavailable"]
+          }
+        },
+        "required": ["status"]
       },
       "ChangeChatJobDto": {
         "type": "object",
@@ -7940,7 +8078,7 @@
         "properties": {
           "shareRecentChats": {
             "type": "boolean",
-            "description": "Share titles and opening excerpts from your other chats with the model provider configured by the operator, which on a multi-user instance may be a third party with no relationship to you. Enabling is retroactive over your whole existing corpus, including chats and opening excerpts created long before opt-in. Disabling is not retroactive: it stops new baselines, re-bakes, and appends, but chats with an existing baseline keep sending it. Deleting a chat is not erasure: its title and excerpt survive in other chats' already-bound prompts, persisted appends, and receipts already issued. Defaults to false."
+            "description": "Share your other Chats' titles, activity dates, message counts, chat:// locators, canonical Workspace roots or unbound state, and bounded opening and latest visible-text excerpts with the model provider configured by the operator. The latest excerpt can include assistant text. In a multi-user instance, the provider may be a third party with no relationship to you. Enabling is retroactive over your existing eligible Chats. Disabling stops new baselines, refreshes, and notices, but existing baseline items continue to replay, including through compaction. Deleting a source Chat does not erase its disclosure from other Chats' persisted context items or historical receipts. Defaults to false."
           }
         },
         "additionalProperties": false

@@ -39,9 +39,9 @@ jobs:
           EVENT: ${{ github.event_name }}
         run: |
           if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
-            apps/api packages/bash-executor packages/config-interpolation \
-            packages/git-executor packages/machine-protocol \
-            packages/mcp-workspace packages/native-file-tools \
+            apps/api packages/config-interpolation \
+            packages/machine-protocol packages/mcp-workspace \
+            packages/native-file-tools \
             packages/runtime-safety \
             e2e/support scripts/dast .github/actions/dast-stack \
             .github/actions/setup .github/workflows/ci.yml \
@@ -64,9 +64,7 @@ jobs:
           name: api-build
           path: |
             apps/api/dist/
-            packages/bash-executor/dist/
             packages/config-interpolation/dist/
-            packages/git-executor/dist/
             packages/machine-protocol/dist/
             packages/mcp-workspace/dist/
             packages/native-file-tools/dist/
@@ -148,7 +146,7 @@ jobs:
             -v "$PWD/scripts/dast/schemathesis.toml:/cfg/schemathesis.toml:ro" \
             -v "$RUNNER_TEMP/dast-secrets:/secrets:ro" \
             -v "$PWD/dast-report/schemathesis:/out" \
-            schemathesis/schemathesis:4.32.0@sha256:c4935c2c27489923b0091246aa831c92166fa169fb8f35ebdeefd408a7a935f5 \
+            schemathesis/schemathesis:4.32.2@sha256:d6d1e1e33718e449006c0c486aa36f6f36c6666e10fc27ea1223430232920ad2 \
             --config-file /cfg/schemathesis.toml \
             run /spec/openapi.json --url http://localhost:4301 \
             ${DAST_SEED:+--seed "$DAST_SEED"} \

@@ -207,7 +207,7 @@ describe('bootWorkerHarness', () => {
     const { configs } = installHarnessModule();
 
     await bootWorkerHarness({
-      allowedTools: ['search_conversations', 'conversation_read'],
+      allowedTools: ['search_conversations', 'read'],
       toolPermissions: { search_conversations: { reject: true } },
     });
 
@@ -217,7 +217,7 @@ describe('bootWorkerHarness', () => {
     // not opting out of execution for the rest.
     expect(configs[0]?.tools.permissions).toMatchObject({
       search_conversations: { reject: true },
-      conversation_read: { allow: true },
+      read: { allow: true },
     });
   });
 
@@ -252,7 +252,7 @@ describe('bootWorkerHarness', () => {
     const { configs, createTestingModule, overrideProvider } =
       installHarnessModule();
 
-    await bootWorkerHarness({ allowedTools: ['conversation_read'] });
+    await bootWorkerHarness({ allowedTools: ['read'] });
 
     expect(createTestingModule).toHaveBeenCalledWith({
       imports: [WorkerModule],
@@ -262,7 +262,7 @@ describe('bootWorkerHarness', () => {
       InstanceConfigService,
       CanonicalSearchCoverageService,
     ]);
-    expect(configs[0]?.tools.allowed).toEqual(['conversation_read']);
+    expect(configs[0]?.tools.allowed).toEqual(['read']);
   });
 });
 
@@ -343,9 +343,6 @@ describe('seedRun', () => {
         updatedAt: now,
         archivedAt: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogTold: null,
         skillCatalogRebakedFrom: null,
@@ -469,9 +466,6 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       archivedAt: null,
       modelSelection: null,
       projectId: null,
-      recencyDigestBaseline: null,
-      recencyDigestTold: null,
-      recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogTold: null,
       skillCatalogRebakedFrom: null,

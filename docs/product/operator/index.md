@@ -20,7 +20,7 @@ below state additional ordering where a change needs it.
 - [Native files](native-files.md): the host and default Machine, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
 - [Background jobs](background-jobs.md): host async commands, lifetime and
-  concurrency bounds, owner stop controls, and worker shutdown.
+  output limits, owner stop controls, and Machine daemon shutdown.
 - [Repositories](repositories.md): the owner's repository catalog, checkout
   registration, worktree entry and its guarded removal, the host access
   policy it obeys, and row-only deletion.
@@ -53,13 +53,16 @@ below state additional ordering where a change needs it.
   mounts.
 - [Skills](skills.md): `skills.directories`, package format, and catalog
   advertisement.
-- [Conversation recall](conversation-recall.md): enabling
-  `search_conversations` and `conversation_read`.
+- [Conversation recall](conversation-recall.md): enabling Chat discovery with
+  `search_conversations` and native `read` over `chat://` locators.
 
 ## Providers and deployment
 
 - [Provider routing](providers/routing.md): shared accounts, per-model wire
   selection, and OpenCode Go and Zen examples.
+- [Model request settings](providers/model-settings.md): `providerOptions`
+  composition and reserved keys, `store: false`, `maxOutputTokens`, Anthropic
+  thinking and caching defaults, and cache-write pricing.
 - [Codex subscription](providers/codex-subscription.md): `openai-codex`.
 - [OpenCode Go](providers/opencode-go.md): `opencode-go`.
 - [LiteLLM gateway](providers/litellm-gateway.md): `openai-completions`

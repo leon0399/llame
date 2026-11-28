@@ -6,7 +6,6 @@ export type RawToolsConfig = {
   webAdapters?: Array<RawWebAdapterEntry>;
   artifacts?: { readonly maxBytes?: unknown } | null;
   bash?: {
-    readonly maxProcesses?: unknown;
     readonly backgroundAfterSeconds?: unknown;
   } | null;
   jobs?: {

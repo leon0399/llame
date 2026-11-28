@@ -62,9 +62,6 @@ const chat: Chat = {
   updatedAt: now,
   archivedAt: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
@@ -320,7 +317,6 @@ function makeService(options?: {
 
   vi.spyOn(SystemPromptsService.prototype, 'render').mockReturnValue({
     text: 'Bound prompt',
-    chatsDisclosure: { pinned: new Set(), recent: new Set() },
   });
 
   const findActiveByChatId = vi

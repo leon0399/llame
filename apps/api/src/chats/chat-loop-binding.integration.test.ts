@@ -20,7 +20,6 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { MediaService } from '../media/media.service';
 import {
@@ -32,18 +31,22 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type MemorySettingsBindingResolver,
   type ResolvedMemorySettings,
 } from '../memory/memory.service';
-import { type RecencyDigestResolver } from './recency-digest.service';
+import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import {
+  type RecencyDigestResolution,
+  type RecencyDigestResolver,
+} from './recency-digest.service';
 import { isContextItemPart } from './context-item';
 import {
   createCompactionCheckpointPart,
   isRecencyDigestItem,
 } from './context-item-producers';
+import { createRecencyDigestItem } from './recency-digest-item';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import type { RunWaitService } from '../runs/run-wait.service';
 import { type RunStreamResponder } from '../runs/run-stream-bridge';
@@ -56,6 +59,7 @@ import {
   AcceptedTurnPartsRepository,
   placeAcceptedTurnItems,
 } from './accepted-turn-parts.repository';
+import { selectEffectiveDigestMessages } from './recency-digest-replay';
 import { type CheckpointMessage } from './messages-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -65,7 +69,7 @@ import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.r
 import { RunExecutionService } from '../runs/run-execution.service';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { type TitleCapability } from '../titles/title.service';
-import { type Chat, type RecencyDigestBaseline, type Run } from '../db/schema';
+import { type Chat, type Run } from '../db/schema';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
 import {
   type KnowledgeToolCandidateResolverInput,
@@ -105,21 +109,6 @@ function fakeInstanceConfig(
   };
 }
 
-function baseline(
-  overrides: Partial<RecencyDigestBaseline> = {},
-): RecencyDigestBaseline {
-  return {
-    pinned: [],
-    recent: [],
-    pinnedShown: 0,
-    pinnedTotal: 0,
-    recentShown: 0,
-    recentTotal: 0,
-    compiledOn: '2026-08-13',
-    ...overrides,
-  };
-}
-
 /**
  * Sequence of the user row the seeded previous Run answers. It sits below the
  * active checkpoint's boundary, so that checkpoint starts a new epoch.
@@ -128,6 +117,18 @@ const previousRunUserSeq = 7;
 
 /** The client message id of a send; the pending-item lookup reads it as a uuid. */
 const MESSAGE_ID = '5a3d1c70-6f0e-4b2a-9d44-0c1e7a8b9f10';
+
+function digestCandidate(): RecencyDigestResolution {
+  return {
+    rows: [],
+    announced: [],
+    pinnedShown: 0,
+    pinnedTotal: 0,
+    recentShown: 0,
+    recentTotal: 0,
+    compiledOn: '2026-08-13',
+  };
+}
 
 function previousRun(overrides: Partial<Run> = {}): Run {
   return {
@@ -226,14 +227,12 @@ describe('ChatLoopService accept/worker context binding', () => {
     failRunCreated?: boolean;
     previousRun?: Run;
     activeCheckpoint?: CheckpointMessage;
+    historyRows?: Array<Message>;
     toolsAllowed?: ReadonlyArray<string>;
     runtime?: RuntimeCatalogSnapshotter;
     memory?: MemorySettingsBindingResolver;
     recencyDigest?: RecencyDigestResolver;
     knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
-    baseline?: RecencyDigestBaseline;
-    told?: Chat['recencyDigestTold'];
-    rebakedFrom?: string | null;
     systemPrompts?: SystemPromptsService;
     personalization?: PromptUserResolver;
   }) {
@@ -241,14 +240,12 @@ describe('ChatLoopService accept/worker context binding', () => {
       failRunCreated,
       previousRun: priorRun,
       activeCheckpoint: checkpoint,
+      historyRows: priorMessages = [],
       toolsAllowed,
       runtime: runtimeOverride,
       memory: memoryOverride,
       recencyDigest: recencyDigestOverride,
       knowledgeCandidates: knowledgeCandidatesOverride,
-      baseline: baselineOverride,
-      told: toldOverride,
-      rebakedFrom,
       systemPrompts: systemPromptsOverride,
       personalization: personalizationOverride,
     } = options ?? {};
@@ -260,7 +257,13 @@ describe('ChatLoopService accept/worker context binding', () => {
       current: {
         id: MESSAGE_ID,
         chatId: 'chat-id',
-        seq: checkpoint === undefined ? 1 : checkpoint.absorbedThroughSeq + 1,
+        seq:
+          checkpoint === undefined
+            ? 1
+            : Math.max(
+                checkpoint.seq,
+                ...priorMessages.map((message) => message.seq),
+              ) + 1,
         role: 'user',
         senderUserId: 'user-id',
         parts: [{ type: 'text', text: 'hello' }],
@@ -282,9 +285,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       updatedAt: new Date(),
       archivedAt: null,
       projectId: null,
-      recencyDigestBaseline: baselineOverride ?? null,
-      recencyDigestTold: toldOverride ?? null,
-      recencyDigestRebakedFrom: rebakedFrom ?? null,
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
       skillCatalogTold: null,
@@ -312,10 +312,6 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
       new Set(),
     );
-
-    const updateRecencyDigestTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
 
     let acceptedMessage = false;
     vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockImplementation(
@@ -395,9 +391,40 @@ describe('ChatLoopService accept/worker context binding', () => {
       RunningReplyRepository.prototype,
       'updateRunningReplyParts',
     ).mockResolvedValue(true);
+    // Reuse one stored history snapshot for replay reads. The checkpoint row
+    // remains available after its absorbed boundary, alongside the persisted
+    // triggering user message.
+    let cachedHistory: Array<Message> | undefined;
     vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
-      () => Promise.resolve([persistedMessage.current]),
+      () => {
+        cachedHistory = [
+          ...(checkpoint === undefined ? [] : [checkpoint]),
+          ...priorMessages,
+          persistedMessage.current,
+        ];
+
+        return Promise.resolve(cachedHistory);
+      },
     );
+    vi.spyOn(MessagesRepository.prototype, 'findById').mockImplementation(
+      (_chatId, _ownerUserId, messageId) =>
+        Promise.resolve(
+          cachedHistory?.find((message) => message.id === messageId),
+        ),
+    );
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findEffectiveContextMessages',
+    ).mockImplementation(async function (
+      this: MessagesRepository,
+      chatId,
+      ownerUserId,
+      options,
+    ) {
+      cachedHistory = await this.findByChatId(chatId, ownerUserId);
+
+      return selectEffectiveDigestMessages(cachedHistory, chatId, options);
+    });
     vi.spyOn(
       RunsRepository.prototype,
       'cancelActiveRunsForMessage',
@@ -521,10 +548,6 @@ describe('ChatLoopService accept/worker context binding', () => {
         sourceRunId: null,
       });
 
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'listDeliveredJobNotices',
@@ -683,10 +706,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     };
 
     const recencyDigest: RecencyDigestResolver = recencyDigestOverride ?? {
-      resolveCandidate: vi.fn().mockResolvedValue({
-        baseline: baselineOverride ?? baseline(),
-        candidates: [],
+      resolveCandidate: vi.fn().mockResolvedValue(digestCandidate()),
+      deriveChanges: vi.fn().mockResolvedValue({
+        additions: [],
+        corrections: [],
+        announced: [],
       }),
+      renderBaseline: vi.fn().mockReturnValue(''),
     };
 
     const knowledgeCandidates: KnowledgeToolCandidateResolverPort =
@@ -802,7 +828,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       findPreviousDispatchedRun,
       createRun,
       appendEvent,
-      updateRecencyDigestTold,
       createUserMessage,
       persistedMessage,
       executeAttempt,
@@ -1084,6 +1109,8 @@ describe('ChatLoopService accept/worker context binding', () => {
 
     const recencyDigest: RecencyDigestResolver = {
       resolveCandidate: () => Promise.reject(new Error(sensitive)),
+      deriveChanges: vi.fn(),
+      renderBaseline: vi.fn(),
     };
 
     const { service, createReceipt, executeAttempt } = setup({
@@ -1107,18 +1134,15 @@ describe('ChatLoopService accept/worker context binding', () => {
       Promise.resolve({ shareRecentChats: false }),
     );
 
-    const resolveCandidate = vi.fn(() =>
-      Promise.resolve({ baseline: baseline(), candidates: [] }),
-    );
+    const resolveCandidate = vi.fn(() => Promise.resolve(digestCandidate()));
 
-    const setBaseline = vi.spyOn(
-      ChatsRepository.prototype,
-      'setRecencyDigestIfAbsent',
-    );
-
-    const { service, createReceipt, executeAttempt, persistedMessage } = setup({
+    const { service, executeAttempt, persistedMessage } = setup({
       memory: { getForOwnerForBinding },
-      recencyDigest: { resolveCandidate },
+      recencyDigest: {
+        resolveCandidate,
+        deriveChanges: vi.fn(),
+        renderBaseline: vi.fn(),
+      },
     });
 
     await service.createMessageStream(input);
@@ -1126,158 +1150,37 @@ describe('ChatLoopService accept/worker context binding', () => {
 
     expect(getForOwnerForBinding).toHaveBeenCalledOnce();
     expect(resolveCandidate).not.toHaveBeenCalled();
-    expect(setBaseline).not.toHaveBeenCalled();
-    expect(createReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        ownerUserId: 'user-id',
-        systemPrompt: 'Bound prompt',
-      }),
-    );
-
-    const storedItems =
-      persistedMessage.current.parts.filter(isContextItemPart);
-
-    expect(storedItems).toHaveLength(1);
-    expect(storedItems[0]?.data.producer).toBe('temporal');
-  });
-
-  it('stages a digest delta in the worker and stores it with its told state at dispatch', async () => {
-    const digestBaseline = baseline({
-      recent: [
-        {
-          title: 'Resurfaced through activity',
-          date: '2026-08-13',
-          messageCount: 2,
-          excerpt: 'opening',
-        },
-      ],
-      recentShown: 1,
-      recentTotal: 1,
-    });
-
-    const told = [
-      {
-        chatId: 'resurfaced',
-        pinned: false,
-        title: 'Resurfaced through activity',
-      },
-    ];
-
-    const resolveCandidate = vi.fn(() =>
-      Promise.resolve({
-        baseline: digestBaseline,
-        candidates: [
-          {
-            chatId: 'resurfaced',
-            pinned: false,
-            entry: digestBaseline.recent[0],
-          },
-        ],
-      }),
-    );
-
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateRecencyDigestTold,
-      storeAtDispatch,
-    } = setup({
-      baseline: baseline(),
-      told: [],
-      memory: {
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: { resolveCandidate },
-    });
-
-    await service.createMessageStream(input);
-    const acceptedParts = persistedMessage.current.parts;
-    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    await executeAttempt();
-
-    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
-    expect(resolveCandidate).toHaveBeenCalledOnce();
-    const digestPart = persistedMessage.current.parts.find(isRecencyDigestItem);
-    expect(digestPart).toBeDefined();
-    expect(isContextItemPart(digestPart)).toBe(true);
-
-    if (isContextItemPart(digestPart)) {
-      expect(digestPart.data.payload).toMatchObject({
-        entries: [{ title: 'Resurfaced through activity', pinned: false }],
-      });
-    }
-
-    // The told set advances in the dispatch transaction, after the item it
-    // accounts for is stored and before the request completes.
-    expect(updateRecencyDigestTold).toHaveBeenCalledWith(
-      'chat-id',
-      'user-id',
-      told,
-    );
-    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeGreaterThan(
-      storeAtDispatch.mock.invocationCallOrder[0],
-    );
-  });
-
-  it('does not resolve or stage digest context when sharing is disabled for an existing baseline', async () => {
-    const resolveCandidate = vi.fn(() =>
-      Promise.resolve({ baseline: baseline(), candidates: [] }),
-    );
-
-    const {
-      service,
-      executeAttempt,
-      persistedMessage,
-      updateRecencyDigestTold,
-    } = setup({
-      baseline: baseline(),
-      told: [],
-      memory: {
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: false }),
-      },
-      recencyDigest: { resolveCandidate },
-    });
-
-    await service.createMessageStream(input);
-    const acceptedParts = persistedMessage.current.parts;
-    await executeAttempt();
-
-    expect(resolveCandidate).not.toHaveBeenCalled();
-    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
     expect(
-      persistedMessage.current.parts.filter(isContextItemPart),
-    ).toHaveLength(1);
+      persistedMessage.current.parts.filter(isRecencyDigestItem),
+    ).toHaveLength(0);
   });
 
-  it('defers digest render failures to the worker and does not leak digest text', async () => {
+  it('keeps digest rendering failures content-free in worker diagnostics', async () => {
     const sensitive = 'PRIVATE CHAT TITLE AND EXCERPT';
-    const prompts = new SystemPromptsService();
-    vi.spyOn(prompts, 'render').mockImplementation(() => {
-      throw new Error(sensitive);
-    });
 
     const error = vi
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => {});
 
-    const { service, dispatch, createReceipt, executeAttempt } = setup({
-      baseline: baseline(),
-      systemPrompts: prompts,
+    const { service, executeAttempt, createReceipt } = setup({
+      memory: {
+        getForOwnerForBinding: () =>
+          Promise.resolve({ shareRecentChats: true }),
+      },
+      recencyDigest: {
+        resolveCandidate: vi.fn().mockResolvedValue(digestCandidate()),
+        deriveChanges: vi.fn(),
+        renderBaseline: vi.fn(() => {
+          throw new Error(sensitive);
+        }),
+      },
     });
 
     await service.createMessageStream(input);
-    await expect(executeAttempt()).rejects.toThrow(
-      'Failed to render system prompt',
-    );
+    await executeAttempt();
 
-    expect(error).toHaveBeenCalledWith('recency_digest_render_failed');
     expect(JSON.stringify(error.mock.calls)).not.toContain(sensitive);
-    expect(createReceipt).not.toHaveBeenCalled();
-    expect(dispatch).toHaveBeenCalledOnce();
+    expect(createReceipt).toHaveBeenCalledOnce();
   });
 
   it('discards every non-text client part before accept-time persistence', async () => {
@@ -1489,122 +1392,81 @@ describe('ChatLoopService accept/worker context binding', () => {
     }
   });
 
-  it('stages one digest supersession marker in the worker after an enabled re-bake', async () => {
-    const previous = previousRun({
-      modelId: model.id,
-      selector: model.id,
-    });
+  it('replays a stored digest baseline without resolving a source when sharing is disabled', async () => {
+    const resolveCandidate = vi.fn(() => Promise.resolve(digestCandidate()));
+    const checkpoint = activeCheckpoint();
 
-    const digestBaseline = baseline();
+    const historicalBaseline = createRecencyDigestItem({
+      runId: '66666666-6666-4666-8666-666666666666',
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [],
+        association: { kind: 'checkpoint', checkpointId: checkpoint.id },
+      },
+      body: 'Stored historical digest baseline.',
+    });
 
     const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previous,
-      activeCheckpoint: activeCheckpoint(),
-      baseline: digestBaseline,
-      told: [],
-      rebakedFrom: '55555555-5555-4555-8555-555555555555',
-      memory: {
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({
-            baseline: digestBaseline,
-            candidates: [],
-          }),
-      },
-    });
-
-    await service.createMessageStream(input);
-    const acceptedParts = persistedMessage.current.parts;
-    await executeAttempt();
-
-    expect(acceptedParts).toEqual([{ type: 'text', text: 'hello' }]);
-    const storedParts = persistedMessage.current.parts;
-    expect(storedParts.filter(isRecencyDigestItem)).toHaveLength(1);
-    expect(storedParts.find(isRecencyDigestItem)).toMatchObject({
-      data: { form: 'snapshot', payload: {} },
-    });
-  });
-
-  it("still stages the supersession marker when the worker's fresh digest read fails", async () => {
-    const digestBaseline = baseline();
-
-    const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previousRun({ modelId: model.id, selector: model.id }),
-      activeCheckpoint: activeCheckpoint(),
-      baseline: digestBaseline,
-      told: [],
-      rebakedFrom: '55555555-5555-4555-8555-555555555555',
-      memory: {
-        getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.reject(new Error('candidate unavailable')),
-      },
-    });
-
-    await service.createMessageStream(input);
-    await executeAttempt();
-
-    expect(
-      persistedMessage.current.parts.filter(isRecencyDigestItem),
-    ).toHaveLength(1);
-  });
-
-  it('does not stage a digest supersession marker after sharing is disabled during checkpointing', async () => {
-    const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previousRun({ modelId: model.id, selector: model.id }),
-      activeCheckpoint: activeCheckpoint(),
-      baseline: baseline(),
-      told: [],
+      previousRun: previousRun({ modelId: model.id }),
+      activeCheckpoint: checkpoint,
+      historyRows: [
+        {
+          id: '77777777-7777-4777-8777-777777777777',
+          chatId: 'chat-id',
+          seq: checkpoint.seq + 1,
+          role: 'user',
+          senderUserId: null,
+          parts: [historicalBaseline],
+          attachments: [],
+          absorbedThroughSeq: null,
+          usage: null,
+          inReplyTo: null,
+          createdAt: new Date(),
+          revisedAt: null,
+        },
+      ],
       memory: {
         getForOwnerForBinding: () =>
           Promise.resolve({ shareRecentChats: false }),
       },
       recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({ baseline: baseline(), candidates: [] }),
+        resolveCandidate,
+        deriveChanges: vi.fn(),
+        renderBaseline: vi.fn(),
       },
     });
 
     await service.createMessageStream(input);
-    await executeAttempt();
+    const { request } = await executeAttempt();
 
+    expect(JSON.stringify(request.messages)).toContain(
+      'Stored historical digest baseline.',
+    );
+    expect(resolveCandidate).not.toHaveBeenCalled();
     expect(
       persistedMessage.current.parts.filter(isRecencyDigestItem),
     ).toHaveLength(0);
   });
 
-  it('keeps a model-switch notice but no digest supersession marker when the prior attempt used another model', async () => {
+  it('keeps the model-switch notice when a checkpointed attempt changes models', async () => {
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: 'previous-model',
         selector: 'previous-model',
       }),
       activeCheckpoint: activeCheckpoint(),
-      baseline: baseline(),
-      told: [],
       memory: {
         getForOwnerForBinding: () =>
-          Promise.resolve({ shareRecentChats: true }),
-      },
-      recencyDigest: {
-        resolveCandidate: () =>
-          Promise.resolve({ baseline: baseline(), candidates: [] }),
+          Promise.resolve({ shareRecentChats: false }),
       },
     });
 
     await service.createMessageStream(input);
     await executeAttempt();
 
-    const storedParts = persistedMessage.current.parts;
-    expect(storedParts.filter(isRecencyDigestItem)).toHaveLength(0);
     expect(
-      storedParts.some(
+      persistedMessage.current.parts.some(
         (part) =>
           isContextItemPart(part) &&
           part.data.producer === 'effective-context-change',

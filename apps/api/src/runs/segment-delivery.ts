@@ -15,7 +15,6 @@ import { isRecord } from '@workspace/runtime-safety';
 import type { StoppedCall } from '../chats/interrupted-notice';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { runs, type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -228,12 +227,6 @@ export async function deliverPendingSteering(
   if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
     return { kind: 'fenced' };
   }
-
-  await new ChatJobsRepository(tx).settleOnDeadWorkers(
-    chatId,
-    userId,
-    input.deadWorkerAfterSeconds,
-  );
 
   const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,

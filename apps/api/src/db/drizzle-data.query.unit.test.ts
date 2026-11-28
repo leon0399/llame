@@ -27,6 +27,13 @@ import { getProjectionCoverageReport } from '../search/operations/projection-cov
 import { pruneUndeclaredModelVectors } from '../search/operations/prune';
 import { isFunctionOwnedByBypassRlsRole } from '../search/discovery-provisioning';
 import { SearchIndexService } from '../search/search-index.service';
+import {
+  countEligiblePerOwnedChat,
+  findEarliestUserMessagePerChat,
+  findLatestAssistantPerOwnedChat,
+} from '../chats/recency-digest-message-projections';
+import { createRecencyDigestItem } from '../chats/recency-digest-item';
+import { countAbsorbedMessages } from '../chats/absorbed-message-count';
 
 const text = (value: string) => [{ type: 'text', text: value }];
 
@@ -366,5 +373,310 @@ describe('database data-query PostgreSQL regressions', () => {
     );
 
     expect(document?.modelKey).toBe(modelKey);
+  });
+
+  it('selects immutable digest excerpt sources and counts only the requested owner Chats', async () => {
+    const owner = await seedUser();
+    const foreignOwner = await seedUser();
+
+    const chatId = await tenantDb.runAs(
+      owner,
+      async (tx) =>
+        (
+          await new ChatsRepository(tx).create({
+            ownerUserId: owner,
+            title: 'included',
+          })
+        ).id,
+    );
+
+    const excludedChatId = await seedChat(owner, 'excluded');
+    const foreignChatId = await seedChat(foreignOwner, 'foreign');
+
+    const latest = await tenantDb.runAs(owner, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: null,
+        parts: [
+          createRecencyDigestItem({
+            runId: crypto.randomUUID(),
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: [],
+              association: { kind: 'origin', chatId },
+            },
+            body: 'private digest',
+          }),
+        ],
+      });
+      await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('opening owner message'),
+      });
+      await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('later owner message'),
+      });
+
+      const completed = await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text('immutable assistant excerpt'),
+        usage: { status: 'completed' },
+      });
+
+      for (const status of ['running', 'failed']) {
+        await repository.create({
+          chatId,
+          role: 'assistant',
+          parts: text(`nonimmutable ${status}`),
+          usage: { status },
+        });
+      }
+
+      const revised = await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text('superseded reply'),
+      });
+
+      await tx.execute(
+        sql`update messages set revised_at = now() where id = ${revised.id}::uuid`,
+      );
+      await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text(''),
+      });
+
+      return completed;
+    });
+
+    await tenantDb.runAs(foreignOwner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId: foreignChatId,
+        role: 'assistant',
+        parts: text('foreign reply'),
+      }),
+    );
+    await tenantDb.runAs(owner, (tx) =>
+      new MessagesRepository(tx).create({
+        chatId: excludedChatId,
+        role: 'assistant',
+        parts: text('unrequested reply'),
+      }),
+    );
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const ids = [chatId, foreignChatId];
+      expect(
+        (await new ChatsRepository(tx).findByOwner(owner, { ids })).map(
+          ({ id }) => id,
+        ),
+      ).toEqual([chatId]);
+      expect(
+        await new ChatsRepository(tx).findByOwner(owner, { ids: [] }),
+      ).toEqual([]);
+      expect(
+        (await findLatestAssistantPerOwnedChat(tx, ids, owner)).map(
+          ({ id }) => id,
+        ),
+      ).toEqual([latest.id]);
+      expect(
+        (await findEarliestUserMessagePerChat(tx, ids, owner)).map(
+          ({ chatId: sourceChatId, parts }) => ({
+            chatId: sourceChatId,
+            parts,
+          }),
+        ),
+      ).toEqual([{ chatId, parts: text('opening owner message') }]);
+      expect(await countEligiblePerOwnedChat(tx, ids, owner)).toEqual(
+        new Map([[chatId, 4]]),
+      );
+    });
+  });
+
+  it('keeps late digest carriers out of public history and latest-turn guards', async () => {
+    const owner = await seedUser();
+    const chatId = await seedChat(owner, 'public source');
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      const original = (await repository.findByChatId(chatId, owner))[0];
+
+      if (!original) throw new Error('Missing original owner message');
+
+      const carrier = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: null,
+        parts: [
+          createRecencyDigestItem({
+            runId: crypto.randomUUID(),
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: [],
+              association: { kind: 'origin', chatId },
+            },
+            body: 'private digest',
+          }),
+        ],
+      });
+
+      await tx.execute(
+        sql`update chats set visibility = 'public' where id = ${chatId}::uuid`,
+      );
+
+      expect(
+        await repository.hasLaterUserMessage(chatId, owner, original.seq),
+      ).toBe(false);
+      expect(
+        (await repository.listPublicByChatId(chatId)).map(({ id }) => id),
+      ).toEqual([original.id]);
+
+      const later = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('actual later turn'),
+      });
+
+      expect(
+        await repository.hasLaterUserMessage(chatId, owner, original.seq),
+      ).toBe(true);
+      expect(
+        (await repository.listPublicByChatId(chatId)).map(({ id }) => id),
+      ).toEqual([original.id, later.id]);
+      expect(
+        (await repository.findByChatId(chatId, owner)).map(({ id }) => id),
+      ).toEqual([original.id, carrier.id, later.id]);
+
+      const checkpoint = await repository.create({
+        chatId,
+        role: 'checkpoint',
+        absorbedThroughSeq: later.seq,
+        parts: [],
+      });
+
+      expect(
+        await countAbsorbedMessages(tx, chatId, owner, [checkpoint.id]),
+      ).toEqual(new Map([[checkpoint.id, 2]]));
+    });
+  });
+
+  it('includes associated carriers above the replay and fork storage boundary', async () => {
+    const owner = await seedUser();
+    const chatId = await seedChat(owner, 'replay source');
+    const foreignOwner = await seedUser();
+    await seedChat(foreignOwner, 'foreign replay source');
+    await seedChat(owner, 'unrequested replay source');
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      const original = (await repository.findByChatId(chatId, owner))[0];
+
+      if (!original) throw new Error('Missing original owner message');
+
+      const trigger = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('trigger'),
+      });
+
+      const baseline = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: null,
+        parts: [
+          createRecencyDigestItem({
+            runId: crypto.randomUUID(),
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: [],
+              association: { kind: 'origin', chatId },
+            },
+            body: 'frozen baseline',
+          }),
+        ],
+      });
+
+      await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text('reply beyond trigger'),
+      });
+
+      expect(
+        (
+          await repository.findEffectiveContextMessages(chatId, owner, {
+            throughSeq: trigger.seq,
+          })
+        ).map(({ id }) => id),
+      ).toEqual([baseline.id, original.id]);
+      expect(
+        (await repository.findForkSource(chatId, owner, original.seq)).map(
+          ({ id }) => id,
+        ),
+      ).toEqual([original.id, baseline.id]);
+    });
+  });
+
+  it('uses only an actual checkpoint row as the owned replay boundary', async () => {
+    const owner = await seedUser();
+    const chatId = await seedChat(owner, 'checkpoint source');
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      const original = (await repository.findByChatId(chatId, owner))[0];
+
+      if (!original) throw new Error('Missing original owner message');
+
+      const trigger = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('unabsorbed trigger'),
+      });
+
+      const reply = await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text('reply beyond the replay boundary'),
+      });
+
+      const checkpoint = await repository.create({
+        chatId,
+        role: 'checkpoint',
+        absorbedThroughSeq: original.seq,
+        parts: [],
+      });
+
+      expect(
+        (
+          await repository.findEffectiveContextMessages(chatId, owner, {
+            throughSeq: reply.seq,
+            checkpointId: checkpoint.id,
+          })
+        ).map(({ id }) => id),
+      ).toEqual([trigger.id]);
+      expect(
+        (
+          await repository.findEffectiveContextMessages(chatId, owner, {
+            throughSeq: reply.seq,
+            checkpointId: original.id,
+          })
+        ).map(({ id }) => id),
+      ).toEqual([original.id, trigger.id]);
+    });
   });
 });

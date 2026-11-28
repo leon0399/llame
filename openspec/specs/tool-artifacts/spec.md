@@ -13,8 +13,9 @@ locators, or through host files when `bash` can run.
 When a tool result does not fit the inline bound of its tool, the system
 MUST store the whole result as an artifact. The inline bound is the result
 cap, or the bound that the tool declares. A result that fits MUST NOT create
-an artifact. The tool part MUST store the inline result and the artifact
-locator. It MUST NOT store the content after the inline part.
+an artifact, except for the durable settled-job copies specified below.
+The tool part MUST store the inline result and the artifact locator. It MUST
+NOT store the content after the inline part.
 
 #### Scenario: A large bash output is stored
 
@@ -30,12 +31,14 @@ locator. It MUST NOT store the content after the inline part.
 
 ### Requirement: An artifact needs a way to read it
 
-The system MUST store an artifact only when the Run can read it. The Run can
+Except for the durable settled-job copies specified below, the system MUST store an artifact only when the Run can read it. The Run can
 read it through `read` when `read` is in `tools.allowed` and the `read` group
 admits its `artifact://` locator. The Run can also read it when its `bash`
 runs on the llame host and gets host files. Otherwise the
 tool MUST return its bounded inline result. The result MUST then state how
-many lines, files, or results it left out.
+many lines, files, or results it left out. Retaining a settled-job copy MUST
+NOT itself grant permission to read its artifact or disclose its backing path.
+The existing authorized host-file materialization and notice rules still apply.
 
 #### Scenario: A grep-only Run gets no artifact
 
@@ -50,7 +53,7 @@ is the name of the tool that made it. `<n>` MUST come from one counter for
 each Chat. The counter MUST start at 1 and MUST give each artifact a different
 number. A part MUST add one path segment, as in `artifact://bash-12/stdout`.
 A `bash` artifact MUST always name its parts by stream. Other artifacts with
-one part MUST have no part segment.
+one part MUST have no part segment. A durable settled daemon-job copy MUST retain both stream parts even when only one stream spills inline.
 
 #### Scenario: Numbers increase across tools
 
@@ -69,7 +72,7 @@ one part MUST have no part segment.
 
 #### Scenario: Only stdout spills
 
-- **WHEN** only the stdout of a `bash` call does not fit inline
+- **WHEN** only the stdout of a standalone `ssh://` `bash` call does not fit inline
 - **THEN** the artifact has the one part `artifact://bash-<n>/stdout`
 
 ### Requirement: An artifact part holds the full text of its source
@@ -258,12 +261,15 @@ the owner is deleted, the system MUST delete its artifact rows.
 ### Requirement: An artifact is complete or absent
 
 The system MUST write an artifact and all its parts in one transaction. A
-failed write MUST leave no artifact. The tool MUST then return its bounded
-inline result with `[full result not stored]` and no locator.
+failed write MUST leave no artifact. Except for a durable daemon-job copy,
+the tool MUST then return its bounded inline result with
+`[full result not stored]` and no locator. A failed daemon-job artifact write
+MUST instead roll back its settlement and retain the daemon output for
+reconciliation under "Artifact failure preserves daemon reconciliation".
 
 #### Scenario: A failed write keeps the inline result
 
-- **WHEN** the database refuses the artifact write of a `bash` call
+- **WHEN** the database refuses the artifact write of a standalone `ssh://` `bash` call
 - **THEN** the call returns its inline text and `[full result not stored]`
 - **AND** no locator names a partial artifact
 
@@ -431,33 +437,66 @@ reads the file with its host authority.
 - **WHEN** a new `read` reject makes a `grep` finding read as `[withheld]` through `artifact://`
 - **THEN** the host file of that artifact still holds the finding
 
-### Requirement: A settled job stores output that does not fit as one artifact
+### Requirement: Settled jobs preserve available output
 
-A settled job of `background-jobs` has an inline bound of 2,000 characters for each output. When
-an output does not fit, the system MUST store one artifact with one part for every output of
-the job. It MUST do so only when the Run that started the job could read artifacts. The
-artifact MUST use the number that the job reserved and the tool name of the executor. It MUST
-name the Run and tool call that started the job.
+Every settled daemon job whose output remains available MUST retain one
+bounded, credential-redacted artifact copy with one part for each output
+stream, regardless of output size. This includes a daemon job that settled
+`lost` but retained its streams. Missing output MUST NOT change the job's
+outcome. If the daemon definitively no longer has the job, the installation
+MUST settle it as `lost`. If the daemon reports the job's terminal state but
+definitively no longer has its output, the installation MUST settle that
+reported state. In both cases it MUST store no artifact, mark the output
+unavailable, and MUST NOT invent an empty capture. An unreachable Machine
+alone MUST NOT prove the job or its output absent.
+Explicit owner deletion of its Chat MAY discard stopped output instead, as
+specified in `background-jobs`. The artifact MUST use the number that the job reserved and the tool name of the
+executor. It MUST name the Run and tool call that started the job. The
+installation MUST commit the artifact and job settlement together before
+releasing the daemon job. Foreground settlement MUST NOT create a background
+job notice merely because it retains an artifact.
 
 #### Scenario: A job artifact after the Run ended
 
 - **WHEN** `job://bash-7` settles with 50,000 characters of `stdout`, one hour after its Run completed
-- **THEN** `artifact://bash-7/stdout` holds the captured `stdout`
+- **THEN** `artifact://bash-7/stdout` holds the bounded, redacted captured output
 
-#### Scenario: A short output creates no artifact
+#### Scenario: A short output retains an artifact
 
-- **WHEN** a job settles with 300 characters of output
-- **THEN** the system creates no artifact, and the job record names no artifact locator
+- **WHEN** a daemon job settles with 300 characters of output
+- **THEN** the system retains its artifact copy and records the artifact identity on the job
 
-### Requirement: A job output stays readable without an artifact
+#### Scenario: A lost job retains partial output
 
-When a settled job has no artifact, a `read` of an output of the job MUST return the stored
-increments. A failed artifact write MUST leave the job settled and its increments stored. The
-host-file rules of this capability MUST apply to a job artifact as they apply to a `bash`
-artifact. The system MUST decide them from the Run that started the job, when the job starts.
-The notice and the `wait` entry of the job MUST name the host directory when host files exist.
+- **WHEN** a restarted daemon reports a job as `lost` and retains its output files
+- **THEN** the committed artifact preserves the bounded, credential-redacted partial output with the unknown outcome
 
-#### Scenario: A failed write keeps the stored increments
+#### Scenario: The daemon no longer has a job
 
-- **WHEN** the database refuses the artifact write of a settled job
-- **THEN** the job is settled, its record names no artifact, and a `read` of the output returns the stored increments
+- **WHEN** reconciliation definitively finds that the daemon no longer has the job
+- **THEN** it settles the job `lost` without an artifact and a read reports unavailable output
+- **AND** it does not report an empty captured stream or start the command again
+
+#### Scenario: A known exit keeps its outcome without output
+
+- **WHEN** the daemon reports that a job exited with code 0 and proved its process group empty, but definitively no longer has its output
+- **THEN** the job settles `succeeded` with exit code 0, without an artifact
+- **AND** `wait`, notices, and reads report that outcome and unavailable output
+
+### Requirement: Artifact failure preserves daemon reconciliation
+
+A failed artifact write MUST roll back the job settlement and leave its row
+`running`. The installation MUST NOT release that daemon job; a later
+reconciliation MUST retry from its retained output. A previously settled job
+whose artifact is absent MUST report unavailable output instead of reading
+removed increments or repeating the command.
+
+#### Scenario: A failed write retains the daemon output
+
+- **WHEN** the database refuses the artifact write while a job settles
+- **THEN** its settlement does not commit and its daemon output remains available for reconciliation
+
+#### Scenario: An older settled job has no artifact
+
+- **WHEN** an older settled row has no artifact identity after the increments migration
+- **THEN** a read reports unavailable output without starting another command

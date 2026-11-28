@@ -1,0 +1,2 @@
+-- Add durable foreground/background delivery; Drizzle generates the column, defaulting legacy rows to background so prior jobs remain visible.
+ALTER TABLE "chat_jobs" ADD COLUMN "delivery" text DEFAULT 'background' NOT NULL;

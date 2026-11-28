@@ -45,23 +45,9 @@ function partTypes(parts: ReadonlyArray<unknown>): Array<string> {
 }
 
 describe('in-run model switches', () => {
-  const switchDecisionCalls = new Map<string, number>();
-
-  beforeEach(() => switchDecisionCalls.clear());
-
   const fx = useSegmentsFixture('in-run-switch', {
     allowedTools: ['bash', 'read'],
-    modelSwitchDecision: ({ failure }) => {
-      const key = failure.code;
-      const calls = switchDecisionCalls.get(key) ?? 0;
-      switchDecisionCalls.set(key, calls + 1);
-
-      if (failure.code === 'stream_broken' && calls === 0) {
-        return Promise.resolve(undefined);
-      }
-
-      return Promise.resolve({ toModelId: TARGET });
-    },
+    modelSwitchDecision: () => Promise.resolve({ toModelId: TARGET }),
   });
 
   const { db, events, messages, seed, launch, terminal, storeItems } = fx;
