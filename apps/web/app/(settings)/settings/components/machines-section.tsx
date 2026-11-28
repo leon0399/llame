@@ -4,13 +4,7 @@ import type { ReactNode } from "react";
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+import { Card, CardContent } from "@workspace/ui/components/card";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { RelativeTime } from "@/components/relative-time";
@@ -164,15 +158,7 @@ export function MachinesSection() {
   if (data === undefined || data.length === 0) return null;
 
   return (
-    <Card className="lg:max-w-2xl">
-      <CardHeader>
-        <CardTitle>Machines</CardTitle>
-        <CardDescription>
-          Machines this instance runs tools on, including this
-          installation&apos;s own host. The operator configures them; this list
-          is read-only.
-        </CardDescription>
-      </CardHeader>
+    <Card>
       <CardContent>
         <ul className="space-y-6">
           {data.map((machine) => (

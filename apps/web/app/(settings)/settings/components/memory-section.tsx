@@ -2,13 +2,7 @@
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+import { Card, CardContent } from "@workspace/ui/components/card";
 import {
   Field,
   FieldContent,
@@ -106,19 +100,10 @@ export function MemorySection() {
   const { data, isPending, isError, refetch } = useMemoryQuery();
   const update = useUpdateMemoryMutation();
 
-  // Header first, outside the branch: it is identical in both states, so the
-  // loading card differs from the loaded one only in its body. The neighbouring
-  // personalization section duplicates its header because the two versions
-  // genuinely differ; here they do not, and two copies of the same prose is
-  // just something to keep in sync by hand.
+  // The page names and describes this section (`SectionPage`); the card is
+  // only the control group, the same in the loading and loaded states.
   return (
-    <Card className="lg:max-w-2xl">
-      <CardHeader>
-        <CardTitle>Memory</CardTitle>
-        <CardDescription>
-          Choose whether the assistant may use details from your recent chats.
-        </CardDescription>
-      </CardHeader>
+    <Card>
       <CardContent>
         <div className="space-y-4">
           {/* Error before loading, and both before the happy path. A failed query

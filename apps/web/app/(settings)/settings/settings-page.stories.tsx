@@ -8,7 +8,7 @@ import { AppearanceProvider } from "@/contexts/appearance-context";
 import * as memoryQueries from "@/lib/services/memory/queries";
 import { refetchMemory } from "@/lib/services/memory/__mocks__/queries";
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
-import SettingsPage from "./page";
+import SettingsPage from "./appearance/page";
 
 // The page composes the Appearance card (real AppearanceProvider), the
 // Personalization card (real queries against a stubbed fetch) and the Memory

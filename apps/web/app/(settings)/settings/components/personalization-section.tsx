@@ -41,7 +41,7 @@ const COUNTER_VISIBLE_WITHIN = 0.15;
 function PersonalizationCardHeader({ description }: { description: string }) {
   return (
     <CardHeader>
-      <CardTitle>Personalization</CardTitle>
+      <CardTitle>Your profile</CardTitle>
       <CardDescription>{description}</CardDescription>
     </CardHeader>
   );
@@ -369,7 +369,7 @@ function PersonalizationPreviewPanel({
 
 function PersonalizationSkeleton() {
   return (
-    <Card className="lg:max-w-2xl">
+    <Card>
       <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer." />
       <CardContent>
         <div className="space-y-4">
@@ -487,7 +487,7 @@ function PersonalizationForm({
   const enabled = data.enabled;
 
   return (
-    <Card className="lg:max-w-2xl">
+    <Card>
       <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write." />
 
       {/* The wrapper carries the section rhythm and the extra bottom padding
