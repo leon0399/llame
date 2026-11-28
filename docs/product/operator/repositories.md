@@ -235,6 +235,24 @@ linked worktree of it: the source is the main tree git reports.
   generation. A fence lost after the add answers `executor_unavailable` with
   `leftDirectory`; a Machine link that drops after the request was sent answers
   `outcome_unknown`, and the directory can remain on disk.
+- **Environment files.** A worktree created from a source checkout that has a
+  `.worktreeinclude` file at its root receives the ignored files the file
+  selects. The file uses gitignore syntax, and the daemon on the Machine copies
+  the files once while it creates the worktree. See [environment
+  files](../reference/tools/enter-workspace.md#environment-files) for matching.
+  The copy replaces a tracked file of the same name, so the worktree can be
+  dirty from the start, and the removal route then refuses it until the owner
+  resolves the change. A selected symlink fails creation, which includes
+  patterns that select a package tree with links, such as `node_modules/`.
+  A failed copy leaves the directory, its branch, and the files copied so far,
+  and the Chat keeps its previous root. A new root whose real path differs from
+  the requested path fails the same way. The failure carries the directory as
+  `leftDirectory`, and nothing cleans it up. Inspect the directory, then remove
+  it with git. An `outcome_unknown` answer or a timeout can also leave one.
+- **Ignored copies leave with the worktree.** The removal route checks only
+  tracked and published state. Plain `git worktree remove` and the removal route
+  delete ignored copies, and no inventory of them exists, so keep a needed
+  `.env` in the source checkout.
 - **Adoption.** A source clone the owner has not registered is adopted with a
   repository from its `origin` remote (or none), a main checkout with origin
   `adopted`, and, for a linked-worktree source, that worktree's own row. Two
