@@ -33,8 +33,10 @@ start on an unknown key.
 - The row's id, owner, service, and kind are authenticated with the ciphertext,
   so a ciphertext copied into another row fails to decrypt. Database write
   access without the key cannot move the operator's token to an owner.
-- Rotation is three steps: put the new key first, run the rotate command, then
-  remove the old key. Removing it early stops startup with the missing key id.
+- Rotation uses a maintenance window. Stop API and worker writers, configure
+  both keys with the new key first, rotate, and verify before restarting.
+  Remove the old key only after verification. Retain it for backups that still
+  need it. Removing it early stops startup with the missing key id.
 - A database dump without the keys exposes Credential metadata (service, label,
   owner, expiry) and no secret. Losing every key logs out every Credential.
 

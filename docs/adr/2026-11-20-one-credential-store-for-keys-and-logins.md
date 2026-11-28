@@ -15,23 +15,22 @@ planned as separate issues, and each would have grown its own encryption, key
 rotation, redaction, and fail-closed lookup. Owner-scoped subscription logins
 need all of that from both sides.
 
-The store ships in this order: the installation scope with the Codex login,
-then OAuth for operator-configured MCP servers, then the owner scope. MCP OAuth
-needs only the installation scope, so a second consumer with a different flow
-tests the store before row-level security and encryption are designed around it.
+The first delivery covers installation Credentials and the Codex login.
+OAuth for operator-configured MCP servers follows separately. Owner providers,
+models, and model roles belong to another map. The shared storage design does
+not make owner configuration a prerequisite for operator login.
 
 ## Considered options
 
-- An owner vault for API keys only, with subscription logins kept at
-  installation scope. Owners could not use their own subscriptions, which the
-  providers' terms require once an installation has more than one person.
-- Owner scope before MCP OAuth. Owner scope is the largest step, and building it
-  second would shape the store around one consumer.
+- Separate stores for operator logins and owner keys. That would duplicate
+  encryption, rotation, and redaction when owner configuration is added.
+- Build owner configuration first. That would delay operator authentication
+  for a model-management workflow outside this map.
 
 ## Consequences
 
-- The provider accounts and encrypted credential vault issue is rewritten
-  around this store instead of introducing its own table.
+- Future owner credentials can reuse this storage design. Their configuration
+  and access rules remain undecided in a separate map.
 - A Credential kind must also fit a non-model service, such as a GitHub token,
   although delivering GitHub access is outside this effort.
 - Provider entries hold a Credential reference, not the secret, when they use
@@ -44,6 +43,9 @@ tests the store before row-level security and encryption are designed around it.
   they all reach. Installation Credentials have no owner and are readable only
   under a system marker, never under an owner's identity. Secret fields sit in
   one encrypted payload beside plain metadata, so a new kind needs no migration.
+- Installation scope describes credential management, not subscriber binding.
+  Operator-configured providers remain available to all authenticated users.
+  Users cannot read the stored secrets through that access.
 
 This was decided while charting
 [the way to llame-managed credentials](https://github.com/leon0399/llame/issues/1845#issuecomment-7052477684)
