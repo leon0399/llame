@@ -53,7 +53,14 @@ export function PersonalizationSaveRow({
   onSave: () => void;
 }) {
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex w-full items-center gap-3">
+      <p className="mr-auto min-w-0 text-sm">
+        <PersonalizationSaveStatus
+          dirty={dirty}
+          overCap={overCap}
+          isError={isError}
+        />
+      </p>
       <Button
         size="sm"
         onClick={onSave}
@@ -67,11 +74,6 @@ export function PersonalizationSaveRow({
         Save
         <ModEnterKbd />
       </Button>
-      <PersonalizationSaveStatus
-        dirty={dirty}
-        overCap={overCap}
-        isError={isError}
-      />
     </div>
   );
 }
