@@ -7,17 +7,13 @@
 #   mutation  (mutation.yml: API in shards + gate; small workspaces)
 #   build     (build.yml: every workspace + generated-diff check)
 #   e2e       (e2e.yml: Playwright; builds the web app itself)
-#   dast      (dast.yml: builds the API, then Schemathesis legs and ZAP)
 #
 # Product stages start together after the lightweight change-scope job admits
 # them. No product stage waits on another product stage.
 #
-# The nightly schedule runs only typecheck, build and API DAST, with a fresh
-# Schemathesis seed and a longer budget, so unchanged code still gets new
-# fuzzing inputs.
+# Typecheck, build, and API DAST run nightly in independent workflows.
 #
-# Static checks (lint, format, workflow linting) live in lint.yml — they need
-# no build, browser or database, and report independently.
+# Static checks run in their own workflows and report independently.
 #
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
@@ -27,9 +23,6 @@ on:
   pull_request:
   push:
     branches: [master]
-  schedule:
-    - cron: "17 3 * * *"
-  workflow_dispatch:
 
 # A new push supersedes the old run on a pull request: nothing there needs to
 # finish for a commit that is already outdated. Each master run gets its own
@@ -57,15 +50,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          fetch-depth: 0
-
-      - id: node-version
-        run: echo "version=$(tr -d '[:space:]' < .node-version)" >> "$GITHUB_OUTPUT"
-
-      - uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2.0.2
-        with:
-          install: false
-          runtime: node@${{ steps.node-version.outputs.version }}
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 0 }}
+          sparse-checkout: scripts/ci-product-scope.mjs
+          sparse-checkout-cone-mode: false
 
       - id: scope
         shell: bash
@@ -99,21 +86,14 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: ./.github/actions/setup
-        with:
-          turbo-cache: typecheck
-
-      # Full-program check on tsgo (TypeScript 7 Go port) — covers tests, which
-      # `nest build` and Next's bundled check exclude. Emit stays on TS 5.x.
-      - run: pnpm exec turbo run typecheck
+      - uses: ./.github/actions/typecheck
 
   test:
     name: Tests
     needs: [changes]
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/test.yml
     with:
-      product: ${{ needs.changes.outputs.product == 'true' }}
+      skip-product: ${{ needs.changes.outputs.product == 'false' }}
     permissions:
       contents: read
       # OIDC for the Codecov coverage and Test Analytics uploads.
@@ -124,36 +104,22 @@ jobs:
     needs: [changes]
     uses: ./.github/workflows/build.yml
     with:
-      product: ${{ needs.changes.outputs.product == 'true' }}
+      skip-product: ${{ needs.changes.outputs.product == 'false' }}
 
   mutation:
     name: Mutation testing
     needs: [changes]
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/mutation.yml
     with:
-      product: ${{ needs.changes.outputs.product == 'true' }}
+      skip-product: ${{ needs.changes.outputs.product == 'false' }}
 
   e2e:
     name: Product e2e
     needs: [changes]
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     uses: ./.github/workflows/e2e.yml
     with:
-      product: ${{ needs.changes.outputs.product == 'true' }}
+      skip-product: ${{ needs.changes.outputs.product == 'false' }}
     permissions:
       contents: read
       # OIDC for the Test Analytics upload.
-      id-token: write
-
-  # DAST retains its narrower API scope for product-relevant pull requests.
-  dast:
-    name: API DAST
-    needs: [changes]
-    if: ${{ needs.changes.outputs.product == 'true' }}
-    uses: ./.github/workflows/dast.yml
-    permissions:
-      contents: read
-      security-events: write
-      # OIDC for the Schemathesis Test Analytics upload.
       id-token: write

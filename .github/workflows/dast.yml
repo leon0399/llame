@@ -7,7 +7,68 @@ name: API DAST
 # It compiles only the API and what it imports, rather than waiting for the
 # whole-repo Build stage, because the scanners set CI's critical path.
 on:
-  workflow_call:
+  pull_request:
+    paths:
+      - "apps/api/**"
+      - "packages/config-interpolation/**"
+      - "packages/machine-protocol/**"
+      - "packages/mcp-workspace/**"
+      - "packages/native-file-tools/**"
+      - "packages/runtime-safety/**"
+      - "e2e/support/**"
+      - "scripts/dast/**"
+      - ".github/actions/dast-stack/**"
+      - ".github/actions/setup/**"
+      - ".github/workflows/dast.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".node-version"
+      - "apps/machine/**"
+      - "crates/**"
+      - "Cargo.*"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "packages/machine-protocol/proto/**"
+      - ".github/actions/setup-rust/**"
+  push:
+    branches: [master]
+    paths:
+      - "apps/api/**"
+      - "packages/config-interpolation/**"
+      - "packages/machine-protocol/**"
+      - "packages/mcp-workspace/**"
+      - "packages/native-file-tools/**"
+      - "packages/runtime-safety/**"
+      - "e2e/support/**"
+      - "scripts/dast/**"
+      - ".github/actions/dast-stack/**"
+      - ".github/actions/setup/**"
+      - ".github/workflows/dast.yml"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".node-version"
+      - "apps/machine/**"
+      - "crates/**"
+      - "Cargo.*"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "packages/machine-protocol/proto/**"
+      - ".github/actions/setup-rust/**"
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -16,50 +77,25 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
 
 jobs:
-  # Always runs: a pull request that does not change the API reports the
-  # scanner jobs as skipped, rather than leaving them pending.
   api-build:
     name: Build API
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    outputs:
-      scan: ${{ steps.scope.outputs.run }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          # A pull request checks out its merge commit; its first parent is
-          # the base, which the scope below diffs against.
-          fetch-depth: 2
 
-      # A pull request scans the API only when it changes what the API runs
-      # or how it is scanned; every other event always scans.
-      - id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT" != pull_request ] || ! git diff --quiet HEAD^1 HEAD -- \
-            apps/api packages/config-interpolation \
-            packages/machine-protocol packages/mcp-workspace \
-            packages/native-file-tools \
-            packages/runtime-safety \
-            e2e/support scripts/dast .github/actions/dast-stack \
-            .github/actions/setup .github/workflows/ci.yml \
-            .github/workflows/dast.yml pnpm-lock.yaml; then
-            echo "run=true" >>"$GITHUB_OUTPUT"
-          fi
-
-      - if: ${{ steps.scope.outputs.run == 'true' }}
-        uses: ./.github/actions/setup
+      - uses: ./.github/actions/setup
         with:
           turbo-cache: dast-build
 
-      - if: ${{ steps.scope.outputs.run == 'true' }}
-        run: pnpm exec turbo run build --filter=api...
+      - uses: ./.github/actions/setup-rust
+
+      - run: pnpm exec turbo run build --filter=api... --concurrency=1
 
       # The API and the workspace packages it imports from dist/.
-      - if: ${{ steps.scope.outputs.run == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: api-build
           path: |
@@ -84,7 +120,6 @@ jobs:
   schemathesis:
     name: Schemathesis (${{ matrix.leg }})
     needs: [api-build]
-    if: ${{ needs.api-build.outputs.scan == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -175,7 +210,6 @@ jobs:
   zap:
     name: ZAP
     needs: [api-build]
-    if: ${{ needs.api-build.outputs.scan == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:

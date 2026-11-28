@@ -14,12 +14,13 @@ name: Tests
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
-      product:
+      skip-product:
         type: boolean
-        default: true
-        description: Run product checks; false preserves required check names without test work.
+        default: false
+        description: Preserve required check names while skipping product work.
 
 permissions:
   contents: read
@@ -77,7 +78,7 @@ jobs:
       # change the browser and base image for an already-reviewed commit.
       # Refresh with the catalog's playwright version:
       #   docker buildx imagetools inspect mcr.microsoft.com/playwright:vX.Y.Z-noble
-      image: ${{ inputs.product && matrix.browser && 'mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c' || '' }}
+      image: ${{ !inputs.skip-product && matrix.browser && 'mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c' || '' }}
       # Chromium renderers allocate from /dev/shm, and Docker's default 64 MB
       # segment is a known crash source under parallel story runs; --ipc=host
       # is Playwright's documented mitigation for Chromium in containers.
@@ -93,27 +94,27 @@ jobs:
       LANG: en_US.UTF-8
       LC_ALL: en_US.UTF-8
     steps:
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       # No turbo-cache: test tasks are `cache: false` (turbo.json), so a cache
       # here would be written and never read.
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         uses: ./.github/actions/setup
 
       # Through turbo, not pnpm directly: some packages' test:coverage
       # depends on ^build, since their workspace imports resolve to dist/.
       # Streamed, not grouped (turbo's CI default): grouped output prints a
       # task only when it ends, so a long suite shows no progress.
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         env:
           TEST_FILTER: ${{ matrix.filter || format('./{0}', matrix.dir) }}
           TEST_TASK: ${{ matrix.task || 'test:coverage' }}
         run: pnpm exec turbo run "$TEST_TASK" --filter="$TEST_FILTER" --log-order=stream
 
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
@@ -122,7 +123,7 @@ jobs:
           flags: ${{ matrix.flag }}
           files: ${{ matrix.dir }}/coverage/${{ matrix.report || 'coverage-final.json' }}
 
-      - if: ${{ inputs.product && !cancelled() && hashFiles(format('{0}/coverage/junit.xml', matrix.dir)) != '' }}
+      - if: ${{ !inputs.skip-product && !cancelled() && hashFiles(format('{0}/coverage/junit.xml', matrix.dir)) != '' }}
         uses: ./.github/actions/upload-test-results
         with:
           junit: ${{ matrix.dir }}/coverage/junit.xml
@@ -138,7 +139,7 @@ jobs:
   # suite, and the merge job enforces them over all of it.
   api-shard:
     name: api (${{ matrix.shard }}/${{ strategy.job-total }})
-    if: ${{ inputs.product }}
+    if: ${{ !inputs.skip-product }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -151,6 +152,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/setup-rust
 
       # The Machine SSH integration suite copies the built llame-machine
       # bundle into its sshd container (apps/api/turbo.json).
@@ -176,7 +179,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [api-shard]
-    if: ${{ inputs.product && !cancelled() }}
+    if: ${{ !inputs.skip-product && !cancelled() }}
     permissions:
       contents: read
       id-token: write

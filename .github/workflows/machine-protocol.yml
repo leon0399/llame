@@ -1,0 +1,38 @@
+name: Machine protocol
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  machine-protocol:
+    name: Machine protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # buf lint, the fingerprint and version-bump check against master, and a
+      # clean diff after regenerating the committed TypeScript client.
+      - run: pnpm --filter @workspace/machine-protocol proto:check
+
+      # The bootstrap package is frozen: no breaking change against master.
+      - name: Bootstrap service stays compatible
+        run: |
+          if git cat-file -e origin/master:packages/machine-protocol/proto/stead/machine/bootstrap/v1/bootstrap.proto; then
+            pnpm --filter @workspace/machine-protocol proto:breaking
+          fi

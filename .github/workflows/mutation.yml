@@ -10,12 +10,18 @@ name: Mutation testing
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
 on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: Base commit, tag, or remote-tracking ref to measure against
+        type: string
+        required: true
   workflow_call:
     inputs:
-      product:
+      skip-product:
         type: boolean
-        default: true
-        description: Run product checks; false preserves required check names without test work.
+        default: false
+        description: Preserve required check names while skipping product work.
 
 permissions:
   contents: read
@@ -30,7 +36,7 @@ jobs:
   # so more shards stop paying off quickly.
   api-shard:
     name: API (${{ matrix.shard }}/${{ strategy.job-total }})
-    if: ${{ inputs.product }}
+    if: ${{ !inputs.skip-product }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -46,7 +52,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       - env:
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
           MUTATION_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: |
           node scripts/mutation-changed-lines.mjs run \
@@ -68,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [api-shard]
-    if: ${{ inputs.product && !cancelled() }}
+    if: ${{ !inputs.skip-product && !cancelled() }}
     steps:
       # A shard that crashed or timed out wrote no report, and an absent report
       # reads as "no mutable line", so the score alone cannot prove coverage.
@@ -106,28 +112,28 @@ jobs:
           - name: runtime-safety
             workspace: packages/runtime-safety
     steps:
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           fetch-depth: 0
 
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         uses: ./.github/actions/setup
 
-      - if: ${{ inputs.product }}
+      - if: ${{ !inputs.skip-product }}
         env:
           MUTATION_WORKSPACE: ${{ matrix.workspace }}
           # A pull request measures against its base. A trusted push measures
           # against the commit it advanced from, so a merge is scored on the
           # lines it introduced rather than re-scoring master.
-          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          MUTATION_BASE: ${{ github.event.pull_request.base.sha || github.event.before || inputs.base }}
         run: |
           node scripts/mutation-changed-lines.mjs run \
             --workspace "$MUTATION_WORKSPACE" --base "$MUTATION_BASE"
 
       - name: Upload mutation report
-        if: ${{ inputs.product && always() }}
+        if: ${{ !inputs.skip-product && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mutation-report-${{ matrix.name }}

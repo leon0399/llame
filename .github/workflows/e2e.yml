@@ -7,12 +7,13 @@ name: Product e2e
 # Actions are pinned to commit SHAs (comment = the release tag they resolve to).
 
 on:
+  workflow_dispatch:
   workflow_call:
     inputs:
-      product:
+      skip-product:
         type: boolean
-        default: true
-        description: Run product E2E tests.
+        default: false
+        description: Preserve required check names while skipping product work.
 
 permissions:
   contents: read
@@ -23,7 +24,7 @@ env:
 jobs:
   playwright:
     name: Playwright
-    if: ${{ inputs.product }}
+    if: ${{ !inputs.skip-product }}
     # Pinned, not ubuntu-latest: that label moved to Ubuntu 26.04, and the
     # catalog's Playwright (1.55.1) ships no Chromium for it, so
     # `playwright install --with-deps` fails before any test. 24.04 (noble)
@@ -46,6 +47,8 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
+
+      - uses: ./.github/actions/setup-rust
 
       # Host runner (not the Playwright image): this suite boots a throwaway
       # Postgres through the Docker CLI, which a container job cannot reach.
