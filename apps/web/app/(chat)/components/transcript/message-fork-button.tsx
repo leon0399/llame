@@ -12,7 +12,7 @@ import { MessageActionButton } from "./message-action-button";
 // Relative (not "@/…") import deliberately: keeps this leaf component free of
 // the tsconfig path alias, so its render test can run under plain vitest
 // (no vite-tsconfig-paths / alias config needed for a single component).
-import { useForkChat } from "../../../lib/services/chat/fork";
+import { useForkChat } from "../../../../lib/services/chat/fork";
 
 /**
  * Fork-from-here action: copies the conversation up to this message into a

@@ -15,7 +15,7 @@ import { WebSearchTool } from "@workspace/ui/components/custom/web-search";
 import { WorkspaceTool } from "@workspace/ui/components/custom/workspace";
 import { WriteTool } from "@workspace/ui/components/custom/write";
 
-import type { ChatMarkdownRenderers } from "./use-chat-markdown-ready";
+import type { ChatMarkdownRenderers } from "../use-chat-markdown-ready";
 
 import { storedImageSources } from "@/lib/services/media/urls";
 

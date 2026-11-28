@@ -18,7 +18,7 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { CollapsibleSidebarGroup } from "@/components/collapsible-sidebar-group";
 
-import { ChatItem } from "./chat-list-sidebar/chat-item";
+import { ChatItem } from "../chat-list-sidebar/chat-item";
 
 const chatGroupTitles = {
   [ChatGroupPeriod.TODAY]: "Today",

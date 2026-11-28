@@ -40,7 +40,7 @@ import { TurnActions } from "./turn-actions";
 import {
   useChatMarkdownRenderers,
   type ChatMarkdownRenderers,
-} from "./use-chat-markdown-ready";
+} from "../use-chat-markdown-ready";
 
 import type {
   ChatLatestRunResponse,
