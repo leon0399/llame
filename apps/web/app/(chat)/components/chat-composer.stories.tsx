@@ -1221,6 +1221,146 @@ export const LongPromptKeepsItsScrollPosition: Story = {
   },
 };
 
+/** Two frames: the auto-resize hook sizes the textarea on the frame after
+ *  a change, so a measurement before then reads the old height. */
+async function afterResize() {
+  const frame = () =>
+    new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+
+  await frame();
+  await frame();
+}
+
+/** The expanded height `useComposerExpand` sets: 55% of the visual viewport. */
+function expandedHeight() {
+  const viewport = window.visualViewport?.height ?? window.innerHeight;
+
+  return Math.round(viewport * 0.55);
+}
+
+/**
+ * A short message shows no expand toggle. Past five lines the toggle appears
+ * over the input's top-right corner, and the text keeps clear of it: the
+ * toggle starts right of the text's content box and sits at the card's top.
+ *
+ * @summary the expand toggle appears for a long message, in the corner
+ */
+export const ExpandToggleAppearsInTheCorner: Story = {
+  tags: ["ai-generated"],
+  render: (args) => <TypingComposer {...args} initialInput="Short note" />,
+  play: async ({ canvasElement, canvas, userEvent }) => {
+    await expect(
+      canvas.queryByRole("button", { name: "Expand the composer" }),
+    ).toBeNull();
+
+    const textarea = canvas.getByRole<HTMLTextAreaElement>("textbox");
+
+    await userEvent.click(textarea);
+    await userEvent.keyboard("{Shift>}{Enter}{Enter}{Enter}{Enter}{/Shift}");
+    await expect(
+      canvas.queryByRole("button", { name: "Expand the composer" }),
+    ).toBeNull();
+    await userEvent.keyboard("{Shift>}{Enter}{/Shift}more");
+
+    const toggle = await canvas.findByRole("button", {
+      name: "Expand the composer",
+    });
+
+    const form = canvasElement.querySelector("form");
+
+    if (form === null) throw new Error("expected the composer form");
+
+    const box = toggle.getBoundingClientRect();
+    const card = form.getBoundingClientRect();
+    const style = getComputedStyle(textarea);
+    const field = textarea.getBoundingClientRect();
+
+    const textRight =
+      field.left +
+      textarea.clientLeft +
+      textarea.clientWidth -
+      Number.parseFloat(style.paddingRight);
+
+    await expect(box.left).toBeGreaterThanOrEqual(textRight);
+    await expect(card.right - box.right).toBeLessThan(24);
+    await expect(box.top - card.top).toBeLessThan(16);
+  },
+};
+
+/**
+ * The toggle grows the input in place to 55% of the viewport and presses;
+ * sending returns it to its resting size.
+ *
+ * @summary expand grows the input; Send collapses it
+ */
+export const ExpandGrowsAndSendCollapses: Story = {
+  tags: ["ai-generated"],
+  args: { onSubmit: preventSubmit },
+  render: (args) => <TypingComposer {...args} initialInput={LONG_PROMPT} />,
+  play: async ({ canvas, userEvent }) => {
+    const textarea = canvas.getByRole<HTMLTextAreaElement>("textbox");
+
+    await afterResize();
+    const resting = textarea.offsetHeight;
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand the composer" }),
+    );
+
+    const collapse = await canvas.findByRole("button", {
+      name: "Collapse the composer",
+    });
+
+    await expect(collapse).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(
+        Math.abs(textarea.offsetHeight - expandedHeight()),
+      ).toBeLessThanOrEqual(2),
+    );
+    await expect(textarea.offsetHeight).toBeGreaterThan(resting);
+
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+
+    await expect(preventSubmit).toHaveBeenCalled();
+    await canvas.findByRole("button", { name: "Expand the composer" });
+    await waitFor(() => expect(textarea.offsetHeight).toBe(resting));
+  },
+};
+
+/**
+ * Ctrl+Shift+E expands and collapses the composer at any length, though the
+ * toggle shows only for a long message.
+ *
+ * @summary the expand shortcut works on a short message
+ */
+export const ExpandShortcutAtAnyLength: Story = {
+  tags: ["ai-generated"],
+  render: (args) => <TypingComposer {...args} initialInput="Short note" />,
+  play: async ({ canvas, userEvent }) => {
+    const textarea = canvas.getByRole<HTMLTextAreaElement>("textbox");
+
+    await userEvent.click(textarea);
+    await afterResize();
+    const resting = textarea.offsetHeight;
+
+    await userEvent.keyboard("{Control>}{Shift>}E{/Shift}{/Control}");
+    await canvas.findByRole("button", { name: "Collapse the composer" });
+    await waitFor(() =>
+      expect(
+        Math.abs(textarea.offsetHeight - expandedHeight()),
+      ).toBeLessThanOrEqual(2),
+    );
+
+    await userEvent.keyboard("{Control>}{Shift>}E{/Shift}{/Control}");
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: "Collapse the composer" }),
+      ).toBeNull(),
+    );
+    await waitFor(() => expect(textarea.offsetHeight).toBe(resting));
+  },
+};
+
 /**
  * With an image and a PDF attached, opening the uploaded image shows a
  * lightbox over the composer's images only: the PDF is not a slide, so the

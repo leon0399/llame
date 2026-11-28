@@ -27,7 +27,7 @@ import { PromptInputButton } from "./prompt-input";
 const LONG_MESSAGE_CHARS = 280;
 const LONG_MESSAGE_LINES = 5;
 
-function isLongMessage(input: string): boolean {
+export function isLongMessage(input: string): boolean {
   return (
     input.length > LONG_MESSAGE_CHARS ||
     input.split("\n").length > LONG_MESSAGE_LINES
