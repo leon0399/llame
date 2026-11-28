@@ -281,6 +281,80 @@ describe('KnowledgeSpaceService', () => {
     ]);
   });
 
+  it('returns the current space for an empty patch without writing', async () => {
+    const { service } = makeService('/srv/knowledge');
+
+    const current = {
+      id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+      archivedAt: null,
+    };
+
+    const get = vi.spyOn(service, 'getForOwner').mockResolvedValue(current);
+
+    const lock = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {}),
+    ).resolves.toEqual(current);
+    expect(get).toHaveBeenCalledWith('owner-a', SPACE_ID);
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a name when the locked row is still archived', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    const updateName = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, { name: 'Field notes' }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
+    expect(updateName).not.toHaveBeenCalled();
+  });
+
+  it('archives an active space through the combined patch', async () => {
+    const { service } = makeService('/srv/knowledge');
+    const archivedAt = new Date('2026-08-24T00:00:00.000Z');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(SPACE);
+
+    const setArchived = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'setArchived')
+      .mockImplementation((_id, _owner, archived) =>
+        Promise.resolve({
+          ...SPACE,
+          archivedAt: archived ? archivedAt : null,
+        }),
+      );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, { archived: true }),
+    ).resolves.toMatchObject({ id: SPACE_ID, archivedAt });
+    expect(setArchived).toHaveBeenCalledWith(SPACE_ID, 'owner-a', true);
+  });
+
   it('does not archive when the rename loses the active row', async () => {
     const { service } = makeService('/srv/knowledge');
     vi.spyOn(
