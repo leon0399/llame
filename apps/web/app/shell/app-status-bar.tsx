@@ -22,8 +22,8 @@ import {
 import { DemoChip } from "@/app/shell/soon-chip";
 import {
   MachineContact,
+  MachineResources,
   MachineStatusDot,
-  machineFactsText,
   machineOutdated,
 } from "@/components/machines/machine-list";
 import type { MachineResponse } from "@/lib/services/machines/queries";
@@ -60,8 +60,6 @@ function DemoUsage() {
 /** A Machine at a glance; hovering or focusing it shows the rest of its row
  *  from the Machines page, and it opens that page. */
 function MachineItem({ machine }: { machine: MachineResponse }) {
-  const facts = machineFactsText(machine);
-
   return (
     <HoverCard>
       <HoverCardTrigger
@@ -75,18 +73,22 @@ function MachineItem({ machine }: { machine: MachineResponse }) {
         <span className="sr-only">, {machine.status}</span>
       </HoverCardTrigger>
       <HoverCardContent side="top" align="end" className="w-72">
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <p className="flex items-center gap-2 text-sm font-medium text-foreground">
-            <MachineStatusDot status={machine.status} />
-            <span className="min-w-0 truncate">{machine.name}</span>
-          </p>
-          <p>
-            <MachineContact machine={machine} />
-          </p>
-          {facts === null ? null : <p>{facts}</p>}
-          {machineOutdated(machine) ? (
-            <p className="text-foreground">Runs an older daemon.</p>
-          ) : null}
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <MachineStatusDot status={machine.status} />
+              <span className="min-w-0 truncate">{machine.name}</span>
+              {machineOutdated(machine) ? (
+                <span className="ml-auto text-xs font-normal text-muted-foreground">
+                  Older daemon
+                </span>
+              ) : null}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              <MachineContact machine={machine} />
+            </p>
+          </div>
+          <MachineResources machine={machine} />
         </div>
       </HoverCardContent>
     </HoverCard>

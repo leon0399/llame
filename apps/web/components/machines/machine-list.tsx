@@ -1,6 +1,10 @@
 "use client";
 
-import { ChevronRightIcon, HardDriveIcon } from "lucide-react";
+import {
+  ArrowUpCircleIcon,
+  ChevronRightIcon,
+  HardDriveIcon,
+} from "lucide-react";
 
 import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
@@ -13,7 +17,6 @@ import {
 import { Switch } from "@workspace/ui/components/switch";
 import { cn } from "@workspace/ui/lib/utils";
 
-import { SoonChip } from "@/app/shell/soon-chip";
 import { RelativeTime } from "@/components/relative-time";
 import { formatBytes } from "@/lib/format-bytes";
 import { MACHINE_FAILURE_LABELS } from "@/lib/services/machines/labels";
@@ -80,26 +83,6 @@ export function MachineContact({ machine }: { machine: MachineResponse }) {
       )}
     </>
   );
-}
-
-/** What the daemon reported at its last handshake: system, processors,
- *  memory, the disks under its roots, and its version. */
-export function machineFactsText(machine: MachineResponse): string | null {
-  const facts = machine.facts;
-
-  if (facts === null) return null;
-
-  const disk = facts.rootDisks.reduce((sum, d) => sum + (d.totalBytes ?? 0), 0);
-
-  return [
-    `${facts.os} ${facts.arch}`,
-    `${String(facts.cpuCount)} ${facts.cpuCount === 1 ? "CPU" : "CPUs"}`,
-    `${formatBytes(facts.totalMemoryBytes)} memory`,
-    disk > 0 ? `${formatBytes(disk)} disk` : null,
-    machine.daemonVersion === null ? null : `daemon ${machine.daemonVersion}`,
-  ]
-    .filter((part) => part !== null)
-    .join(" · ");
 }
 
 /** The registered roots, each with the size of the disk that holds it. */
@@ -175,26 +158,140 @@ function MachineDetails({ machine }: { machine: MachineResponse }) {
   );
 }
 
-/** The owner's choice to use a shared Machine or not. Not built yet, so a
- *  visible, disabled switch (apps/web AGENTS.md); the section above the list
- *  says it is coming. */
-function UseSwitch({ machine }: { machine: MachineResponse }) {
+/** Live load, as fractions of capacity (0–1).
+ *  ponytail: the daemon reports totals only; nothing sends live usage yet, so
+ *  every meter reads "—". Fill this from daemon telemetry when it exists. */
+export type MachineLoad = { cpu: number; memory: number; disk: number };
+
+/** One resource: its name and use, a track that fills with it, and the
+ *  capacity under it. Without a reading the track stays empty. */
+function ResourceMeter({
+  label,
+  fraction,
+  capacity,
+}: {
+  label: string;
+  fraction: number | undefined;
+  capacity: string | null;
+}) {
   return (
-    <Switch checked disabled aria-label={`Use ${machine.name} (coming soon)`} />
+    <div className="min-w-0 space-y-1">
+      <p className="flex justify-between gap-2 text-xs">
+        <span>{label}</span>
+        <span className="text-muted-foreground tabular-nums">
+          {fraction === undefined
+            ? "—"
+            : `${String(Math.round(fraction * 100))}%`}
+        </span>
+      </p>
+      {fraction === undefined ? (
+        <span className="block h-1.5 rounded-full bg-muted" />
+      ) : (
+        <meter
+          value={fraction}
+          aria-label={`${label} in use`}
+          className="block h-1.5 w-full appearance-none overflow-hidden rounded-full [&::-moz-meter-bar]:bg-foreground [&::-webkit-meter-bar]:bg-muted [&::-webkit-meter-optimum-value]:bg-foreground"
+        />
+      )}
+      <p className="truncate text-xs text-muted-foreground">
+        {capacity ?? "Unknown"}
+      </p>
+    </div>
   );
 }
 
-/** An older daemon: say so, and offer the update, which is not built yet. */
-function OutdatedNotice() {
+/** Processors, memory and the disks under the roots, each with how much is
+ *  in use once the daemon reports it. */
+export function MachineResources({
+  machine,
+  load,
+}: {
+  machine: MachineResponse;
+  load?: MachineLoad;
+}) {
+  const facts = machine.facts;
+
+  const disk = facts?.rootDisks.reduce(
+    (sum, d) => sum + (d.totalBytes ?? 0),
+    0,
+  );
+
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-      Runs an older daemon. It still connects; newer tools may need the update.
-      <span className="flex items-center gap-2">
-        <Button variant="outline" size="xs" disabled>
-          Update daemon
-        </Button>
-        <SoonChip />
-      </span>
+    <div className="grid grid-cols-3 gap-4">
+      <ResourceMeter
+        label="CPU"
+        fraction={load?.cpu}
+        capacity={
+          facts === null
+            ? null
+            : `${String(facts.cpuCount)} ${facts.cpuCount === 1 ? "core" : "cores"}`
+        }
+      />
+      <ResourceMeter
+        label="Memory"
+        fraction={load?.memory}
+        capacity={facts === null ? null : formatBytes(facts.totalMemoryBytes)}
+      />
+      <ResourceMeter
+        label="Disk"
+        fraction={load?.disk}
+        capacity={disk === undefined || disk === 0 ? null : formatBytes(disk)}
+      />
+    </div>
+  );
+}
+
+/** The daemon's version, and, when it is older than the hub's, that fact
+ *  and the update beside it, so the three read as one thing. The update is
+ *  not built yet: a visible, disabled button (apps/web AGENTS.md). */
+function DaemonVersion({ machine }: { machine: MachineResponse }) {
+  if (machine.daemonVersion === null) return null;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1.5">
+      <code className="font-mono text-xs text-muted-foreground">
+        v{machine.daemonVersion}
+      </code>
+      {machineOutdated(machine) ? (
+        <>
+          <Badge variant="outline">Outdated</Badge>
+          <Button variant="outline" size="xs" disabled>
+            <ArrowUpCircleIcon aria-hidden="true" />
+            Update
+          </Button>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+function MachineHeader({
+  machine,
+  choosable,
+}: {
+  machine: MachineResponse;
+  choosable: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+        <h3 className="flex min-w-0 items-center gap-2 text-sm font-medium">
+          <MachineStatusDot status={machine.status} />
+          <span className="truncate">{machine.name}</span>
+        </h3>
+        <DaemonVersion machine={machine} />
+      </div>
+      {/* Not built yet: a visible, disabled switch; the section above the
+          list says it is coming. */}
+      {choosable ? (
+        <span className="flex h-6 shrink-0 items-center">
+          <Switch
+            checked
+            disabled
+            aria-label={`Use ${machine.name} (coming soon)`}
+          />
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -206,35 +303,19 @@ function MachineRow({
   machine: MachineResponse;
   choosable: boolean;
 }) {
-  const outdated = machineOutdated(machine);
-  const facts = machineFactsText(machine);
-
   return (
-    <li className="flex items-start gap-3 py-3 first:pt-0 last:pb-0">
-      <span className="flex h-5 items-center">
-        <MachineStatusDot status={machine.status} />
-      </span>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex min-h-5 items-center gap-2">
-          <h3 className="min-w-0 truncate text-sm font-medium">
-            {machine.name}
-          </h3>
-          {outdated ? <Badge variant="outline">Outdated</Badge> : null}
-          {choosable ? (
-            <span className="ml-auto">
-              <UseSwitch machine={machine} />
-            </span>
-          ) : null}
-        </div>
+    <li className="space-y-3 py-4 first:pt-0 last:pb-0">
+      <div className="space-y-1">
+        <MachineHeader machine={machine} choosable={choosable} />
         <p className="text-xs text-muted-foreground">
           <MachineContact machine={machine} />
+          {machine.facts === null
+            ? null
+            : ` · ${machine.facts.os} ${machine.facts.arch}`}
         </p>
-        {facts === null ? null : (
-          <p className="text-xs text-muted-foreground">{facts}</p>
-        )}
-        {outdated ? <OutdatedNotice /> : null}
-        <MachineDetails machine={machine} />
       </div>
+      <MachineResources machine={machine} />
+      <MachineDetails machine={machine} />
     </li>
   );
 }
