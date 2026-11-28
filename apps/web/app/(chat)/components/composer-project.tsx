@@ -2,14 +2,8 @@
 
 import { useState } from "react";
 
-import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjectsQuery } from "@/lib/services/project/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
-
-import {
-  ProjectRadioList,
-  ProjectSearchFilter,
-} from "./chat-list-sidebar/chat-item-menu";
 
 /** The project a composer files its chat into, and the ways to change it. */
 export type ComposerProject = {
@@ -50,24 +44,4 @@ export function useChatPageProject(exists: boolean): ChatPageProject {
     },
     draftProjectId,
   };
-}
-
-/** The owner's projects as one filtered radio list. Re-picking the chosen
- *  project removes it, as the sidebar's "Move to project" does. */
-export function ProjectPickerItems({ project }: { project: ComposerProject }) {
-  const [filter, setFilter] = useState("");
-
-  return (
-    <>
-      {project.projects.length > 0 && (
-        <ProjectSearchFilter value={filter} onChange={setFilter} />
-      )}
-      <ProjectRadioList
-        chat={{ projectId: project.selected?.id ?? null }}
-        allProjects={project.projects}
-        filteredProjects={filterProjectsByName(project.projects, filter)}
-        onFile={project.onSelect}
-      />
-    </>
-  );
 }

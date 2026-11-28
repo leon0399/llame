@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { useState } from "react";
 import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
@@ -18,8 +17,7 @@ import {
   stubFetch,
 } from "@/lib/test-support/fetch-stub";
 
-import { ComposerLocationPill } from "./composer-location-pill";
-import { OtherFolderDialog } from "./composer-working-directory";
+import { ComposerStartRow } from "./composer-start-row";
 import { useComposerLocation } from "./use-composer-location";
 
 // The Machines query is module-mocked in the storybook preview (no SSH-backed
@@ -203,23 +201,12 @@ function setMachines(next: Array<MachineResponse>) {
   });
 }
 
+/** The start row without a project picker: the folder, then the working
+ *  directory's own controls, with the typed-folder dialog. */
 function PillHarness({ failed = null }: { failed?: WorkspaceFailure | null }) {
   const location = useComposerLocation({ projectId: "p1", failed });
-  const [otherFolder, setOtherFolder] = useState(false);
 
-  return (
-    <>
-      <ComposerLocationPill
-        location={location}
-        onOtherFolder={() => setOtherFolder(true)}
-      />
-      <OtherFolderDialog
-        open={otherFolder}
-        onOpenChange={setOtherFolder}
-        location={location}
-      />
-    </>
-  );
+  return <ComposerStartRow project={undefined} location={location} />;
 }
 
 const meta = {
@@ -249,64 +236,65 @@ function cell(canvasElement: HTMLElement, name: RegExp) {
 }
 
 /**
- * The project's primary link pre-fills the pill from the preview route: the
- * Machine, the checkout's folder, and its branch, with only the × removing it.
+ * The project's primary link pre-fills the row from the preview route: the
+ * checkout's folder and its mode. A single usable Machine is no choice, so
+ * the Machine control is absent. Choosing a folder closes its list.
  *
- * @summary a pre-filled working directory: Machine, folder, and branch
+ * @summary a pre-filled working directory: folder and mode
  */
 export const ProjectDefault: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    await expect(await cell(canvasElement, /^Machine, /)).toHaveAccessibleName(
-      "Machine, nas",
-    );
     await expect(await cell(canvasElement, /^Folder, /)).toHaveAccessibleName(
       "Folder, llame",
     );
-    await expect(await cell(canvasElement, /^Work in, /)).toHaveAccessibleName(
-      "Work in, master",
+    await expect(await cell(canvasElement, /^Mode, /)).toHaveAccessibleName(
+      "Mode, checkout",
     );
+    await expect(
+      within(canvasElement).queryByRole("button", { name: /^Machine, / }),
+    ).not.toBeInTheDocument();
     await expect(sentRoutes()).toContain(`GET ${PREVIEW_PATH}`);
     await userEvent.click(await cell(canvasElement, /^Folder, /));
     await userEvent.click(
-      await screen.findByRole("menuitemradio", { name: /nas:.*llame/ }),
+      await screen.findByRole("option", { name: /nas:.*llame/ }),
     );
     await waitFor(() => {
-      expect(screen.queryByRole("menu", { hidden: true })).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Folder" })).toBeNull();
     });
   },
 };
 
 /**
- * The mode cell's menu starts the chat in a new worktree and closes, then
- * returns to this checkout and closes again.
+ * The mode control's menu starts the chat in a new worktree and closes, then
+ * returns to the checkout and closes again.
  *
  * @summary choosing a worktree and returning to the checkout
  */
 export const WorktreeMode: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    await userEvent.click(await cell(canvasElement, /^Work in, /));
+    await userEvent.click(await cell(canvasElement, /^Mode, /));
     await userEvent.click(
       await screen.findByRole("menuitemradio", { name: /^A new worktree/ }),
     );
     await waitFor(async () => {
-      await expect(
-        await cell(canvasElement, /^Work in, /),
-      ).toHaveAccessibleName("Work in, Worktree");
+      await expect(await cell(canvasElement, /^Mode, /)).toHaveAccessibleName(
+        "Mode, new worktree",
+      );
       await expect(
         screen.queryByRole("menu", { hidden: true }),
       ).not.toBeInTheDocument();
     });
 
-    await userEvent.click(await cell(canvasElement, /^Work in, /));
+    await userEvent.click(await cell(canvasElement, /^Mode, /));
     await userEvent.click(
-      await screen.findByRole("menuitemradio", { name: /^This checkout/ }),
+      await screen.findByRole("menuitemradio", { name: /^The checkout/ }),
     );
     await waitFor(async () => {
-      await expect(
-        await cell(canvasElement, /^Work in, /),
-      ).toHaveAccessibleName("Work in, master");
+      await expect(await cell(canvasElement, /^Mode, /)).toHaveAccessibleName(
+        "Mode, checkout",
+      );
       await expect(
         screen.queryByRole("menu", { hidden: true }),
       ).not.toBeInTheDocument();
@@ -346,11 +334,11 @@ export const OfflineMachine: Story = {
 };
 
 /**
- * A create answered `machine_update_required`: the pill shows the warning,
- * and the Machine cell disables the daemon that answered, with the update
- * sentence as its reason.
+ * A create answered `machine_update_required`: the Machine control appears
+ * even with one Machine, names the daemon as unavailable, and its menu
+ * disables it with the update sentence as its reason.
  *
- * @summary an outdated daemon: warned on the pill and disabled in its menu
+ * @summary an outdated daemon: warned on the Machine control and disabled
  */
 export const OutdatedDaemon: Story = {
   tags: ["ai-generated"],
@@ -363,9 +351,10 @@ export const OutdatedDaemon: Story = {
   },
   play: async ({ canvasElement }) => {
     await expect(
-      await within(canvasElement).findByRole("button", {
-        name: "Location warning: Update the llame-machine daemon on nas.",
-      }),
+      await cell(
+        canvasElement,
+        /^Machine, nas, Update the llame-machine daemon/,
+      ),
     ).toBeVisible();
     await userEvent.click(await cell(canvasElement, /^Machine, /));
     await expect(
@@ -377,18 +366,51 @@ export const OutdatedDaemon: Story = {
 };
 
 /**
- * The × removes the working directory, overriding the project default: the
- * pill disappears and the start is unbound.
+ * The Machine the project default resolves to is offline: the Machine
+ * control appears even with one Machine, says it is offline, and its menu
+ * opens with the reason.
+ *
+ * @summary an offline chosen Machine, warned on its own control
+ */
+export const OfflineChosenMachine: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    setMachines([
+      machine("nas", { status: "offline", failureReason: "auth_failed" }),
+    ]);
+  },
+  play: async ({ canvasElement }) => {
+    const control = await cell(canvasElement, /^Machine, nas, Offline/);
+
+    await expect(control).toHaveTextContent("nas · offline");
+    await userEvent.click(control);
+
+    // The reason heads the menu, and again on the disabled Machine itself.
+    // The menu fades in, so it is visible once it settles.
+    const [heading] = await screen.findAllByText(
+      "Offline — Authentication failed",
+    );
+
+    await waitFor(() => expect(heading).toBeVisible());
+  },
+};
+
+/**
+ * "No folder" removes the working directory, overriding the project default:
+ * the folder control reads "Folder" again, its mode goes, and the start is
+ * unbound.
  *
  * @summary removing the working directory
  */
 export const Removed: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
+    await userEvent.click(await cell(canvasElement, /^Folder, /));
     await userEvent.click(
-      await within(canvasElement).findByRole("button", {
-        name: "Remove working directory",
-      }),
+      await screen.findByRole("option", { name: /^No folder/ }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Folder" })).toBeNull(),
     );
     await waitFor(() =>
       expect(
@@ -429,7 +451,7 @@ async function typeOtherFolder(
 ) {
   await userEvent.click(await cell(canvasElement, /^Folder, /));
   await userEvent.click(
-    await screen.findByRole("menuitem", { name: "Other folder…" }),
+    await screen.findByRole("option", { name: "Other folder…" }),
   );
 
   const dialog = await screen.findByRole("dialog", {

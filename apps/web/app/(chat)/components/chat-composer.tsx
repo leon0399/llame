@@ -27,6 +27,7 @@ import {
   type MenuDeliveryMode,
 } from "./composer-delivery-send";
 import type { ComposerProject } from "./composer-project";
+import { ComposerControlSize } from "./composer-control-size";
 import { ComposerStartRow } from "./composer-start-row";
 import { ComposerTooltip } from "./composer-tooltip";
 import type { ComposerAttachments } from "./use-composer-attachments";
@@ -123,13 +124,13 @@ function ChatComposerSendButton({
   );
 }
 
-/** The row under the input card: where a new chat starts on the left, the
- *  model, its effort and the permission mode on the right, as small ghost
- *  buttons. Outside the form, so their popups are not part of the message
- *  being composed. Its shape depends only on the composer's width: one line
- *  from 42rem, else the start controls take their own line, so no name
- *  length or choice moves the input. */
-function ChatComposerSettingsRow({
+/** The row under the input card: the environment the chat runs in. Where a
+ *  new chat starts on the left (a chat that exists has none), the permission
+ *  mode at the right. Outside the form, so its popups are not part of the
+ *  message being composed. One line at every width: its controls shrink and
+ *  cut long names, never scroll or wrap, so no name or choice moves the
+ *  input. */
+function ChatComposerEnvironmentRow({
   chatId,
   project,
   location,
@@ -139,23 +140,26 @@ function ChatComposerSettingsRow({
   location: ComposerLocation | undefined;
 }) {
   return (
-    <div className="@container mt-1.5 px-1.5">
-      <div className="flex flex-col gap-1 @2xl:flex-row @2xl:items-center @2xl:gap-2">
-        <ComposerStartRow project={project} location={location} />
-        <div className="ml-auto flex shrink-0 items-center gap-1">
-          {/* One group, so the pair reads as a single setting: the two ghost
-            fills join with squared inner corners, as one hover block. */}
-          <ButtonGroup>
-            <ModelSelector />
-            {/* Only present when the selected model declares an effort
-              vocabulary; the group collapses to one cell when it renders
-              nothing. */}
-            <EffortSelector />
-          </ButtonGroup>
-          <PermissionModeSelector chatId={chatId} />
-        </div>
+    <div className="@container mt-1.5 flex min-w-0 items-center gap-2 px-1.5">
+      <ComposerStartRow project={project} location={location} />
+      <div className="ml-auto shrink-0">
+        <PermissionModeSelector chatId={chatId} />
       </div>
     </div>
+  );
+}
+
+/** The model and its effort, inside the input card between attach and send.
+ *  The model's name is what gives way on a narrow card: it truncates. */
+function ComposerRunSettings() {
+  return (
+    <ComposerControlSize value="default">
+      {/* One group, so the pair reads as a single setting. */}
+      <ButtonGroup className="min-w-0">
+        <ModelSelector className="min-w-0 shrink" />
+        <EffortSelector />
+      </ButtonGroup>
+    </ComposerControlSize>
   );
 }
 
@@ -203,8 +207,8 @@ type ChatComposerToolbarProps = Pick<
   locked: boolean;
 };
 
-/** The toolbar under the textarea: `+` to attach on the left, send/stop on
- *  the right. */
+/** The toolbar under the textarea: `+` to attach on the left, then the model
+ *  and its effort, and send/stop on the right. */
 function ChatComposerToolbar({
   runActive,
   onStop,
@@ -221,7 +225,8 @@ function ChatComposerToolbar({
         accept={attachments.accept}
         attachDisabled={attachments.attachDisabled || locked}
       />
-      <div className="ml-auto">
+      <div className="ml-auto flex min-w-0 items-center gap-2">
+        <ComposerRunSettings />
         <ChatComposerSendButton
           runActive={runActive}
           onStop={onStop}
@@ -283,7 +288,7 @@ function ChatComposerForm({
           locked={disabled}
         />
       </PromptInput>
-      <ChatComposerSettingsRow {...{ chatId, project, location }} />
+      <ChatComposerEnvironmentRow {...{ chatId, project, location }} />
     </fieldset>
   );
 }

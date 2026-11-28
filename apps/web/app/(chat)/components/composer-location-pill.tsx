@@ -1,13 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
-  FolderGit2Icon,
+  GitBranchIcon,
   MonitorIcon,
-  SquareCheckIcon,
-  SquareIcon,
-  XIcon,
 } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -21,22 +19,16 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 
-import { machinePathFromRoot } from "@/lib/services/machines/locator";
-
 import { ComposerTooltip } from "./composer-tooltip";
-import {
-  folderName,
-  WorkingDirectoryItems,
-} from "./composer-working-directory";
 import type { ComposerLocation } from "./use-composer-location";
 
 /*
- * The working directory of a chat that does not exist yet, in the row under
- * the input (design D10): the Machine when there is a choice of one, the
- * folder, a Worktree toggle, then a × that alone removes it. Each is a quiet
- * ghost control like the model and effort beside them, not a filled chip. A
- * chat without a working directory shows none of them; it is an ordinary
- * unbound start, never a warning.
+ * The working directory's own controls in the row under the input (design
+ * D10), after the folder: the Machine when there is a choice of one (or when
+ * it cannot serve), the mode (the checkout or a new worktree), and Retry when
+ * the location could not be resolved. A warning sits on the control it is
+ * about, never as a separate icon: an unusable Machine is named on the
+ * Machine control and explained at the top of its menu.
  */
 
 type Choice = {
@@ -72,7 +64,7 @@ function ChoiceItem({ choice }: { choice: Choice }) {
   );
 }
 
-/** One labelled radio group of a cell's menu. */
+/** One labelled radio group of a control's menu. */
 function ChoiceGroup({
   title,
   choices,
@@ -99,16 +91,27 @@ function ChoiceGroup({
 type StartRowMenuProps = {
   tooltip: string;
   ariaLabel: string;
-  icon: React.ReactNode;
-  label: string;
-  children: React.ReactNode;
-  /** Widens the menu for path and project lists. */
-  wide?: boolean;
+  icon: ReactNode;
+  label: ReactNode;
+  children: ReactNode;
+  /** How it gives way on a narrow row: `shrink` (the default) cuts its
+   *  name, `icon` keeps its size and shows only its icon, `none` keeps its
+   *  whole label (a short word whose loss would make the control
+   *  ambiguous). */
+  narrow?: "shrink" | "icon" | "none";
 };
 
-/** One control of the row under the input: icon, capped name and a chevron,
- *  opening a menu. Shared by the location cells and the project picker. */
-export function StartRowMenu(props: StartRowMenuProps) {
+const LABEL_FIT = {
+  shrink:
+    "min-w-0 overflow-x-clip font-normal text-ellipsis whitespace-nowrap text-trim-cap",
+  icon: "font-normal text-trim-cap @max-md:sr-only",
+  none: "font-normal whitespace-nowrap text-trim-cap",
+} as const;
+
+/** One control of the row under the input: icon, name and a chevron,
+ *  opening a menu. The name is trimmed to its cap height so the icon lines
+ *  up with the letters, and clipped only sideways so descenders survive. */
+function StartRowMenu(props: StartRowMenuProps) {
   return (
     <DropdownMenu>
       <ComposerTooltip
@@ -121,51 +124,26 @@ export function StartRowMenu(props: StartRowMenuProps) {
                 variant="ghost"
                 size="xs"
                 aria-label={props.ariaLabel}
-                className="min-w-0"
+                className={
+                  (props.narrow ?? "shrink") === "shrink"
+                    ? "min-w-0 shrink"
+                    : "shrink-0"
+                }
               />
             }
           />
         }
       >
         {props.icon}
-        <span className="max-w-24 truncate font-normal @2xl:max-w-32">
+        <span className={LABEL_FIT[props.narrow ?? "shrink"]}>
           {props.label}
         </span>
         <ChevronDownIcon aria-hidden className="opacity-60" />
       </ComposerTooltip>
-      <DropdownMenuContent
-        align="start"
-        className={props.wide === true ? "max-h-96 w-72" : "max-h-96 w-64"}
-      >
+      <DropdownMenuContent align="start" className="max-h-96 w-64">
         {props.children}
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-/** The quiet × that clears one choice of the row. */
-export function StartRowRemoveButton({
-  label,
-  onRemove,
-}: {
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <ComposerTooltip
-      label={label}
-      render={
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          aria-label={label}
-          onClick={onRemove}
-        />
-      }
-    >
-      <XIcon aria-hidden />
-    </ComposerTooltip>
   );
 }
 
@@ -187,24 +165,65 @@ function selectMachine(location: ComposerLocation, executorId: string) {
   if (first !== undefined) location.selectWorkingDirectory(first);
 }
 
-/** The Machine control: only when the repository is on more than one
- *  Machine, since a single choice is no choice. An unusable one is listed
- *  disabled with its reason. */
-function MachineControl({ location }: { location: ComposerLocation }) {
-  if (location.machineOptions.length < 2) return null;
+/** The short state an unusable Machine shows beside its name: "offline" for
+ *  a Machine that does not answer, "unavailable" for any other reason (an
+ *  identity change, a daemon too old, a name not configured). */
+function machineState(reason: string): string {
+  return reason.startsWith("Offline") || reason.endsWith("offline.")
+    ? "offline"
+    : "unavailable";
+}
 
-  const machine = location.location.executor?.label ?? "No checkout";
+/** The Machine's name, and its state when it cannot serve the chat. The
+ *  state keeps the label's own color: destructive text this small on the
+ *  control's hover fill falls below AA contrast, so the red is the icon's. */
+function machineLabel(name: string, reason: string | null): string {
+  return reason === null ? name : `${name} · ${machineState(reason)}`;
+}
+
+/** Why the chosen Machine cannot serve, at the top of its menu. */
+function MachineWarning({ reason }: { reason: string | null }) {
+  if (reason === null) return null;
+
+  return (
+    <p className="flex gap-1.5 px-1.5 py-1 text-xs text-destructive [&>svg]:mt-px [&>svg]:size-3.5 [&>svg]:shrink-0">
+      <AlertTriangleIcon aria-hidden />
+      {reason}
+    </p>
+  );
+}
+
+/** The Machine control: when the repository is on more than one Machine,
+ *  since a single choice is no choice, or when the one chosen cannot serve,
+ *  which it then says. An unusable Machine is listed disabled with its
+ *  reason. */
+function MachineControl({ location }: { location: ComposerLocation }) {
+  const executor = location.location.executor;
+  const reason = executor?.reason ?? null;
+
+  if (location.machineOptions.length < 2 && reason === null) return null;
+
+  const name = executor?.label ?? "No checkout";
 
   return (
     <StartRowMenu
-      tooltip="Machine"
-      ariaLabel={`Machine, ${machine}`}
-      icon={<MonitorIcon aria-hidden />}
-      label={machine}
+      tooltip={reason === null ? "Machine" : `${name}: ${reason}`}
+      ariaLabel={
+        reason === null ? `Machine, ${name}` : `Machine, ${name}, ${reason}`
+      }
+      icon={
+        <MonitorIcon
+          aria-hidden
+          className={reason === null ? undefined : "text-destructive"}
+        />
+      }
+      label={machineLabel(name, reason)}
+      narrow="icon"
     >
+      <MachineWarning reason={reason} />
       <ChoiceGroup
         title="Machine"
-        value={location.location.executor?.executorId ?? null}
+        value={executor?.executorId ?? null}
         onValueChange={(executorId) => selectMachine(location, executorId)}
         choices={location.machineOptions.map((option) => ({
           id: option.executorId,
@@ -217,76 +236,53 @@ function MachineControl({ location }: { location: ComposerLocation }) {
   );
 }
 
-/** The folder control; its tooltip prints the path and the branch. */
-function FolderControl({
-  location,
-  path,
-  onOtherFolder,
-}: {
-  location: ComposerLocation;
-  path: string;
-  onOtherFolder: () => void;
-}) {
-  const folder = folderName(path);
-  const shown = machinePathFromRoot(path) ?? path;
+/**
+ * Where in the checkout the chat works, named by its current mode so the
+ * control reads the same at every width: "Checkout" works in the checkout on
+ * its branch, "Worktree" starts a new worktree cut from that branch (named by
+ * the server).
+ */
+function ModeControl({ location }: { location: ComposerLocation }) {
   const branch = location.location.checkout?.branch ?? "detached HEAD";
+  const worktree = location.isolation === "worktree";
 
   return (
     <StartRowMenu
-      tooltip={`${shown} · ${branch}`}
-      ariaLabel={`Folder, ${folder}`}
-      icon={<FolderGit2Icon aria-hidden />}
-      label={folder}
-      wide
+      tooltip={
+        worktree
+          ? `New worktree from ${branch}`
+          : `Work in the checkout on ${branch}`
+      }
+      ariaLabel={`Mode, ${worktree ? "new worktree" : "checkout"}`}
+      icon={<GitBranchIcon aria-hidden />}
+      label={worktree ? "Worktree" : "Checkout"}
+      narrow="none"
     >
-      <WorkingDirectoryItems
-        location={location}
-        onOtherFolder={onOtherFolder}
+      <ChoiceGroup
+        title="Work in"
+        value={worktree ? "worktree" : "reuse"}
+        onValueChange={(mode) =>
+          location.selectIsolation(mode === "worktree" ? "worktree" : "reuse")
+        }
+        choices={[
+          { id: "reuse", label: "The checkout", detail: `On ${branch}` },
+          {
+            id: "worktree",
+            label: "A new worktree",
+            detail: `Cut from ${branch}`,
+          },
+        ]}
       />
     </StartRowMenu>
   );
 }
 
-/**
- * Where in the checkout the chat works, as one toggle: off works in the
- * checkout on its branch, on starts a new worktree cut from that branch
- * (named by the server).
- */
-function WorktreeToggle({ location }: { location: ComposerLocation }) {
-  const branch = location.location.checkout?.branch ?? "detached HEAD";
-  const worktree = location.isolation === "worktree";
-
-  return (
-    <ComposerTooltip
-      label={
-        worktree
-          ? `New worktree from ${branch}`
-          : `Work in the checkout on ${branch}`
-      }
-      render={
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          aria-pressed={worktree}
-          onClick={() =>
-            location.selectIsolation(worktree ? "reuse" : "worktree")
-          }
-        />
-      }
-    >
-      {worktree ? <SquareCheckIcon aria-hidden /> : <SquareIcon aria-hidden />}
-      <span className="font-normal">Worktree</span>
-    </ComposerTooltip>
-  );
-}
-
-/** A start that would fail, named under the pointer; nothing otherwise. A
- *  failed preview retries from here. */
-function WarningControl({ location }: { location: ComposerLocation }) {
+/** The location could not be resolved: the one warning with something to
+ *  do, so a button, with the message in its tooltip. */
+function RetryControl({ location }: { location: ComposerLocation }) {
   const warning = location.location.warning;
 
-  if (warning === null) return null;
+  if (warning?.step !== "preview") return null;
 
   return (
     <ComposerTooltip
@@ -295,45 +291,32 @@ function WarningControl({ location }: { location: ComposerLocation }) {
         <Button
           type="button"
           variant="ghost"
-          size="icon-xs"
-          aria-label={`Location warning: ${warning.message}`}
-          onClick={
-            location.preview.failed ? location.preview.refetch : undefined
-          }
+          size="xs"
+          onClick={location.preview.refetch}
         />
       }
     >
       <AlertTriangleIcon aria-hidden className="text-destructive" />
+      <span className="font-normal text-trim-cap">Retry</span>
     </ComposerTooltip>
   );
 }
 
-/** The working directory's controls; nothing while none resolves. */
+/** The working directory's own controls; nothing while none resolves. */
 export function ComposerLocationPill({
   location,
-  onOtherFolder,
 }: {
   location: ComposerLocation;
-  onOtherFolder: () => void;
 }) {
-  const checkout = location.location.checkout;
-
-  if (checkout === null) return null;
+  if (location.location.checkout === null) {
+    return <RetryControl location={location} />;
+  }
 
   return (
     <>
       <MachineControl location={location} />
-      <FolderControl
-        location={location}
-        path={checkout.path}
-        onOtherFolder={onOtherFolder}
-      />
-      <WorktreeToggle location={location} />
-      <WarningControl location={location} />
-      <StartRowRemoveButton
-        label="Remove working directory"
-        onRemove={location.clearWorkingDirectory}
-      />
+      <ModeControl location={location} />
+      <RetryControl location={location} />
     </>
   );
 }
