@@ -24,6 +24,12 @@ import { useTargetSendTracking } from "./use-target-send-tracking";
 function useDraftUrlSync(chatId: string, session: DraftSessionState) {
   const draftPhase = draftPhaseForSession(session);
   useEffect(() => {
+    // A fresh draft has no address of its own. It starts on `/`, and one
+    // whose failed first send turned out never stored keeps its current
+    // address: moving it back to `/` would make the new-chat page start a
+    // new draft and drop the message the failed send just restored.
+    if (draftPhase === "fresh") return;
+
     // An uncertain stream interruption has already moved the URL to the
     // hashless sent-draft route before remounting this ordinary session. Keep
     // that recovery marker until a later successful finish clears it.
