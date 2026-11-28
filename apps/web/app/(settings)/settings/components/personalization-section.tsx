@@ -22,6 +22,7 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { submitOnEnter, submitOnModEnter } from "@/components/mod-enter-submit";
 import { SettingField } from "@/components/setting-field";
+import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import { useUpdatePersonalizationMutation } from "@/lib/services/personalization/mutations";
 import { PERSONALIZATION_CAPS } from "@/lib/services/personalization/types";
 import type { PersonalizationTextField } from "@/lib/services/personalization/types";
@@ -485,6 +486,7 @@ function PersonalizationForm({
 
   return (
     <div className="space-y-6">
+      <UnsavedChangesGuard dirty={state.dirty} />
       <PersonalizationProfileCard enabled={enabled} draft={draft} {...state} />
       <PersonalizationIdentitySection
         enabled={enabled}
