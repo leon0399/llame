@@ -97,6 +97,16 @@ export const Idle: Story = {
       }),
     ).toBeVisible();
 
+    await expect(
+      keyCaps(canvasElement, "Expand or collapse the composer"),
+    ).toEqual(["Ctrl", "Shift", "E"]);
+    await expect(
+      row(canvasElement, "Expand or collapse the composer").getByRole(
+        "button",
+        { name: "Change keys for Expand or collapse the composer" },
+      ),
+    ).toBeVisible();
+
     const fixed = row(canvasElement, "Show or hide the sidebar");
 
     await expect(fixed.getByText("Fixed")).toBeVisible();

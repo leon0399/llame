@@ -18,7 +18,7 @@ import type {
   KeyboardEventHandler,
 } from "react";
 
-export type PromptInputProps = HTMLAttributes<HTMLFormElement>;
+export type PromptInputProps = ComponentProps<"form">;
 
 export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   <form
