@@ -5,7 +5,7 @@
   "description": "llame-machine Rust daemon.",
   "scripts": {
     "build": "node scripts/build-daemon.mjs",
-    "lint": "cargo fmt --all --check && cargo clippy --locked --workspace --all-targets",
+    "lint": "cargo fmt --all --check && cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
     "test": "cargo test --locked --workspace",
     "test:coverage": "cargo test --locked --workspace",
     "build:release": "node scripts/build-daemon.mjs --release-targets"

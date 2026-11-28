@@ -1,11 +1,8 @@
-#![allow(
+#![expect(
     clippy::unwrap_used,
-    clippy::expect_used,
     clippy::panic,
-    clippy::wildcard_enum_match_arm,
-    clippy::too_many_lines
+    reason = "Fixture helpers fail the test on setup or RPC errors"
 )]
-
 mod common;
 
 use machine_protocol::v1::{
@@ -105,6 +102,7 @@ fn failing_git_head_shim(machine: &common::Machine) -> std::path::PathBuf {
 
 fn fixture_git() -> Command {
     let mut command = Command::new("git");
+    command.args(["-c", "commit.gpgsign=false"]);
     for name in [
         "GIT_DIR",
         "GIT_WORK_TREE",
@@ -151,6 +149,10 @@ fn absolute(path: &Path) -> String {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn repository_status_detached_and_not_a_repository() {
     let machine = common::Machine::new();
     let root = machine.root();
@@ -416,6 +418,10 @@ async fn upstream_ahead_and_behind_are_reported() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn worktree_create_list_delete_and_invalid_branch() {
     let machine = common::Machine::new();
     let root = machine.root();
@@ -498,6 +504,7 @@ async fn worktree_create_list_delete_and_invalid_branch() {
         response.result,
         Some(delete_worktree_response::Result::Deleted(_))
     ));
+    assert!(!path.exists());
     let replay = client
         .delete_worktree(DeleteWorktreeRequest {
             request_id: "delete-1".into(),
@@ -1260,8 +1267,14 @@ async fn a_symlink_among_selected_candidates_fails_and_keeps_earlier_copies() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn an_unusable_manifest_fails_creation_and_keeps_the_worktree() {
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    type Prepare = Box<dyn Fn(&Path)>;
     let machine = common::Machine::new();
     let root = machine.root();
     let outside = root.join("outside-manifest");
@@ -1272,7 +1285,6 @@ async fn an_unusable_manifest_fails_creation_and_keeps_the_worktree() {
             .unwrap();
         std::fs::File::open(root.join("probe")).is_err()
     };
-    type Prepare = Box<dyn Fn(&Path)>;
     let mut cases: Vec<(&str, &str, Prepare)> = vec![
         (
             "symlink",

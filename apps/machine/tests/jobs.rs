@@ -1,4 +1,8 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "Fixture helpers fail the test on setup or RPC errors"
+)]
 mod common;
 
 use std::{collections::HashMap, time::Duration};

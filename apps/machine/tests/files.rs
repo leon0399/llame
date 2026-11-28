@@ -1,11 +1,3 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::wildcard_enum_match_arm,
-    clippy::too_many_lines
-)]
-
 mod common;
 
 use machine_protocol::v1::{
@@ -17,6 +9,10 @@ use machine_protocol::v1::{
 use tonic::Code;
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn reads_windows_crlf_byte_bounds_and_streamed_ranges() {
     let machine = common::Machine::new();
     let root = machine.root();
@@ -277,6 +273,10 @@ async fn non_utf8_symlink_does_not_use_a_lossy_path_for_guarding() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     let machine = common::Machine::new();
     let root = machine.root();
@@ -305,6 +305,7 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     assert!(
         matches!(first.result, Some(write_file_response::Result::Written(written)) if written.created)
     );
+    assert_eq!(std::fs::read(&file).unwrap(), b"before\nold\nafter\n");
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
 
     let replaced = client
@@ -319,6 +320,7 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     assert!(
         matches!(replaced.result, Some(write_file_response::Result::Written(written)) if !written.created && written.size == 9)
     );
+    assert_eq!(std::fs::read(&file).unwrap(), b"rewritten");
     assert_eq!(std::fs::metadata(&file).unwrap().mode() & 0o777, 0o640);
     let exists = client
         .write_file(make_request(
@@ -357,6 +359,10 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     assert_eq!(replacement, resent);
     assert!(
         matches!(replacement.result, Some(replace_text_response::Result::Replaced(result)) if result.start_line == 2 && result.line_count == 4)
+    );
+    assert_eq!(
+        std::fs::read(&file).unwrap(),
+        b"before\nnew\nextra\nafter\n"
     );
     let missing = client
         .replace_text(ReplaceTextRequest {

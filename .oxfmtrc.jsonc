@@ -20,6 +20,7 @@
     ".agents/",
 
     // Build and tool output.
+    "/target/",
     "dist/",
     "build/",
     "out/",
