@@ -16,7 +16,9 @@ const useMachinesQuery = vi.mocked(machinesQueries.useMachinesQuery, {
   partial: true,
 });
 
-const LAST_SEEN = new Date(Date.now() - 2 * 60_000).toISOString();
+// Stamped per story: RelativeTime reads the live clock, so a stamp taken at
+// module load drifts a minute once the module has been loaded long enough.
+let LAST_SEEN = "";
 
 const GIB = 1024 ** 3;
 
@@ -44,7 +46,7 @@ function machine(
   };
 }
 
-const MACHINES = [
+const machines = () => [
   machine({ name: "devl" }),
   machine({
     name: "services",
@@ -64,8 +66,9 @@ const meta = {
   tags: ["autodocs"],
   parameters: { layout: "fullscreen" },
   beforeEach: () => {
+    LAST_SEEN = new Date(Date.now() - 2 * 60_000).toISOString();
     useMachinesQuery.mockReturnValue({
-      data: MACHINES,
+      data: machines(),
       isPending: false,
       isError: false,
       refetch: refetchMachines,

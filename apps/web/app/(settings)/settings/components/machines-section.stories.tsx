@@ -14,9 +14,10 @@ const useMachinesQuery = vi.mocked(machinesQueries.useMachinesQuery, {
   partial: true,
 });
 
-// Relative to load, so "3 minutes ago" stays "3 minutes ago" while the story
-// runs; a fixed date would drift the same way a real last-seen timestamp does.
-const LAST_SEEN = new Date(Date.now() - 3 * 60_000).toISOString();
+// Stamped per story: RelativeTime reads the live clock, so a stamp taken at
+// module load drifts to "4 minutes ago" once the module has been loaded long
+// enough.
+let LAST_SEEN = "";
 
 const GIB = 1024 ** 3;
 
@@ -44,30 +45,33 @@ function machine(
   };
 }
 
-const current = machine({ name: "devl" });
+const current = () => machine({ name: "devl" });
 
-const outdated = machine({
-  name: "gpu",
-  daemonProtocolVersion: 7,
-  daemonVersion: "0.6.1",
-});
+const outdated = () =>
+  machine({
+    name: "gpu",
+    daemonProtocolVersion: 7,
+    daemonVersion: "0.6.1",
+  });
 
-const neverConnected = machine({
-  name: "builder",
-  status: "offline",
-  lastSeenAt: null,
-  daemonProtocolVersion: null,
-  daemonVersion: null,
-  facts: null,
-  factsCapturedAt: null,
-  roots: [],
-});
+const neverConnected = () =>
+  machine({
+    name: "builder",
+    status: "offline",
+    lastSeenAt: null,
+    daemonProtocolVersion: null,
+    daemonVersion: null,
+    facts: null,
+    factsCapturedAt: null,
+    roots: [],
+  });
 
-const hostKeyChanged = machine({
-  name: "old-vps",
-  status: "offline",
-  failureReason: "host_key_mismatch",
-});
+const hostKeyChanged = () =>
+  machine({
+    name: "old-vps",
+    status: "offline",
+    failureReason: "host_key_mismatch",
+  });
 
 function listed(data: Array<MachineResponse>) {
   useMachinesQuery.mockReturnValue({
@@ -101,7 +105,8 @@ const meta = {
   component: MachinesSection,
   tags: ["autodocs"],
   beforeEach: () => {
-    listed([current, outdated, neverConnected]);
+    LAST_SEEN = new Date(Date.now() - 3 * 60_000).toISOString();
+    listed([current(), outdated(), neverConnected()]);
     refetchMachines.mockClear();
   },
   parameters: { layout: "padded" },
@@ -217,7 +222,7 @@ export const DetailsOpen: Story = {
  */
 export const Offline: Story = {
   tags: ["ai-generated"],
-  beforeEach: () => listed([hostKeyChanged]),
+  beforeEach: () => listed([hostKeyChanged()]),
   play: async ({ canvasElement }) => {
     await expect(metaLine(row(canvasElement, "old-vps"))).toHaveTextContent(
       "Offline · Host key does not match · seen 3 minutes ago",
@@ -225,29 +230,31 @@ export const Offline: Story = {
   },
 };
 
-const sharedFilesystem = machine({
-  name: "nas",
-  roots: ["/srv/projects", "/srv/data"],
-  facts: {
-    ...current.facts!,
-    rootDisks: [
-      { root: "/srv/projects", totalBytes: 1024 * GIB },
-      { root: "/srv/data", totalBytes: 1024 * GIB },
-    ],
-  },
-});
+const sharedFilesystem = () =>
+  machine({
+    name: "nas",
+    roots: ["/srv/projects", "/srv/data"],
+    facts: {
+      ...current().facts!,
+      rootDisks: [
+        { root: "/srv/projects", totalBytes: 1024 * GIB },
+        { root: "/srv/data", totalBytes: 1024 * GIB },
+      ],
+    },
+  });
 
-const twoDisks = machine({
-  name: "storage",
-  roots: ["/srv/projects", "/mnt/archive"],
-  facts: {
-    ...current.facts!,
-    rootDisks: [
-      { root: "/srv/projects", totalBytes: 1024 * GIB },
-      { root: "/mnt/archive", totalBytes: 4096 * GIB },
-    ],
-  },
-});
+const twoDisks = () =>
+  machine({
+    name: "storage",
+    roots: ["/srv/projects", "/mnt/archive"],
+    facts: {
+      ...current().facts!,
+      rootDisks: [
+        { root: "/srv/projects", totalBytes: 1024 * GIB },
+        { root: "/mnt/archive", totalBytes: 4096 * GIB },
+      ],
+    },
+  });
 
 /**
  * Each root reports the size of the filesystem that holds it, and roots can
@@ -258,7 +265,7 @@ const twoDisks = machine({
  */
 export const SeveralRoots: Story = {
   tags: ["ai-generated"],
-  beforeEach: () => listed([sharedFilesystem, twoDisks]),
+  beforeEach: () => listed([sharedFilesystem(), twoDisks()]),
   play: async ({ canvasElement }) => {
     const nas = row(canvasElement, "nas");
     const storage = row(canvasElement, "storage");
