@@ -60,9 +60,6 @@ sources:
   - id: tonic-build
     resource: "https://docs.rs/tonic-prost-build/0.14.9/tonic_prost_build/"
     title: "tonic-prost-build 0.14.9"
-  - id: buf-generate
-    resource: "https://buf.build/docs/generate/"
-    title: "Buf code generation"
   - id: grpc-core-concepts
     resource: "https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md"
     title: "gRPC concepts and streaming at v1.70.0"
@@ -212,7 +209,12 @@ Flow-control windows are not gRPC message-size limits. A single protobuf message
 
 ## Code generation and toolchain
 
-A shared `.proto` definition is viable. Buf runs plugins over protobuf sources. The probe used `buf generate` with `protoc-gen-es` to produce protobuf message classes and `protoc-gen-connect-es` to produce typed service descriptors. Rust `tonic-prost-build` generated prost messages and tonic server traits during `cargo build`. The generator package versions must match the protobuf runtime generation: this probe used Connect 1.7.0 with protobuf 1.10.1. [^buf-generate][^tonic-build][^stdio-probe]
+A shared `.proto` definition is viable. The probe used Buf 1.75.0 to run
+`protoc-gen-es` and `protoc-gen-connect-es` over the schema and produce typed
+service descriptors and protobuf message classes. Rust `tonic-prost-build`
+generated prost messages and tonic server traits during `cargo build`. The
+generator package versions must match the protobuf runtime generation: this
+probe used Connect 1.7.0 with protobuf 1.10.1. [^tonic-build][^stdio-probe]
 
 The Rust build used `tonic` and `tonic-prost-build` 0.14.9 and `prost` 0.14.6. `protoc` was needed for the Rust build, while Buf invoked its local Node plugin binaries. An initial call to the Nix development environment's `protoc` failed with a GLIBC version mismatch. Running `nix shell nixpkgs#protobuf --command ...` supplied working `protoc` 36.2. This is a toolchain environment issue, not a protobuf incompatibility.
 
@@ -261,8 +263,6 @@ No grpc-js stdio injection was implemented. The conclusion comes from the inspec
 [^tonic-uds-example]: tonic's Unix socket example binds `UnixListener`, wraps it in `UnixListenerStream` and serves it through `serve_with_incoming()`. [tonic example at 0.14.9](https://github.com/hyperium/tonic/blob/tonic-v0.14.9/examples/src/uds/server.rs).
 
 [^tonic-build]: `tonic-prost-build` compiles protobuf service definitions and generates tonic and prost code. [tonic-prost-build 0.14.9](https://docs.rs/tonic-prost-build/0.14.9/tonic_prost_build/).
-
-[^buf-generate]: Buf's `buf generate` runs configured plugins against protobuf inputs. [Buf code generation](https://buf.build/docs/generate/).
 
 [^grpc-core-concepts]: gRPC defines unary and streaming RPCs, and each side determines call success locally. [gRPC concepts at v1.70.0](https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md).
 
