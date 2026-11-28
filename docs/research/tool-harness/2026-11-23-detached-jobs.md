@@ -694,9 +694,9 @@ and system-scope units were not exercised. The daemon's own cgroup case is
 reasoned from the documentation, because this shell sits in the root cgroup
 (`0::/`). No macOS probe was run, and its section is marked accordingly.
 
-The report does not decide the OpenSpec contract for background jobs on every
-Machine. It establishes what the kernel and the candidate holders permit, and it
-recommends one durable shape for the decision on that ticket.
+This note records Linux process and holder behavior and a candidate job-holder
+design. It does not describe the Rust daemon shipped on 2026-11-26 or define the
+current background-job contract.
 
 [^linux-pid-namespaces]: [pid_namespaces(7), man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man7/pid_namespaces.7) states that the kernel kills every process in a namespace when its init terminates, and that orphans reparent to the namespace init or a nearer subreaper.
 
