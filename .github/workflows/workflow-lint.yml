@@ -8,6 +8,7 @@ on:
   pull_request:
   push:
     branches: [master]
+  workflow_dispatch:
 
 # Pull request runs supersede each other; each master run has its own group,
 # so none is cancelled or replaced while pending.

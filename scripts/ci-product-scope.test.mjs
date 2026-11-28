@@ -53,6 +53,42 @@ test("runtime prompts and unknown paths keep the product gate enabled", () => {
   }
 });
 
+test("Rust CI only admits daemon inputs and supports manual runs", () => {
+  const workflow = parseYaml(
+    readFileSync(
+      new URL("../.github/workflows/rust.yml", import.meta.url),
+      "utf8",
+    ),
+  );
+  const paths = workflow.on.pull_request.paths;
+  assert.deepEqual(workflow.on.push.paths, paths);
+  assert.ok(Object.hasOwn(workflow.on, "workflow_dispatch"));
+
+  const runsRust = (file) =>
+    paths.some((pattern) => path.posix.matchesGlob(file, pattern));
+
+  for (const file of [
+    "apps/machine/src/main.rs",
+    "crates/machine-core/src/lib.rs",
+    "Cargo.lock",
+    "clippy.toml",
+    ".cargo/config.toml",
+    "packages/machine-protocol/proto/protocol.json",
+    ".github/workflows/rust.yml",
+  ]) {
+    assert.ok(runsRust(file), file);
+  }
+
+  for (const file of [
+    "docs/development/testing.md",
+    "apps/web/app/page.tsx",
+    "apps/api/package.json",
+    "packages/machine-protocol/src/generated/machine_pb.ts",
+  ]) {
+    assert.equal(runsRust(file), false, file);
+  }
+});
+
 test("CLI preserves NUL-delimited filenames and reports a job output", () => {
   const result = spawnSync(process.execPath, ["scripts/ci-product-scope.mjs"], {
     input:

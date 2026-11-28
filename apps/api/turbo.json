@@ -35,8 +35,19 @@
     // `pnpm dev` starts the local Machine from its static binary, and the
     // helper registers the tree as a root before Nest boot.
     "dev": { "dependsOn": ["^build", "machine#build"] },
-    "lint": { "dependsOn": ["^build"] },
-    "typecheck": { "dependsOn": ["^build"] },
+    // Lint and typecheck resolve compiled TypeScript imports. Runtime tests,
+    // builds, and dev also need the Machine daemon's native executable.
+    "build:static-dependencies": {
+      "dependsOn": [
+        "@workspace/config-interpolation#build",
+        "@workspace/machine-protocol#build",
+        "@workspace/mcp-workspace#build",
+        "@workspace/native-file-tools#build",
+        "@workspace/runtime-safety#build"
+      ]
+    },
+    "lint": { "dependsOn": ["build:static-dependencies"] },
+    "typecheck": { "dependsOn": ["build:static-dependencies"] },
     "test": { "dependsOn": ["^build"] }
   }
 }

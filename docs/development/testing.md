@@ -180,46 +180,31 @@ stays red until its findings are fixed.
 
 ## CI mapping
 
-Each stage is a reusable workflow that `.github/workflows/ci.yml` calls:
+The product CI workflow runs typecheck and calls the Build, Tests, Mutation
+testing, and Product e2e workflows. Each supports manual dispatch. For
+Mutation testing, supply the base revision whose changes you want to measure.
 
-```text
-typecheck
-test      (test.yml)      workspace legs; api shards -> api merge
-mutation  (mutation.yml)  API shards -> API gate; small workspaces
-build     (build.yml)     every workspace + generated-diff check
-e2e       (e2e.yml)       Playwright; builds the web app itself
-dast      (dast.yml)      build API -> Schemathesis legs, ZAP
-```
+On pull requests and pushes, one job checks the Git diff before the product
+jobs start in parallel. It uses the runner's Node and skips workspace
+installation. Changes limited to documentation, OpenSpec, or agent
+instructions skip product checks. Unknown paths, runtime prompts under
+`apps/api/src/prompts/`, dependencies, and build configuration run them.
+The detector checks both paths on renames and the full range on pushes.
+Typecheck and Build run on their own nightly schedules.
 
-On pull requests and pushes, a lightweight change-scope job runs before the
-product stages. The detector uses `.node-version` without installing workspace
-dependencies, and empty or malformed output fails the scope job rather than
-disabling checks. Documentation (`docs/`, root Markdown), OpenSpec, harness
-configuration and instruction files alone skip typecheck, tests, mutation,
-build, E2E and DAST. Unknown paths, runtime prompts under
-`apps/api/src/prompts/`, dependencies and build configuration keep those gates
-enabled. Renames inspect both old and new paths, and pushes inspect the entire
-push rather than only its last commit. Scheduled and manual runs retain their
-existing product stages. Once admitted, stages start together; only the scanners
-wait for their own API build.
-The required fixed-name checks report skipped. Required workspace matrix checks
-retain their names through lightweight jobs with all steps and browser
-containers disabled; skipping a whole reusable workflow would omit those names
-and block the repository's required-check ruleset.
+Fixed-name required jobs report as skipped when product work is out of scope.
+Required matrix jobs retain their check names with no test steps or browser
+containers.
 
-- Lint workflow: Oxlint, formatting, anti-slop rules, Markdown, OpenAPI, Knip,
-  jscpd, Halstead difficulty, and strict OpenSpec validation inside the required
-  `Lint` job, using the root manifest's pinned CLI.
-  `pnpm exec openspec validate --all --strict
-  --no-interactive` validates all active proposals and canonical specs after
-  modification, synchronization or archive; it does not require active proposal
-  tasks to be complete or revalidate historical archived deltas. These static
-  checks still run for documentation-only changes.
-- Workflow lint: actionlint, zizmor, pinact.
-- CI: typecheck; a `test` stage with one leg per workspace running its
-  `test:coverage` (thresholds, and CRAP where the script adds it), with the
-  `web`/`ui` legs in the Playwright image; build plus generated-diff check; API
-  DAST; mutation; production Playwright.
+- Lint runs Oxlint, Markdown, API contract checks, dead code, duplication,
+  Halstead difficulty, and strict OpenSpec validation. Format and Workflow
+  lint run separately. These checks also run on documentation-only changes.
+- Rust runs on changes to the daemon, crates, Cargo configuration, or shared
+  protocol inputs. Formatting, Clippy, tests, and the two musl builds run in
+  parallel. Run `pnpm lint:rust` locally for rustfmt and strict Clippy.
+- API DAST starts independently on relevant changes, on its nightly schedule,
+  or by manual dispatch. Schemathesis and ZAP each wait for the API build
+  artifact and then start in parallel.
 - The api suite runs as four Vitest shards (`test:coverage:shard`), each on
   its own Testcontainers Postgres, with thresholds off. They upload blob
   reports, and the `api` job merges them (`test:coverage:merge`), so

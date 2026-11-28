@@ -1,0 +1,103 @@
+name: Rust
+
+on:
+  pull_request:
+    paths:
+      - "apps/machine/**"
+      - "crates/**"
+      - "Cargo.*"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "packages/machine-protocol/proto/**"
+      - ".github/actions/setup-rust/**"
+      - ".github/workflows/rust.yml"
+  push:
+    branches: [master]
+    paths:
+      - "apps/machine/**"
+      - "crates/**"
+      - "Cargo.*"
+      - "clippy.toml"
+      - "rustfmt.toml"
+      - "rust-toolchain.toml"
+      - ".cargo/**"
+      - "packages/machine-protocol/proto/**"
+      - ".github/actions/setup-rust/**"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Rust format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - run: cargo fmt --all --check
+
+  clippy:
+    name: Rust Clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+
+      - run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+  test:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+
+      - run: cargo test --locked --workspace --all-features
+
+  release:
+    name: Machine release (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            compiler: cc
+          - target: aarch64-unknown-linux-musl
+            compiler: aarch64-linux-gnu-gcc
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Install the ARM cross C compiler for ring
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross
+
+      - name: Build the static daemon
+        env:
+          RUST_TARGET: ${{ matrix.target }}
+          TARGET_CC: ${{ matrix.compiler }}
+        run: cargo build --locked --release -p llame-machine --target "$RUST_TARGET"

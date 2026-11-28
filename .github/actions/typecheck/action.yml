@@ -1,0 +1,13 @@
+name: Typecheck workspace
+description: Install workspace dependencies and run the full TypeScript typecheck.
+
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/setup
+      with:
+        turbo-cache: typecheck
+
+    # tsgo checks tests, which nest build and Next's bundled checks exclude.
+    - run: pnpm exec turbo run typecheck
+      shell: bash
