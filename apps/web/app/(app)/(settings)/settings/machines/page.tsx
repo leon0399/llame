@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { PlusIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -6,6 +7,8 @@ import { SectionPage } from "@/app/shell/section-rail";
 import { SoonChip } from "@/app/shell/soon-chip";
 
 import { MachinesSection } from "../components/machines-section";
+
+export const metadata: Metadata = { title: "Machines" };
 
 /** Shared Machines today; the owner's own Machines are a visible placeholder.
  *  TODO(#1994): owners adding Machines only they can use. */

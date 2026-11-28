@@ -7,3 +7,5 @@
 - Sign-in and sign-up show the product's name, use the phone's width, and
   drop template copy (a "Login" title, a sample Gmail address, masked placeholders).
 - Search (⌘/Ctrl+K) offers Keyboard shortcuts beside Settings.
+- Settings and Administration pages have browser titles ("Appearance ·
+  Settings · llame"), and fixed shortcuts' keys meet text contrast.
