@@ -61,11 +61,7 @@ function nextKnowledgeSpaceCursor(
 /** The HTTP and owner-scoped management capability exposed by this service. */
 export type KnowledgeSpaceManagement = Pick<
   KnowledgeSpaceService,
-  | 'provisionForOwner'
-  | 'listForOwner'
-  | 'getForOwner'
-  | 'renameForOwner'
-  | 'setArchiveForOwner'
+  'provisionForOwner' | 'listForOwner' | 'getForOwner' | 'updateForOwner'
 >;
 
 /** Trusted worker-side binding resolution, never an HTTP response shape. */
@@ -206,6 +202,43 @@ export class KnowledgeSpaceService {
     return space === undefined
       ? undefined
       : toKnowledgeSpaceApiProjection(space);
+  }
+
+  /**
+   * Apply a name, an archive flag, both, or neither. An empty patch returns
+   * the current row. Unarchive happens before a rename so a restored Space
+   * can take a new name in the same request. Archive happens after a rename.
+   * A missing or other-owner id returns undefined. A rename of a Space that
+   * stays archived throws 409.
+   */
+  async updateForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+    input: { name?: string; archived?: boolean },
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    if (input.archived === false) {
+      const restored = await this.setArchiveForOwner(
+        ownerUserId,
+        knowledgeSpaceId,
+        false,
+      );
+
+      if (restored === undefined) return undefined;
+    }
+
+    if (input.name !== undefined) {
+      const renamed = await this.renameForOwner(ownerUserId, knowledgeSpaceId, {
+        name: input.name,
+      });
+
+      if (renamed === undefined) return undefined;
+    }
+
+    if (input.archived === true) {
+      return this.setArchiveForOwner(ownerUserId, knowledgeSpaceId, true);
+    }
+
+    return this.getForOwner(ownerUserId, knowledgeSpaceId);
   }
 
   /**

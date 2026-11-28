@@ -81,10 +81,11 @@ export class CreateKnowledgeSpaceDto {
 
 export class UpdateKnowledgeSpaceDto {
   @ApiPropertyOptional({ pattern: NAME_PATTERN })
-  @ValidateIf((dto: UpdateKnowledgeSpaceDto) => dto.archived === undefined)
-  @IsDefined()
+  @ValidateIf((dto: UpdateKnowledgeSpaceDto) => dto.name !== undefined)
   @IsString()
-  @Transform(({ value }) => (isString(value) ? value.trim() : undefined))
+  @Transform(({ value }: { value: unknown }) =>
+    isString(value) ? value.trim() : value,
+  )
   @Validate(KnowledgeSpaceNameConstraint)
   name?: string;
 
@@ -155,6 +156,11 @@ export class KnowledgeSpaceCollectionResponse {
   nextCursor!: string | null;
 }
 
+/**
+ * A rename or an archive flag, never both and never neither. Schemathesis
+ * treats every schema-valid body as acceptable, so the operation schema must
+ * match the runtime rule.
+ */
 export class KnowledgeSpaceUnavailableResponse {
   @ApiProperty()
   statusCode!: number;

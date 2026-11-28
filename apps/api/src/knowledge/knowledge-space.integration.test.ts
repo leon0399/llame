@@ -384,11 +384,17 @@ d('Knowledge Spaces REST API', () => {
       .send({ name: 'Renamed while archived' })
       .expect(409);
 
-    await request(http)
+    const restoredWithName = await request(http)
       .patch(`/api/v1/knowledge-spaces/${space.id}`)
       .set('Cookie', cookieA)
       .send({ name: 'Renamed', archived: false })
-      .expect(400);
+      .expect(200);
+
+    expect(restoredWithName.body).toMatchObject({
+      id: space.id,
+      name: 'Renamed',
+      archivedAt: null,
+    });
 
     const missing = await request(http)
       .patch(`/api/v1/knowledge-spaces/${crypto.randomUUID()}`)

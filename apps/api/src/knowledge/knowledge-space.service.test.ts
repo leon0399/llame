@@ -1,4 +1,3 @@
-import { ConflictException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
@@ -187,10 +186,110 @@ describe('KnowledgeSpaceService', () => {
 
     await expect(
       service.renameForOwner('owner-a', SPACE_ID, { name: 'Renamed' }),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
     expect(updateName).not.toHaveBeenCalled();
     expect(localResolver.ensureChild).not.toHaveBeenCalled();
     expect(localResolver.resolveChild).not.toHaveBeenCalled();
+  });
+
+  it('renames an active space after confirming it is not archived', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwner',
+    ).mockResolvedValue(SPACE);
+
+    const updateName = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'updateName')
+      .mockResolvedValue({ ...SPACE, name: 'Field notes' });
+
+    await expect(
+      service.renameForOwner('owner-a', SPACE_ID, { name: 'Field notes' }),
+    ).resolves.toMatchObject({
+      id: SPACE_ID,
+      name: 'Field notes',
+      archivedAt: null,
+    });
+    expect(updateName).toHaveBeenCalledWith(SPACE_ID, 'owner-a', 'Field notes');
+  });
+
+  it('applies archive and rename in an order that keeps a restored name', async () => {
+    const { service } = makeService('/srv/knowledge');
+    const order: Array<string> = [];
+
+    const projection = {
+      id: SPACE_ID,
+      name: 'Field notes',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+      archivedAt: null,
+    };
+
+    vi.spyOn(service, 'setArchiveForOwner').mockImplementation(
+      (_owner, _id, archived) => {
+        order.push(archived ? 'archive' : 'restore');
+
+        return Promise.resolve({
+          ...projection,
+          archivedAt: archived ? new Date() : null,
+        });
+      },
+    );
+    vi.spyOn(service, 'renameForOwner').mockImplementation(() => {
+      order.push('rename');
+
+      return Promise.resolve(projection);
+    });
+    const get = vi.spyOn(service, 'getForOwner').mockResolvedValue(projection);
+
+    await service.updateForOwner('owner-a', SPACE_ID, {
+      name: 'Field notes',
+      archived: false,
+    });
+    await service.updateForOwner('owner-a', SPACE_ID, {
+      name: 'Field notes',
+      archived: true,
+    });
+    await service.updateForOwner('owner-a', SPACE_ID, { name: 'Field notes' });
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {}),
+    ).resolves.toEqual(projection);
+
+    expect(order).toEqual(['restore', 'rename', 'rename', 'archive', 'rename']);
+    expect(get).toHaveBeenCalledWith('owner-a', SPACE_ID);
+  });
+
+  it('stops when a rename finds no Space', async () => {
+    const { service } = makeService('/srv/knowledge');
+    const setArchive = vi.spyOn(service, 'setArchiveForOwner');
+    vi.spyOn(service, 'renameForOwner').mockResolvedValue(undefined);
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {
+        name: 'Field notes',
+        archived: true,
+      }),
+    ).resolves.toBeUndefined();
+    expect(setArchive).not.toHaveBeenCalled();
+  });
+
+  it('stops when the Space is missing before a later rename', async () => {
+    const { service } = makeService('/srv/knowledge');
+    const rename = vi.spyOn(service, 'renameForOwner');
+    vi.spyOn(service, 'setArchiveForOwner').mockResolvedValue(undefined);
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {
+        name: 'Field notes',
+        archived: false,
+      }),
+    ).resolves.toBeUndefined();
+    expect(rename).not.toHaveBeenCalled();
   });
 
   it('archives without resolving or creating a directory', async () => {

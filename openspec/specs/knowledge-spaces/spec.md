@@ -8,7 +8,7 @@ Defines self-service owner-scoped personal Knowledge Spaces, stable identity, tr
 
 ### Requirement: An owner can manage multiple personal Knowledge Spaces
 
-The system MUST expose owner-scoped Knowledge Space resources at `/api/v1/knowledge-spaces`. The owner identity MUST come only from the authenticated request. `POST /api/v1/knowledge-spaces` MUST accept only `{ "name": string }`. A successful create MUST return `201 Created` and a `Location` header. The create MUST allocate a new globally stable opaque identifier. `GET /api/v1/knowledge-spaces` MUST return a cursor-paginated owner inventory. `GET /api/v1/knowledge-spaces/:id` MUST return one owned resource, archived or active. `PATCH /api/v1/knowledge-spaces/:id` MUST accept a name or an archive flag, and not both. The capability MUST expose no `PUT` or `DELETE` operation.
+The system MUST expose owner-scoped Knowledge Space resources at `/api/v1/knowledge-spaces`. The owner identity MUST come only from the authenticated request. `POST /api/v1/knowledge-spaces` MUST accept only `{ "name": string }`. A successful create MUST return `201 Created` and a `Location` header. The create MUST allocate a new globally stable opaque identifier. `GET /api/v1/knowledge-spaces` MUST return a cursor-paginated owner inventory. `GET /api/v1/knowledge-spaces/:id` MUST return one owned resource, archived or active. `PATCH /api/v1/knowledge-spaces/:id` MUST accept a name, an archive flag, or both. An empty patch MUST leave the Space unchanged. A name that is not a string MUST return `400`. The capability MUST expose no `PUT` or `DELETE` operation.
 
 Each representation MUST contain exactly `id`, `name`, `createdAt`, `updatedAt`, and `archivedAt`. The representation MUST NOT expose an owner identifier, root, child path, source locator, or content. `archivedAt` MUST be `null` while the Space is active. A name MUST be trimmed. A name MUST contain 1 through 100 Unicode code points. A name MUST NOT contain a control, format, line-separator, or paragraph-separator character. A name can duplicate another owned Space name. Stable identifiers MUST drive authorization, local binding, tool selection, and attribution. This iteration MUST NOT impose a per-owner Knowledge Space count cap.
 
@@ -61,7 +61,7 @@ An omitted archive filter MUST exclude archived Spaces. `archived=only` MUST ret
 
 ### Requirement: Archive keeps the Knowledge Space directory
 
-An owner MUST be able to archive and unarchive an owned Knowledge Space. Archive MUST set `archivedAt` to the current time. Unarchive MUST set `archivedAt` to `null`. Archive and unarchive MUST NOT create, change, or delete a file under the Knowledge root. A rename of an archived Space MUST return `409`.
+An owner MUST be able to archive and unarchive an owned Knowledge Space. Archive MUST set `archivedAt` to the current time. Unarchive MUST set `archivedAt` to `null`. Archive and unarchive MUST NOT create, change, or delete a file under the Knowledge root. A rename of an archived Space MUST return `409` unless that request also unarchives it.
 
 #### Scenario: Archive leaves the directory in place
 

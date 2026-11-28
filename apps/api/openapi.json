@@ -3193,7 +3193,7 @@
             }
           },
           "400": {
-            "description": "Malformed id, or not exactly one of name or archived"
+            "description": "Malformed id or name"
           },
           "401": {
             "description": ""

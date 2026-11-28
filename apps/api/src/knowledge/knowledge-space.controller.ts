@@ -157,7 +157,7 @@ export class KnowledgeSpaceController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: KnowledgeSpaceResponse })
   @ApiBadRequestResponse({
-    description: 'Malformed id, or not exactly one of name or archived',
+    description: 'Malformed id or name',
   })
   @ApiConflictResponse({
     description: 'The Knowledge Space is archived and the update renames it.',
@@ -169,8 +169,7 @@ export class KnowledgeSpaceController {
     @Param('id', ParseUUIDPipe) knowledgeSpaceId: string,
     @Body() input: UpdateKnowledgeSpaceDto,
   ): Promise<KnowledgeSpaceResponse> {
-    const space = await applyKnowledgeSpaceUpdate(
-      this.knowledgeSpace,
+    const space = await this.knowledgeSpace.updateForOwner(
       ownerUserId,
       knowledgeSpaceId,
       input,
@@ -180,29 +179,6 @@ export class KnowledgeSpaceController {
 
     return toKnowledgeSpaceResponse(space);
   }
-}
-
-function applyKnowledgeSpaceUpdate(
-  knowledgeSpace: KnowledgeSpaceManagement,
-  ownerUserId: string,
-  knowledgeSpaceId: string,
-  input: UpdateKnowledgeSpaceDto,
-) {
-  if (input.name !== undefined && input.archived === undefined) {
-    return knowledgeSpace.renameForOwner(ownerUserId, knowledgeSpaceId, {
-      name: input.name,
-    });
-  }
-
-  if (input.archived !== undefined && input.name === undefined) {
-    return knowledgeSpace.setArchiveForOwner(
-      ownerUserId,
-      knowledgeSpaceId,
-      input.archived,
-    );
-  }
-
-  throw new BadRequestException('Provide exactly one of name or archived.');
 }
 
 function knowledgeSpaceNotFound(): NotFoundException {

@@ -1,3 +1,5 @@
+import { type SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type KnowledgeSpace } from '../db/schema/knowledge-spaces';
@@ -132,5 +134,87 @@ describe('KnowledgeSpaceRepository.createOrGet', () => {
       'select:ordered',
     ]);
     expect(onConflict).toHaveBeenCalledWith();
+  });
+});
+
+type ArchiveWrite = {
+  archivedAt: Date | null;
+  updatedAt: Date;
+};
+
+const dialect = new PgDialect();
+
+function sqlText(clause: SQL): string {
+  return dialect.sqlToQuery(clause).sql;
+}
+
+describe('KnowledgeSpaceRepository archive scope', () => {
+  function listDb() {
+    const wheres: Array<SQL> = [];
+    const db = drizzle.mock();
+    Object.assign(db, {
+      select: () => ({
+        from: () => ({
+          where: (clause: SQL) => {
+            wheres.push(clause);
+
+            return {
+              orderBy: () => ({
+                limit: () => Promise.resolve([]),
+              }),
+            };
+          },
+        }),
+      }),
+    });
+
+    return { db, wheres };
+  }
+
+  it('filters the page by archive scope', async () => {
+    const { db, wheres } = listDb();
+    const repository = new KnowledgeSpaceRepository(db);
+
+    await repository.listForOwnerPage(OWNER_ID, 10, undefined, 'only');
+    await repository.listForOwnerPage(OWNER_ID, 10, undefined, 'with');
+    await repository.listForOwnerPage(OWNER_ID, 10);
+
+    const [only, both, active] = wheres;
+
+    if (only === undefined || both === undefined || active === undefined) {
+      throw new Error('Expected three archive-scope queries');
+    }
+
+    expect(sqlText(only)).toContain('is not null');
+    expect(sqlText(both)).not.toContain('archived_at');
+    expect(sqlText(active)).toContain('is null');
+    expect(sqlText(active)).not.toContain('is not null');
+  });
+
+  it('writes archivedAt when archiving and clears it when restoring', async () => {
+    const sets: Array<ArchiveWrite> = [];
+    const db = drizzle.mock();
+    Object.assign(db, {
+      update: () => ({
+        set: (value: ArchiveWrite) => {
+          sets.push(value);
+
+          return {
+            where: () => ({
+              returning: () => Promise.resolve([]),
+            }),
+          };
+        },
+      }),
+    });
+    const repository = new KnowledgeSpaceRepository(db);
+
+    await repository.setArchived(SPACE_ID, OWNER_ID, true);
+    await repository.setArchived(SPACE_ID, OWNER_ID, false);
+
+    expect(sets[0]?.archivedAt).toBeInstanceOf(Date);
+    expect(sets[0]?.updatedAt).toBeInstanceOf(Date);
+    expect(sets[1]?.archivedAt).toBeNull();
+    expect(sets[1]?.updatedAt).toBeInstanceOf(Date);
   });
 });
