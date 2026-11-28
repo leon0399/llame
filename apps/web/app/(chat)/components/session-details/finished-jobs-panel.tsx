@@ -302,7 +302,7 @@ export function FinishedJobsPanel({
       ref={ref}
       tabIndex={-1}
       aria-labelledby={headingId}
-      className="flex min-w-0 flex-col border-sidebar-border bg-background text-foreground outline-none max-md:absolute max-md:inset-0 max-md:z-10 md:w-(--finished-jobs-width) md:shrink-0 md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
+      className="flex min-w-0 flex-col border-sidebar-border bg-background text-foreground outline-none @max-md:absolute @max-md:inset-0 @max-md:z-10 @md:w-(--finished-jobs-width) @md:shrink-0 @md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
     >
       <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
         <h2 id={headingId} className="flex items-baseline gap-2 text-sm">
