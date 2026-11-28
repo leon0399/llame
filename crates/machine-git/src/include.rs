@@ -79,7 +79,7 @@ fn failed_at(phrase: &'static str, path: &[u8]) -> SeedError {
 pub async fn seed(source: &Path, destination: &Path, deadline: Instant) -> Result<(), SeedError> {
     let source_root = rustix::fs::open(source, directory_flags(), Mode::empty())
         .map_err(|_| failed("copy source cannot be opened"))?;
-    let Some(destination_root) = bind_root(destination) else {
+    let Some(destination_root) = bind_root(destination)? else {
         return Ok(());
     };
     let Some(matcher) = read_manifest(&source_root, source)? else {
@@ -104,12 +104,16 @@ fn directory_flags() -> OFlags {
 }
 
 /// Opens the new worktree root without following a link and requires its real path to equal the
-/// requested one.
-fn bind_root(destination: &Path) -> Option<OwnedFd> {
-    let root = rustix::fs::open(destination, directory_flags(), Mode::empty()).ok()?;
-    let real =
-        rustix::fs::readlink(format!("/proc/self/fd/{}", root.as_raw_fd()), Vec::new()).ok()?;
-    (Path::new(OsStr::from_bytes(real.to_bytes())) == destination).then_some(root)
+/// requested one. `None` is a moved root; a root whose real path cannot be established fails.
+fn bind_root(destination: &Path) -> Result<Option<OwnedFd>, SeedError> {
+    let root = match rustix::fs::open(destination, directory_flags(), Mode::empty()) {
+        Ok(root) => root,
+        Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => return Ok(None),
+        Err(_) => return Err(failed("worktree root cannot be opened")),
+    };
+    let real = rustix::fs::readlink(format!("/proc/self/fd/{}", root.as_raw_fd()), Vec::new())
+        .map_err(|_| failed("worktree root cannot be resolved"))?;
+    Ok((Path::new(OsStr::from_bytes(real.to_bytes())) == destination).then_some(root))
 }
 
 /// `None` for an absent manifest or one that holds no pattern.
@@ -526,7 +530,7 @@ mod tests {
     }
     fn copy(fixture: &Fixture, relative: &str) -> Result<(), SeedError> {
         let source = rustix::fs::open(&fixture.source, directory_flags(), Mode::empty()).unwrap();
-        let destination = bind_root(&fixture.destination).unwrap();
+        let destination = bind_root(&fixture.destination).unwrap().unwrap();
         copy_file(
             &source,
             &destination,
@@ -651,7 +655,7 @@ mod tests {
         let f = fixture();
         fs::write(f.source.join(".env"), vec![b'x'; 200_000]).unwrap();
         let source = rustix::fs::open(&f.source, directory_flags(), Mode::empty()).unwrap();
-        let destination = bind_root(&f.destination).unwrap();
+        let destination = bind_root(&f.destination).unwrap().unwrap();
         let result = copy_file(&source, &destination, b".env", Instant::now());
         assert!(matches!(result, Err(SeedError::TimedOut)));
         assert!(!f.destination.join(".env").exists());
@@ -661,14 +665,19 @@ mod tests {
     #[test]
     fn destination_root_is_bound_by_real_path() {
         let f = fixture();
-        assert!(bind_root(&f.destination).is_some());
+        assert!(bind_root(&f.destination).unwrap().is_some());
         let alias = f.outside.join("alias");
         symlink(&f.destination, &alias).unwrap();
-        assert!(bind_root(&alias).is_none(), "a final link is not followed");
+        assert!(
+            bind_root(&alias).unwrap().is_none(),
+            "a final link is not followed"
+        );
         let parent_link = f.outside.join("parent");
         symlink(f.destination.parent().unwrap(), &parent_link).unwrap();
         assert!(
-            bind_root(&parent_link.join("destination")).is_none(),
+            bind_root(&parent_link.join("destination"))
+                .unwrap()
+                .is_none(),
             "a link in the path makes the real path differ"
         );
     }
