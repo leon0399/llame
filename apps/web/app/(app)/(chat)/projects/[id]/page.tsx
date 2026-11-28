@@ -269,7 +269,7 @@ export default function ProjectPage() {
         title={data.loading ? "…" : (data.project?.name ?? "Project not found")}
       />
 
-      <div className="flex-1 overflow-y-auto px-8 py-7">
+      <div className="flex-1 overflow-y-auto px-3 py-6 md:px-5">
         <div className="mx-auto max-w-6xl">
           <ProjectPageBody
             data={data}
