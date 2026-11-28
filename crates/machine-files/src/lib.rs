@@ -44,12 +44,13 @@ impl FileService for Files {
         request: Request<ListDirectoryRequest>,
     ) -> Result<Response<ListDirectoryResponse>, Status> {
         let request = request.into_inner();
-        Ok(Response::new(read::list_directory(
-            &self.context,
-            &request.path,
-            request.offset,
-            request.limit,
-        )?))
+        let context = self.context.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            read::list_directory(&context, &request.path, request.offset, request.limit)
+        })
+        .await
+        .map_err(|_| Status::internal("directory listing task panicked"))??;
+        Ok(Response::new(response))
     }
     type ReadBytesStream = Stream<ReadBytesResponse>;
     async fn read_bytes(
