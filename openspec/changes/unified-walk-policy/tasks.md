@@ -51,7 +51,7 @@ this policy, which closes #1654 and #1655.
 - [x] 1.2 Widen the walk's `.git` check (`Walker::push_children`) to the fixed set, silent, so no fixed-set entry is opened, reported as `ignored`, or skipped as a link. Verify one test per new name in `apps/machine/tests/search.rs`, a test that a gitignored `node_modules` is not reported, and that an explicit scope inside `node_modules` still searches it.
 - [x] 1.3 Add the glossary term "Walk policy" to `docs/product/glossary.md` with its avoid-list, update `docs/product/reference/tools/grep.md` where it names the `.git` prune, and add `.changeset/unified-walk-policy.md` that states the narrowing and tells operators to update every Machine daemon with the release. Verify `pnpm lint:markdown`.
 - [x] 1.4 Verify the layer: `pnpm --filter machine test`, `pnpm --filter machine lint`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1893`.
-- [ ] 1.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+- [x] 1.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 1.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 2. listing
