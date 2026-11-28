@@ -80,9 +80,10 @@ test.describe("anonymous auth flows", () => {
     await page.goto("/login?callbackUrl=%2Fsettings");
     await loginViaUi(page, account);
 
-    await expect(page).toHaveURL(/\/settings$/);
+    // `/settings` opens its first section.
+    await expect(page).toHaveURL(/\/settings\/account$/);
     await expect(
-      page.getByRole("heading", { name: /^settings$/i }),
+      page.getByRole("heading", { name: /^account & security$/i }),
     ).toBeVisible();
   });
 
