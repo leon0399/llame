@@ -42,7 +42,8 @@ export function SearchList({
   return (
     // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- the listener only stops propagation; cmdk's own input and items are the interactive parts
     <div onKeyDown={keepKeysInside}>
-      <Command>
+      {/* cmdk names its input with this hidden label. */}
+      <Command label={placeholder}>
         <CommandInput
           placeholder={placeholder}
           // Deliberate: the list opens to be searched, so typing starts at
@@ -52,7 +53,9 @@ export function SearchList({
         />
         <CommandList>
           {first}
-          {children}
+          {/* cmdk sorts a search's matching groups to the end of their
+              parent; their own container keeps them above `last`. */}
+          <div>{children}</div>
           <CommandEmpty>No matches.</CommandEmpty>
           {last}
         </CommandList>

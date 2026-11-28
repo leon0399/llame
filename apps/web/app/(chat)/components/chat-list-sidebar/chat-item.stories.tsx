@@ -751,6 +751,11 @@ export const ProjectMenuFilter: Story = {
       await waitFor(() =>
         expect(screen.queryByRole("option", { name: /^Work/ })).toBeNull(),
       );
+      // cmdk sorts matching groups to the end of their parent: the match
+      // must stay between the kept entries, not drop below "New project".
+      await expect(
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["No project", "Research", "New project"]);
     });
 
     await step(
