@@ -593,7 +593,7 @@ const PENDING_MESSAGE: UIMessage = {
 
 /**
  * The accepted turn before any model output: the last row of a chat in flight
- * shimmers "Thinking…" in place of the empty bubble it would otherwise paint.
+ * shimmers a thinking verb ("Pondering…") in place of the empty bubble it would otherwise paint.
  *
  * @summary the pending indicator on the turn being produced
  */
@@ -603,9 +603,13 @@ export const PendingIndicator: Story = {
   play: async ({ canvas }) => {
     // The row withholds its content until the Streamdown-backed renderers
     // load, so the first query waits on that chunk like the sibling stories.
-    await waitFor(() => expect(canvas.getByText("Thinking…")).toBeVisible(), {
-      timeout: 15_000,
-    });
+    await waitFor(
+      () =>
+        expect(canvas.getByRole("status", { name: "Thinking" })).toBeVisible(),
+      {
+        timeout: 15_000,
+      },
+    );
   },
 };
 
@@ -639,7 +643,7 @@ export const OverloadedProvider: Story = {
         timeout: 15_000,
       },
     );
-    await expect(canvas.queryByText("Thinking…")).toBeNull();
+    await expect(canvas.queryByRole("status", { name: "Thinking" })).toBeNull();
   },
 };
 
@@ -699,7 +703,7 @@ export const HiddenPlaceholderKeepsBoundary: Story = {
       () => expect(canvas.getByText("Compaction checkpoint")).toBeVisible(),
       { timeout: 15_000 },
     );
-    await expect(canvas.queryByText("Thinking…")).toBeNull();
+    await expect(canvas.queryByRole("status", { name: "Thinking" })).toBeNull();
   },
 };
 

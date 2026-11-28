@@ -81,7 +81,9 @@ test.describe("Esc during a Run", () => {
       })
       .toBe(true);
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
-    await expect(page.getByText("Thinking…")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("status", { name: "Thinking" })).toBeVisible({
+      timeout: 15_000,
+    });
 
     // The Run is active: Send is the split button, and Queue is its own choice.
     await input.fill("queued while the Run works");

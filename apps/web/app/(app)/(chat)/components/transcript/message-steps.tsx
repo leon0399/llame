@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import { dedicatedToolRow } from "./dedicated-tool-row";
 import type { GroupedSteps, StepSegment } from "./group-assistant-parts";
+import { useThinkingVerb } from "./use-thinking-verb";
 import type { ChatMarkdownRenderers } from "../session/use-chat-markdown-ready";
 
 // The steps of a reply: its thinking and its tool calls, as trace lines.
@@ -94,13 +95,25 @@ function ReasoningPanel({
   renderers: ChatMarkdownRenderers;
 }) {
   const ReasoningContent = renderers.ReasoningContent;
+  const verb = useThinkingVerb(isStreaming);
 
   return (
     <Reasoning isStreaming={isStreaming} title={latestReasoningHeading(text)}>
-      <ReasoningTrigger />
+      <ReasoningTrigger
+        getThinkingMessage={(streaming, duration) =>
+          streaming ? verb : thoughtLabel(duration)
+        }
+      />
       <ReasoningContent>{text}</ReasoningContent>
     </Reasoning>
   );
+}
+
+/** The finished thought's label, as the trigger's default words it. */
+function thoughtLabel(duration: number | undefined): string {
+  return duration === undefined || duration === 0
+    ? "Thought"
+    : `Thought for ${duration}s`;
 }
 
 /** A tool call/result: its dedicated row, else the generic tool block. */
