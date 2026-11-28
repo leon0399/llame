@@ -489,7 +489,9 @@ function useDeliveryState(
   status: ChatStatus,
   latestRun: ChatLatestRunResponse | null,
 ) {
-  const items = useChatDeliveries(chatId, exists);
+  // A draft's first message shows before the server has stored the Chat;
+  // until the send is accepted there is nothing to list, only a 404.
+  const items = useChatDeliveries(chatId, exists && status !== "submitted");
   const runActive = isRunActive({ status, latestRun });
 
   return {
