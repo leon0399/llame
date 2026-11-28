@@ -6,7 +6,6 @@ import {
   HardDriveIcon,
 } from "lucide-react";
 
-import { Badge } from "@workspace/ui/components/badge";
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent } from "@workspace/ui/components/card";
 import {
@@ -241,25 +240,46 @@ export function MachineResources({
   );
 }
 
-/** The daemon's version, and, when it is older than the hub's, that fact
- *  and the update beside it, so the three read as one thing. The update is
- *  not built yet: a visible, disabled button (apps/web AGENTS.md). */
+/** "daemon 0.6.1, outdated" in the row's meta line: the version every row
+ *  shows, and the one word that differs when the hub is newer. */
 function DaemonVersion({ machine }: { machine: MachineResponse }) {
   if (machine.daemonVersion === null) return null;
 
   return (
-    <span className="flex shrink-0 items-center gap-1.5">
-      <code className="font-mono text-xs text-muted-foreground">
-        v{machine.daemonVersion}
-      </code>
+    <>
+      {" · daemon "}
+      {machine.daemonVersion}
       {machineOutdated(machine) ? (
-        <>
-          <Badge variant="outline">Outdated</Badge>
-          <Button variant="outline" size="xs" disabled>
-            <ArrowUpCircleIcon aria-hidden="true" />
-            Update
-          </Button>
-        </>
+        <span className="text-foreground">, outdated</span>
+      ) : null}
+    </>
+  );
+}
+
+/** The row's actions at its end: Update for an older daemon, then the use
+ *  switch. Neither is built yet, so both are visible and disabled (apps/web
+ *  AGENTS.md); the section above the list says they are coming. */
+function MachineActions({
+  machine,
+  choosable,
+}: {
+  machine: MachineResponse;
+  choosable: boolean;
+}) {
+  return (
+    <span className="flex h-6 shrink-0 items-center gap-3">
+      {machineOutdated(machine) ? (
+        <Button variant="outline" size="xs" disabled>
+          <ArrowUpCircleIcon aria-hidden="true" />
+          Update
+        </Button>
+      ) : null}
+      {choosable ? (
+        <Switch
+          checked
+          disabled
+          aria-label={`Use ${machine.name} (coming soon)`}
+        />
       ) : null}
     </span>
   );
@@ -273,25 +293,12 @@ function MachineHeader({
   choosable: boolean;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-        <h3 className="flex min-w-0 items-center gap-2 text-sm font-medium">
-          <MachineStatusDot status={machine.status} />
-          <span className="truncate">{machine.name}</span>
-        </h3>
-        <DaemonVersion machine={machine} />
-      </div>
-      {/* Not built yet: a visible, disabled switch; the section above the
-          list says it is coming. */}
-      {choosable ? (
-        <span className="flex h-6 shrink-0 items-center">
-          <Switch
-            checked
-            disabled
-            aria-label={`Use ${machine.name} (coming soon)`}
-          />
-        </span>
-      ) : null}
+    <div className="flex items-center gap-3">
+      <h3 className="flex min-h-6 min-w-0 flex-1 items-center gap-2 text-sm font-medium">
+        <MachineStatusDot status={machine.status} />
+        <span className="truncate">{machine.name}</span>
+      </h3>
+      <MachineActions machine={machine} choosable={choosable} />
     </div>
   );
 }
@@ -312,6 +319,7 @@ function MachineRow({
           {machine.facts === null
             ? null
             : ` · ${machine.facts.os} ${machine.facts.arch}`}
+          <DaemonVersion machine={machine} />
         </p>
       </div>
       <MachineResources machine={machine} />
