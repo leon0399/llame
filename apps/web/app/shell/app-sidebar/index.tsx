@@ -94,6 +94,23 @@ function AppSidebarTopBar({
   );
 }
 
+/** On mobile the rail is a sheet over the page: following any link in it,
+ *  including New chat to the page already open, puts the page back in view.
+ *  The rail wraps its content in a `contents` box to catch those clicks. */
+function useCloseSheetOnLink() {
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  return (event: React.MouseEvent) => {
+    if (
+      isMobile &&
+      event.target instanceof Element &&
+      event.target.closest("a[href]")
+    ) {
+      setOpenMobile(false);
+    }
+  };
+}
+
 /**
  * The primary rail, shared by every route group ((chat) and (admin)) — D1's
  * shell extraction. This component owns only presentation-agnostic pieces
@@ -111,41 +128,44 @@ export function AppSidebar({
   children?: React.ReactNode;
 }) {
   const { isMobile } = useSidebar();
+  const closeOnLink = useCloseSheetOnLink();
 
   return (
     <Sidebar collapsible="icon">
-      <AppSidebarTopBar isMobile={isMobile} topActions={topActions} />
+      <div className="contents" onClickCapture={closeOnLink}>
+        <AppSidebarTopBar isMobile={isMobile} topActions={topActions} />
 
-      <SidebarContent>
-        <AppSidebarNav />
+        <SidebarContent>
+          <AppSidebarNav />
 
-        {/* The rail's mixed chats+projects "Pinned" section (AppShell.dc.html),
+          {/* The rail's mixed chats+projects "Pinned" section (AppShell.dc.html),
             between the nav and the bottom-pinned admin entry. Hides itself when
             the caller has no pins, so it adds no chrome for a fresh account. */}
-        <AppSidebarPinned />
+          <AppSidebarPinned />
 
-        {/* Route-group-specific mobile fallback content (e.g. the chat list,
+          {/* Route-group-specific mobile fallback content (e.g. the chat list,
             desktop-only otherwise) — never rendered when the caller has none. */}
-        {isMobile && children && (
-          <>
-            <SidebarSeparator className="mx-0" />
-            {children}
-          </>
-        )}
-      </SidebarContent>
+          {isMobile && children && (
+            <>
+              <SidebarSeparator className="mx-0" />
+              {children}
+            </>
+          )}
+        </SidebarContent>
 
-      {/* Administration's own bottom-pinned group (AppShell.dc.html) — OUTSIDE
+        {/* Administration's own bottom-pinned group (AppShell.dc.html) — OUTSIDE
           the scrollable SidebarContent, directly above the user footer, not
           among the main nav items and not in the user menu. */}
-      <AppSidebarAdminEntry />
+        <AppSidebarAdminEntry />
 
-      {/* AppShell.dc.html separates the admin group from the profile block
+        {/* AppShell.dc.html separates the admin group from the profile block
           (border-top on the user footer). */}
-      <SidebarSeparator className="mx-0" />
+        <SidebarSeparator className="mx-0" />
 
-      <SidebarFooter>
-        <AppSidebarUser />
-      </SidebarFooter>
+        <SidebarFooter>
+          <AppSidebarUser />
+        </SidebarFooter>
+      </div>
     </Sidebar>
   );
 }
