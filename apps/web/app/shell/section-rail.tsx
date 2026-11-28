@@ -5,7 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronDownIcon } from "lucide-react";
 
 import {
   Sidebar,
@@ -17,6 +17,13 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@workspace/ui/components/sidebar";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@workspace/ui/components/breadcrumb";
 import { Button } from "@workspace/ui/components/button";
 import {
   DropdownMenu,
@@ -199,7 +206,8 @@ function SectionPicker({
   );
 }
 
-/** "<Area> › <Section>" over every page of the area. */
+/** "<Area> › <Section>" over every page of the area, as shadcn's breadcrumb:
+ *  the current section in regular weight, not bold. */
 export function SectionHeader({
   area,
   leading,
@@ -214,12 +222,20 @@ export function SectionHeader({
   return (
     <header className={cn(topBarClasses, "gap-1.75 bg-background px-3.5")}>
       {leading}
-      <span className="text-xs text-muted-foreground">{area.title}</span>
-      <ChevronRightIcon className="size-3.5 text-muted-foreground" />
-      <span className="hidden text-sm font-semibold md:inline">
-        {section?.label}
-      </span>
-      <SectionPicker area={area} current={section} />
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>{area.title}</BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            {/* On a phone the current section is the picker that changes
+                it; from `md` the rail does, and it is plain text. */}
+            <BreadcrumbPage className="hidden md:inline">
+              {section?.label}
+            </BreadcrumbPage>
+            <SectionPicker area={area} current={section} />
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
     </header>
   );
 }
