@@ -123,17 +123,17 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** Types the credentials and presses Sign In. */
+/** Types the credentials and presses Sign in. */
 async function signIn(canvasElement: HTMLElement, password: string) {
   const canvas = within(canvasElement);
   await userEvent.type(canvas.getByLabelText("Email"), "leo@example.com");
   await userEvent.type(canvas.getByLabelText("Password"), password);
-  await userEvent.click(canvas.getByRole("button", { name: "Sign In" }));
+  await userEvent.click(canvas.getByRole("button", { name: "Sign in" }));
   await waitFor(() => expect(sentRoutes()).toEqual([LOGIN_ROUTE]));
 }
 
 /**
- * Signing in sends the typed credentials, shows Signing in... until the server
+ * Signing in sends the typed credentials, shows Signing in… until the server
  * answers, then opens the home page already signed in as the returned user,
  * before the home page's own session request comes back.
  *
@@ -146,7 +146,7 @@ export const SignIn: Story = {
     await signIn(canvasElement, "hunter2");
 
     await expect(
-      canvas.getByRole("button", { name: "Signing in..." }),
+      canvas.getByRole("button", { name: "Signing in…" }),
     ).toBeDisabled();
     await expect(requestFromCall(fetchMock).clone().json()).resolves.toEqual({
       email: "leo@example.com",
@@ -203,7 +203,7 @@ export const SignInIgnoresOffSiteCallbackUrl: Story = {
 
 /**
  * Wrong credentials (401) keep the user on the form with "Invalid email or
- * password" and Sign In enabled again.
+ * password" and Sign in enabled again.
  *
  * @summary sign in rejected: invalid credentials, no navigation
  */
@@ -217,7 +217,7 @@ export const InvalidCredentials: Story = {
     await expect(
       await canvas.findByText("Invalid email or password"),
     ).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Sign In" })).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: "Sign in" })).toBeEnabled();
     await expect(routerPush).not.toHaveBeenCalled();
     await expect(sentRoutes()).toEqual([LOGIN_ROUTE]);
   },
@@ -238,7 +238,7 @@ export const ServerError: Story = {
     await expect(
       await canvas.findByText("Something went wrong. Please try again."),
     ).toBeVisible();
-    await expect(canvas.getByRole("button", { name: "Sign In" })).toBeEnabled();
+    await expect(canvas.getByRole("button", { name: "Sign in" })).toBeEnabled();
     await expect(routerPush).not.toHaveBeenCalled();
   },
 };

@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { SectionPage } from "@/app/shell/section-rail";
 
 import { MemorySection } from "../components/memory-section";
+
+export const metadata: Metadata = { title: "Memory" };
 
 export default function MemorySettingsPage() {
   return (

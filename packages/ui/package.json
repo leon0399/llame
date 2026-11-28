@@ -28,7 +28,6 @@
     "lucide-react": "catalog:",
     "marked": "^16.4.2",
     "micromark-util-decode-string": "^2.0.1",
-    "motion": "catalog:",
     "next-themes": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

@@ -1,6 +1,11 @@
+import type { Metadata } from "next";
 import { SidebarInset } from "@/app/shell/app-sidebar";
 
 import { SettingsHeader, SettingsRail } from "./components/settings-chrome";
+
+export const metadata: Metadata = {
+  title: { default: "Settings", template: "%s · Settings · llame" },
+};
 
 /** The Settings area inside the signed-in shell (`../../layout.tsx`): its
  *  section rail, the breadcrumb header and the page. */

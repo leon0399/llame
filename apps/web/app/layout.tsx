@@ -8,6 +8,7 @@ import {
   Roboto_Condensed,
   Roboto_Mono,
 } from "next/font/google";
+import type { Metadata } from "next";
 import localFont from "next/font/local";
 
 import "@workspace/ui/globals.css";
@@ -15,6 +16,12 @@ import "@workspace/ui/globals.css";
 import { Providers } from "@/components/providers";
 import { cn } from "@workspace/ui/lib/utils";
 import { getFontCssVariables } from "@/lib/appearance/font/service";
+
+// Each area names its pages through this template; a chat page sets its own
+// title from the chat (ChatHeader).
+export const metadata: Metadata = {
+  title: { default: "llame", template: "%s · llame" },
+};
 
 const fontGeist = Geist({
   subsets: ["latin"],

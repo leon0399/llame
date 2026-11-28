@@ -26,7 +26,7 @@ import type {
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
 
 import { ChatMessageRow } from "./chat-message-row";
-import { ChatMarkdownProvider } from "../use-chat-markdown-ready";
+import { ChatMarkdownProvider } from "../session/use-chat-markdown-ready";
 
 // Import via the REAL specifiers: sb.mock (preview.tsx) redirects them to the
 // __mocks__ modules, so these are the SAME hooks the selector reads.

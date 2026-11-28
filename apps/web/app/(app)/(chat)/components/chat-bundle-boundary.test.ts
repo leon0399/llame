@@ -112,7 +112,7 @@ describe("chat bundle boundary", () => {
     );
 
     const ready = parse(
-      "apps/web/app/(app)/(chat)/components/use-chat-markdown-ready.tsx",
+      "apps/web/app/(app)/(chat)/components/session/use-chat-markdown-ready.tsx",
     );
 
     const renderers = [

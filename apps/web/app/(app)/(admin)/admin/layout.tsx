@@ -1,9 +1,14 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { SidebarInset } from "@/app/shell/app-sidebar";
 
 import { AdminHeader } from "./components/admin-header";
 import { AdminSectionNav } from "./components/admin-section-nav";
+
+export const metadata: Metadata = {
+  title: { default: "Administration", template: "%s · Administration · llame" },
+};
 
 /** The Administration area inside the signed-in shell (`../../layout.tsx`):
  *  its section rail, the breadcrumb header and the page. */

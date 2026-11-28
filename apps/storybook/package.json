@@ -40,7 +40,6 @@
     "@workspace/config-typescript": "workspace:*",
     "diff": "^8.0.4",
     "mermaid": "11.16.1",
-    "motion": "catalog:",
     "next-themes": "catalog:",
     "oxlint": "catalog:",
     "playwright": "catalog:",

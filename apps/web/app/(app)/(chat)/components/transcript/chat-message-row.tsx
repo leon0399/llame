@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 import { Bubble, BubbleContent } from "@workspace/ui/components/bubble";
 import { Message, MessageContent } from "@workspace/ui/components/message";
 import type { ChatStatus, UIMessage } from "ai";
@@ -29,6 +28,7 @@ import { MessageAttachments } from "./message-attachments";
 import { MessageCopyButton } from "./message-copy-button";
 import { MessageForkButton } from "./message-fork-button";
 import { MessageUsage } from "./message-usage";
+import { ProgressLine } from "./progress-line";
 import { PromptImportsPart } from "./prompt-imports-part";
 import { RegenerateNoticePart } from "./regenerate-notice-part";
 import {
@@ -40,7 +40,7 @@ import { TurnActions } from "./turn-actions";
 import {
   useChatMarkdownRenderers,
   type ChatMarkdownRenderers,
-} from "../use-chat-markdown-ready";
+} from "../session/use-chat-markdown-ready";
 
 import type {
   ChatLatestRunResponse,
@@ -412,7 +412,7 @@ function MessageBubble({
   retry?: string;
 }) {
   if (mode === "pending") {
-    return <Shimmer as="span">{retry ?? "Thinking…"}</Shimmer>;
+    return <ProgressLine>{retry ?? "Thinking…"}</ProgressLine>;
   }
 
   if (!hasVisibleContent(parts)) return null;
@@ -433,7 +433,7 @@ function MessageBubble({
   ) : (
     <>
       {segments}
-      {retry ? <Shimmer as="span">{retry}</Shimmer> : null}
+      {retry ? <ProgressLine>{retry}</ProgressLine> : null}
     </>
   );
 }

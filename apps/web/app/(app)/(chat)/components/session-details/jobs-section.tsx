@@ -327,14 +327,17 @@ function JobsStopError({ error }: { error: string }) {
 }
 
 /** The intent fades and scrolls on hover, since all of it is worth reading;
- *  a call without one leaves the job its locator. */
+ *  a call without one leaves the job its locator. Either shimmers while the
+ *  job runs, as streaming reasoning does. */
 function RunningJobTitle({ job }: { job: ChatJobResponse }) {
   return (
     <span className="min-w-0 flex-1">
       {job.intent === null ? (
-        <span className="block truncate font-mono text-xs">{job.locator}</span>
+        <span className="block truncate font-mono text-xs shimmer motion-reduce:animate-none">
+          {job.locator}
+        </span>
       ) : (
-        <SidebarRowTitle text={job.intent} />
+        <SidebarRowTitle text={job.intent} shimmer />
       )}
     </span>
   );

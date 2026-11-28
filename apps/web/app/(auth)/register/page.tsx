@@ -1,18 +1,26 @@
-import { RegisterForm } from "@/components/auth/register-form";
 import Link from "next/link";
+
+import { AuthPage } from "@/components/auth/auth-page";
+import { RegisterForm } from "@/components/auth/register-form";
 
 export default function Register() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-md space-y-4">
-        <RegisterForm />
-        <div className="text-center text-sm">
+    <AuthPage
+      title="Create an account"
+      description="An account on this instance, with its own chats and projects."
+      footer={
+        <>
           Already have an account?{" "}
-          <Link href="/login" className="underline">
+          <Link
+            href="/login"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
             Sign in
           </Link>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <RegisterForm />
+    </AuthPage>
   );
 }

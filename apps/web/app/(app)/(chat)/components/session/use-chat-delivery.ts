@@ -44,12 +44,12 @@ import { invalidateRenamedChat } from "@/lib/services/chat/management";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { useShortcut } from "@/lib/shortcuts/shortcuts-context";
 import { safeRandomUUID } from "@/lib/uuid";
-import { useComposerSelection } from "./composer/use-composer-selection";
+import { useComposerSelection } from "../composer/use-composer-selection";
 import {
   attachmentFileParts,
   revokePreviews,
   type ComposerAttachments,
-} from "./composer/use-composer-attachments";
+} from "../composer/use-composer-attachments";
 import type { RunHandoff } from "./use-run-handoff";
 
 /** What an action on a pending item needs of its Chat. */
@@ -489,7 +489,9 @@ function useDeliveryState(
   status: ChatStatus,
   latestRun: ChatLatestRunResponse | null,
 ) {
-  const items = useChatDeliveries(chatId, exists);
+  // A draft's first message shows before the server has stored the Chat;
+  // until the send is accepted there is nothing to list, only a 404.
+  const items = useChatDeliveries(chatId, exists && status !== "submitted");
   const runActive = isRunActive({ status, latestRun });
 
   return {

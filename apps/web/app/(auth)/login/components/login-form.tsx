@@ -10,13 +10,6 @@ import * as z from "zod";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
-import {
   Form,
   FormControl,
   FormField,
@@ -115,7 +108,12 @@ function EmailField({
         <FormItem>
           <FormLabel>Email</FormLabel>
           <FormControl>
-            <Input type="email" placeholder="johndoe@gmail.com" {...field} />
+            <Input
+              type="email"
+              autoComplete="username"
+              placeholder="you@example.com"
+              {...field}
+            />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -137,7 +135,7 @@ function PasswordField({
         <FormItem>
           <FormLabel>Password</FormLabel>
           <FormControl>
-            <Input type="password" placeholder="*****" {...field} />
+            <Input type="password" autoComplete="current-password" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -146,8 +144,7 @@ function PasswordField({
   );
 }
 
-/** The form's actual field set — kept separate from the `Card` chrome around
- *  it in `LoginForm`, so each stays a legible, single-purpose piece. */
+/** The form; the page around it gives the heading (see `AuthPage`). */
 function LoginFormFields({
   form,
   isLoading,
@@ -168,7 +165,7 @@ function LoginFormFields({
           </div>
         )}
         <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? "Signing in..." : "Sign In"}
+          {isLoading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
     </Form>
@@ -187,20 +184,6 @@ export function LoginForm() {
   const { isLoading, onSubmit } = useLoginSubmit(form);
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Login</CardTitle>
-        <CardDescription>
-          Enter your email below to login to your account
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <LoginFormFields
-          form={form}
-          isLoading={isLoading}
-          onSubmit={onSubmit}
-        />
-      </CardContent>
-    </Card>
+    <LoginFormFields form={form} isLoading={isLoading} onSubmit={onSubmit} />
   );
 }
