@@ -23,7 +23,6 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@workspace/ui/components/alert";
-import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
 import { Button } from "@workspace/ui/components/button";
 import { toast } from "@workspace/ui/components/sonner";
 import { StopCircleIcon } from "lucide-react";
@@ -33,6 +32,7 @@ import { ChatLoadOlder } from "./chat-load-older";
 import { CompactionBoundary } from "./compaction-boundary";
 import { ChatMessageRow } from "./chat-message-row";
 import { messageBoundaries } from "./message-boundaries";
+import { ProgressLine } from "./progress-line";
 import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
 import { TurnActions } from "./turn-actions";
 import { QuotaResetTime } from "../composer/quota-wait-notice";
@@ -348,7 +348,7 @@ function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between md:px-6">
-      <Shimmer>Compacting context…</Shimmer>
+      <ProgressLine>Compacting context…</ProgressLine>
       <Button
         variant="ghost"
         size="sm"
