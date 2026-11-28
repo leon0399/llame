@@ -139,3 +139,64 @@ answers a git method with UNIMPLEMENTED MUST fail as
 - **THEN** the call returns `worktree_failed` with no `code`
 - **AND** `message` is a fixed reason phrase plus `config/secret.env`, with no standard error, OS error text, manifest line, or file bytes
 - **AND** the Chat stays bound to its previous root with the same generation
+
+### Requirement: Worktree placement follows the source clone and its worktree base
+
+The worktree directory MUST be
+`<parent>/.llame-worktrees/<display name>/<slug>`. `<parent>` MUST be the parent
+of the real path of the source clone. A `worktree_base` on the main checkout MUST replace
+`<parent>/.llame-worktrees`. The call MUST canonicalize the directory by its
+deepest ancestor that exists. The daemon MUST confirm that the real path of the
+new directory equals the decided directory before any copy. A difference MUST
+keep the new worktree and MUST fail as `copy_failed`, which the call reports as
+`worktree_failed` with the known `leftDirectory`. When the daemon reports
+success at a path whose real path differs from the decided directory, the call
+MUST remove the new worktree and MUST fail as `worktree_failed`.
+
+#### Scenario: The default placement uses the clone parent
+
+- **WHEN** the source clone's main tree is `/home/dev/src/llame` and a
+  Chat calls `enter_workspace` with that path and `worktree`
+- **THEN** the worktree directory is
+  `/home/dev/src/.llame-worktrees/llame/<slug>`
+- **AND** no directory is created inside `/home/dev/src/llame`
+
+#### Scenario: A worktree base replaces the worktree directory
+
+- **WHEN** the main checkout of `/srv/work/llame` stores the `worktree_base`
+  `/srv/trees` and a Chat calls `enter_workspace` with that `path` and `worktree`
+- **THEN** the worktree is created under `/srv/trees/llame/`
+- **AND** no directory is created under `/srv/work/.llame-worktrees`
+
+#### Scenario: A subdirectory path places the worktree beside the clone
+
+- **WHEN** a Chat calls `enter_workspace` with `path`
+  `/home/dev/src/llame/apps/web` and `worktree`
+- **THEN** the source clone is `/home/dev/src/llame`
+- **AND** the worktree directory is under
+  `/home/dev/src/.llame-worktrees/llame/`
+
+#### Scenario: A symlinked worktree parent is decided on its canonical form
+
+- **WHEN** `/home/operator/src/.llame-worktrees` is a symlink to
+  `/tmp/elsewhere`, and a Chat calls `enter_workspace` with
+  `/home/operator/src/llame` and `worktree: { name: "clear-field-0192" }`
+- **THEN** the call decides `/tmp/elsewhere/llame/clear-field-0192` as the
+  worktree directory
+- **AND** the real path of the new directory equals that decided directory
+
+#### Scenario: A moved root keeps the Worktree and reports the leftover
+
+- **WHEN** the daemon finds that the real path of the new directory differs
+  from the decided directory
+- **THEN** it copies nothing and fails as `copy_failed`
+- **AND** the call returns `worktree_failed` with the known `leftDirectory`
+- **AND** the new worktree is retained and the Chat stays bound to its previous
+  root
+
+#### Scenario: A success at another path is removed
+
+- **WHEN** the daemon reports success at a path whose real path differs from
+  the decided directory
+- **THEN** the call removes the new worktree
+- **AND** the call fails as `worktree_failed`

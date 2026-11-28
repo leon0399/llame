@@ -14,7 +14,9 @@ of its selected source Checkout. The manifest need not be committed. The copy
 MUST NOT substitute the main Checkout for a linked source Checkout. A source
 subdirectory MUST resolve to its Checkout root. Git base-ref and parent rules
 MUST remain unchanged. Input validation MUST finish before Worktree add, so every
-`copy_failed` occurs after the Worktree exists.
+`copy_failed` occurs after the Worktree exists. The daemon MUST read and screen
+the source manifest before it binds the destination root, and MUST bind the root
+only when the selection is not empty, still before any copy.
 
 #### Scenario: A linked source supplies its own environment
 
@@ -56,6 +58,12 @@ only blank lines or comments MUST select no files.
 
 - **WHEN** the source holds `.env` but no `.worktreeinclude`
 - **THEN** Worktree creation succeeds without a copy of `.env`
+
+#### Scenario: An empty selection needs no root binding
+
+- **WHEN** the manifest is absent, empty, or selects no entry, and the real path of the new root cannot be established on the host
+- **THEN** Worktree creation succeeds as a plain checkout
+- **AND** a host that cannot establish the real path fails with `copy_failed` only when something is selected
 
 ### Requirement: Manifest patterns select Git-ignored untracked entries
 
@@ -187,9 +195,11 @@ system MUST NOT add a weaker invocation path.
 
 ### Requirement: Copy inputs stay inside the source Checkout
 
-The system MUST reject a selected symlink or special file, including one
-inside a selected directory, with `copy_failed`. It MUST NOT traverse
-a symlink directory. The manifest MUST be a regular file, not a symlink. Every
+The system MUST reject a selected symlink, including one inside a selected
+directory, with `copy_failed`. Git's ignored, untracked listing never lists a
+FIFO or device, so a special file never qualifies. A special file that appears at
+copy time, through a swap after listing, MUST fail with `copy_failed` and MUST
+NOT be opened. The copy MUST NOT traverse a symlink directory. The manifest MUST be a regular file, not a symlink. Every
 source and destination operation MUST be relative to a directory handle that is
 opened component by component without following links, and the copy MUST fail
 with `copy_failed` where the platform cannot provide that. Git output never holds
@@ -260,18 +270,24 @@ modify other paths through a pre-existing hard link.
 
 ### Requirement: The destination root is bound before any copy
 
-After Worktree add and before any copy, the daemon MUST open the new Worktree
-root without following links and confirm that its real path equals the literal
+After Worktree add, once the selection is known to be non-empty and before any
+copy, the daemon MUST open the new Worktree root without following links and confirm that its real path equals the literal
 request `path` field, which is the hub's decided canonical path, not the daemon's
 re-resolved directory. On a mismatch the daemon MUST copy nothing and MUST
 fail with the typed `COPY_FAILED` reason ("worktree root moved"), keeping the
-Worktree. Both callers MUST handle it like any `copy_failed`.
+Worktree and reporting the leftover directory. Both callers MUST handle it like
+any `copy_failed`.
 
 #### Scenario: A real-path mismatch fails the copy
 
 - **WHEN** the new Worktree root resolves to a path other than the requested canonical path
 - **THEN** the daemon copies no file and fails with `COPY_FAILED`
 - **AND** the Worktree is retained and no binding is made
+
+#### Scenario: A special file at copy time fails
+
+- **WHEN** a selected path is a FIFO or device when its copy begins
+- **THEN** the copy fails with `copy_failed` without opening it
 
 ### Requirement: A failed copy preserves the partial Worktree without a binding
 

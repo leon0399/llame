@@ -58,11 +58,15 @@ a default to `repository`. It joins the leading-`-` check in `option_like`.
 `copy_source` is the typed `INVALID_INPUT` failure, checked before the root
 guard resolves it (`guard.resolve` would otherwise return an RPC
 `invalid_argument`). A `copy_source` whose canonical common directory differs
-from that of `repository` is also typed `INVALID_INPUT`. Only then does the
-handler run `git worktree add`, bind the new root, read and screen the
-manifest, enumerate, and copy. Every `copy_failed` therefore occurs after the
-Worktree exists, so the hub's unconditional `leftDirectory` from its plan is
-correct for it.
+from that of `repository` is also typed `INVALID_INPUT`. Only then does the handler run `git worktree add`, read and screen the source
+manifest, enumerate and select, and, only when the selection is not empty, bind
+the new root and copy. Every `copy_failed` therefore occurs after the Worktree
+exists, so the hub's unconditional `leftDirectory` from its plan is correct for
+it. The manifest is read and screened before the root is bound so that an absent
+or empty manifest preserves a plain checkout even where the real path of the
+root cannot be established. The real-path read uses Linux procfs, and the
+shipped daemon targets are Linux musl. A host that cannot establish the real
+path fails with `copy_failed` only when something is selected.
 
 Admit the selected Checkout root before manifest access or Worktree creation.
 When inspection reports a root whose locator differs from both the canonical
@@ -173,23 +177,27 @@ source and destination operation is relative to a directory handle opened
 component by component without following links: `openat` and `renameat` with
 `O_NOFOLLOW` semantics, or `openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS`
 on Linux. Where the platform cannot provide this, fail with `copy_failed`
-rather than fall back to path-based access. Reject a selected special file
-instead of opening a FIFO or device. A selected candidate that is a symlink
+rather than fall back to path-based access. `git ls-files --others --ignored` never lists a FIFO or device, so a
+special file never qualifies. One that appears at copy time, through a swap after
+listing, fails with `copy_failed` instead of being opened. A selected candidate that is a symlink
 fails the copy with `copy_failed`, and earlier copies remain. A selected
 directory such as `node_modules/` therefore fails when it contains a link such
 as `.bin/*`. Reject a symlink manifest. Git metadata is
 never an environment input.
 
-After `git worktree add` and before any copy, the daemon opens the new Worktree
-root without following links and confirms that its real path equals the
-literal request `path` field, which is the hub's decided canonical path, not
-the daemon's re-resolved directory. On a mismatch the daemon copies nothing and fails
-with the typed `COPY_FAILED` reason ("worktree root moved"), keeping the
-Worktree. Both callers handle it like any `copy_failed`. Chat creation has no
-realpath removal, so a success there would bind an unseeded Worktree. The tool
-path's `refuseElsewhere` in `apps/api/src/tools/workspace-worktree-entry.ts`
-stays in code and spec, but a moved root now fails as `copy_failed` before it
-is reached.
+After `git worktree add`, once the selection is known to be non-empty and before
+any copy, the daemon opens the new Worktree root without following links and
+confirms that its real path equals the literal request `path` field, which is the
+hub's decided canonical path, not the daemon's re-resolved directory. On a
+mismatch the daemon copies nothing and fails with the typed `COPY_FAILED` reason
+("worktree root moved"), keeping the Worktree and reporting `leftDirectory`. Both
+callers handle it like any `copy_failed`. Chat creation has no realpath removal,
+so a success there would bind an unseeded Worktree. The tool path's
+`refuseElsewhere` in `apps/api/src/tools/workspace-worktree-entry.ts` remains
+only as a backstop that removes the Worktree when the daemon reports success at
+a path that differs from the decided one. The canonical `workspace-entry`
+placement requirement changes accordingly: the daemon's mismatch keeps the
+Worktree and fails as `copy_failed`.
 
 Replacing a regular destination must not truncate its existing inode through a
 hard link. Write a destination-local temporary file and rename it into place
@@ -368,5 +376,8 @@ corrected real-path mismatch handling, the timeout leftover, the durable
 `leftDirectory`, the `remote-machines` delta, the symlink-in-directory rule, and
 the fingerprint step. Round 3 ran one independent reviewer. Its one P1 is
 encoded here: a root-binding mismatch fails as `copy_failed` and keeps the
-Worktree. The three rounds converged. Leo directed implementation of the
+Worktree. The three rounds converged. Implementation self-review then settled
+three alignments: the canonical placement requirement is modified for the
+daemon's mismatch, the root is bound only after the manifest is read and a
+non-empty selection exists, and a special file never qualifies. Leo directed implementation of the
 proposal in the implementation session.
