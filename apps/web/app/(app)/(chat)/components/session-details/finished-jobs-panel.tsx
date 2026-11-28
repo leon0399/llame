@@ -404,7 +404,8 @@ export function FinishedJobsPanel({
         side="right"
         showCloseButton={false}
         aria-label="Finished jobs"
-        className="sm:max-w-xl"
+        // Same variants as the Sheet's own max-w-sm, so this one replaces it.
+        className="data-[side=right]:sm:max-w-xl"
       >
         {body}
       </SheetContent>
