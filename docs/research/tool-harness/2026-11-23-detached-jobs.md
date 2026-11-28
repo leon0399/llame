@@ -17,6 +17,7 @@ read_when:
 observed:
   date: 2026-11-23
   revisions:
+    llame: 852b663d869897ac948f3e67dbbdc8028f54d07c
     codex: 22c1681aec46de3667e4b03786e9d2c9ae6e1066
     coder: v2.36.6
     shipyard: b140a0ffe8cd44ba4d410f3f100d1cc34acb6790
@@ -24,53 +25,53 @@ observed:
     launchd: d448a1c8f70a61202f8705f94337f686b87c30c4
 sources:
   - id: linux-pid-namespaces
-    resource: "https://man7.org/linux/man-pages/man7/pid_namespaces.7.html"
+    resource: "https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man7/pid_namespaces.7"
     title: "pid_namespaces(7): namespace init death, orphan adoption, subreapers"
   - id: linux-subreaper
-    resource: "https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html"
+    resource: "https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/prctl.2"
     title: "PR_SET_CHILD_SUBREAPER(2const): reparenting and reaping of orphans"
   - id: linux-pdeathsig
-    resource: "https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html"
+    resource: "https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/prctl.2"
     title: "PR_SET_PDEATHSIG(2const): parent-death signal, cleared by fork"
   - id: linux-daemon7
-    resource: "https://man7.org/linux/man-pages/man7/daemon.7.html"
+    resource: "https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man7/daemon.7"
     title: "daemon(7): SysV double fork, setsid, PID file race requirements"
   - id: linux-pidfd-open
-    resource: "https://man7.org/linux/man-pages/man2/pidfd_open.2.html"
+    resource: "https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/pidfd_open.2"
     title: "pidfd_open(2): exit monitoring with poll, waitid only for children"
   - id: systemd-kill
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/systemd.kill.html"
     title: "systemd.kill: KillMode=control-group default and SIGKILL escalation"
   - id: systemd-run
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/systemd-run.html"
     title: "systemd-run: transient service has the service manager as parent"
   - id: systemd-unit
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/systemd.unit.html"
     title: "systemd.unit: transient unit directories under /run and $XDG_RUNTIME_DIR"
   - id: systemd-service
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/systemd.service.html"
     title: "systemd.service: Restart= supervision of new processes"
   - id: loginctl
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/loginctl.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/loginctl.html"
     title: "loginctl: enable-linger keeps a user manager after logout"
   - id: logind-conf
-    resource: "https://www.freedesktop.org/software/systemd/man/latest/logind.conf.html"
+    resource: "https://www.freedesktop.org/software/systemd/man/249/logind.conf.html"
     title: "logind.conf: KillUserProcesses and user manager lifetime"
   - id: cgroup-v2
-    resource: "https://docs.kernel.org/admin-guide/cgroup-v2.html"
+    resource: "https://docs.kernel.org/6.12/admin-guide/cgroup-v2.html"
     title: "cgroup v2: cgroup.kill kills a cgroup tree including new forks"
   - id: linux-landlock
-    resource: "https://docs.kernel.org/userspace-api/landlock.html"
+    resource: "https://docs.kernel.org/6.12/userspace-api/landlock.html"
     title: "Landlock: domain inheritance by children and irreversibility"
   - id: bubblewrap
-    resource: "https://man.archlinux.org/man/bwrap.1.en"
-    title: "bubblewrap: pid 1 reaper, --die-with-parent, --as-pid-1"
+    resource: "https://github.com/containers/bubblewrap/blob/v0.6.1/bwrap.xml"
+    title: "bubblewrap 0.6.1: pid 1 reaper, --die-with-parent, --as-pid-1"
   - id: tmux
-    resource: "https://man.archlinux.org/man/tmux.1.en"
-    title: "tmux: server and client processes, persistent sessions"
+    resource: "https://github.com/tmux/tmux/blob/3.2a/tmux.1"
+    title: "tmux 3.2a: server and client processes, persistent sessions"
   - id: wsl-systemd
-    resource: "https://learn.microsoft.com/en-us/windows/wsl/systemd"
-    title: "WSL systemd support, wsl.conf opt-in and WSL version floor"
+    resource: "https://github.com/MicrosoftDocs/WSL/blob/526e57752f7241dc7e98f14b1033905e8e675587/WSL/systemd.md"
+    title: "WSL systemd support at the inspected commit"
   - id: claude-background
     resource: "https://code.claude.com/docs/en/interactive-mode"
     title: "Claude Code background Bash commands and cleanup at exit"
@@ -94,15 +95,15 @@ sources:
     title: "DevPod agent: ssh server and inactivity stop of container pid 1"
   - id: openhands-terminal
     resource: "https://github.com/OpenHands/software-agent-sdk/blob/66af27073fb2838734574f33349761777c3b9e0d/openhands-tools/openhands/tools/terminal/README.md"
-    title: "OpenHands terminal tool: tmux pane pool or subprocess PTY session"
-  - id: launchd-plist
-    resource: "https://github.com/apple-oss-distributions/launchd/blob/d448a1c8f70a61202f8705f94337f686b87c30c4/man/launchd.plist.5"
-    title: "launchd.plist: user agents, KeepAlive, ExitTimeOut"
+    title: "OpenHands terminal tool: tmux pane pool or subprocess PTY"
+  - id: launchd-lifecycle
+    resource: "https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html"
+    title: "Creating Launch Daemons and Agents, document version 6.3.4"
   - id: llame-bash-spec
     resource: "../../../openspec/specs/bash-execution/spec.md"
     title: "bash execution spec: async refused on other Machines until jobs run there"
   - id: llame-daemon-serve
-    resource: "../../../apps/machine/src/serve.ts"
+    resource: "https://github.com/leon0399/llame/blob/852b663d869897ac948f3e67dbbdc8028f54d07c/apps/machine/src/serve.ts"
     title: "Machine daemon session end waits for every process group it started"
   - id: llame-job-loss
     resource: "../../../apps/api/src/jobs/chat-jobs.repository.ts"
@@ -122,40 +123,43 @@ outcome to disk through a wrapper that the starter's death does not kill. [^linu
 Survival therefore comes from **who becomes the parent**, not from any daemon
 trick. A subreaper ancestor, a systemd unit, a tmux server or a per-job runner
 all work by reparenting the job to a process that outlives the daemon. Each
-holder differs in dependencies, in how a stop kills the whole tree, and in what
-happens under each Sandbox option. [^linux-subreaper][^systemd-run][^tmux]
+holder differs in dependencies, stop behavior and confinement. [^linux-subreaper][^systemd-run][^tmux]
 
-For the daemon tier of background jobs, the lowest-risk shape is a per-job
-runner process that owns the job as its child, writes the output and the status
-to files, and records an identity tuple. A daemon start then adopts by
-identity, and a stop uses the process group plus a descendant scan or a cgroup.
-systemd transient units are the better stop and status mechanism when a user
-manager exists, and tmux is the cheapest holder when it does not. This
-recommendation is an inference from the probes below, not a tested llame
-implementation.
+For daemon-hosted background jobs, a low-risk shape is a per-job runner that
+owns the job, writes output and status files, and records an identity tuple.
+The daemon can discover and watch the job only while the runner or another
+holder keeps it alive. A systemd transient scope inherits the caller's
+execution environment but does not record a main-process exit status. A
+transient service and an existing tmux server do not inherit the caller's
+Landlock or seccomp restrictions. The recommendation is an inference from the
+study record, not a tested llame implementation.
 
-## What the daemon does today
+## What the inspected pre-rewrite daemon did
 
-The Machine protocol has `proc.bash` and `proc.cancel` and no job methods. The
-daemon runs a command through `bash-executor` with `detached: true`, so the
-shell is a process-group leader that the daemon kills when the call aborts
+The following repository behavior was inspected at revision
+`852b663d869897ac948f3e67dbbdc8028f54d07c`, before the Rust daemon replaced
+the Node daemon on 2026-11-26. It is historical evidence, not current behavior.
+
+The Machine protocol had `proc.bash` and `proc.cancel` and no job methods. The
+daemon ran a command through `bash-executor` with `detached: true`, so the
+shell was a process-group leader that the daemon killed when the call aborted
 (`packages/bash-executor/src/execute.ts`, `process-tree.ts`). [^llame-daemon-serve]
 
-`endSession` closes the multiplexer and resolves only after
-`session.processes.settled()`, which waits for every process group the session
-started. A dropped SSH connection therefore stops in-flight daemon commands
+`endSession` closed the multiplexer and resolved only after
+`session.processes.settled()`, which waited for every process group the session
+started. A dropped SSH connection therefore stopped in-flight daemon commands
 rather than orphaning them. [^llame-daemon-serve]
 
 On the host, `apps/api/src/tools/bash-async-runtime.ts` and
-`background-jobs` keep `chat_jobs` and `chat_job_chunks` rows in Postgres, and
-the process that hosts a job writes chunks and a settlement. The spec refuses
+`background-jobs` kept `chat_jobs` and `chat_job_chunks` rows in Postgres, and
+the process that hosted a job wrote chunks and a settlement. The spec refused
 `async` and `unlimited` on every Machine except `machines.local`, "until
 background jobs run on every Machine". [^llame-bash-spec]
 
-Job loss is already modelled. `worker_instances.last_seen_at` decays, a worker
-with no heartbeat for four intervals is dead, and the jobs of that worker settle
+Job loss was already modelled. `worker_instances.last_seen_at` decayed, a worker
+with no heartbeat for four intervals was dead, and the jobs of that worker settled
 as `lost` with `outcomeUnknown: true` at the next touch. [^llame-job-loss] That
-reporting shape is the right target for a reboot as well.
+reporting shape was a candidate for a reboot as well.
 
 ## Process mechanics
 
@@ -410,18 +414,20 @@ size=24 offset=24 new_bytes=0 content=b''
 ```
 
 Two rules follow. A reader must treat a line as complete only after a newline,
-because a writer can be killed mid-line. A reader must also compare the stored
-offset with `st_size`, because a truncated or replaced file has a smaller size
-and the stored offset is then invalid.
+because a writer can be killed mid-line. A reader must also compare both the
+stored file identity and offset with `st_size`. A replacement can be larger than
+the old offset, so size alone cannot detect it.
 
 ```text
 stored offset 10 size 0 -> truncation detected: True
 ```
 
-The existing job store already reasons in byte positions.
-`appendJobOutput` writes the suffix after the committed offset as a
-`chat_job_chunks` row with `position`, so a daemon-side file reader can reuse
-the same offsets in its reports. Bounded output means the reader also has to
+The existing job store at the inspected revision did not reason in byte
+positions. `appendJobOutput` slices accumulated output with JavaScript string
+indices, which are UTF-16 code-unit offsets, and stores that position in a
+`chat_job_chunks` row. A file reader must keep code-unit positions separate
+from byte offsets or convert them against the corresponding text. Byte counts
+are used for quota calculation. Bounded output means the reader also has to
 cap and rotate, as `output-bound.ts` does for the tool path.
 
 ## Stopping an adopted tree
@@ -510,13 +516,13 @@ job.out:
 Seccomp_filters: 2
 ```
 
-So confinement does not leak when a job is detached. The job carries the
-daemon's Landlock domain and seccomp filters for its whole life, which is what
-the durability tier needs. Two interactions still need care.
+So confinement does not leak when a job is detached directly from the confined
+process. The job carries that process's Landlock domain and seccomp filters.
+This does not apply to launchers that create the job outside that process.
 
-First, a Landlock domain restricts files, not signals. Any process of the same
-OS user can stop the job, and the daemon's stop path needs no extra Landlock
-right for that.
+First, a Landlock domain can restrict signals as well as files. A same-user
+process can stop the job only when the ruleset does not constrain that signal
+scope. [^linux-landlock]
 
 Second, a bubblewrap PID namespace is a hard boundary around liveness, not just
 access. `bwrap` runs a minimal pid 1 in the sandbox, and "the pid 1 process exits
@@ -568,12 +574,13 @@ adopt across it. What survives is files on persistent storage. A job directory
 on disk can hold the command, the pid, the start time, the boot id, the output
 files and a status file if the wrapper wrote one before the reboot.
 
-A restarted daemon must therefore compare the stored boot id with the current
-one and settle every job from another boot as `lost` with its stored output.
-This matches the existing `lost` settlement and needs no new state. Transient
-systemd units are gone after a reboot because their files are on tmpfs, and a
-persistent unit with `Restart=` starts a new process rather than adopting an old
-one. [^systemd-unit][^systemd-service]
+A restarted daemon must first read and validate any wrapper status file. A valid
+status is terminal even if its boot id differs from the current boot. Only a
+job with no valid recorded outcome from another boot is `lost`, with its stored
+output. This matches the existing `lost` settlement and needs no new state.
+Transient systemd units are gone after a reboot because their files are on
+tmpfs, and a persistent unit with `Restart=` starts a new process rather than
+adopting an old one. [^systemd-unit][^systemd-service]
 
 A final sampling of the box for the record: kernel 6.18.33.2-microsoft-standard-WSL2,
 systemd 249, `pid_max=4194304`, bubblewrap 0.6.1, tmux 3.2a, and no passwordless
@@ -589,15 +596,15 @@ the runner holds with `flock` gives a stronger claim than a bare pid.
 
 launchd is the native holder. Per-user agents live in `~/Library/LaunchAgents`,
 `KeepAlive` controls restarts, and `ExitTimeOut` bounds the stop. [^launchd-plist]
-A LaunchAgent whose program is the job runner gives survival across a daemon
-restart and across logout in the same way a systemd unit does. It does not give
-a stable exit-status query for an arbitrary job, so the wrapper file remains the
-source of truth. tmux also works on macOS and needs no launchd job per run.
+A LaunchAgent survives a daemon restart while its user session remains active.
+Apple documents that a per-user agent executes only while its user is logged in
+and receives `SIGTERM` at logout. [^launchd-lifecycle] It does not give a stable
+exit-status query for an arbitrary job, so the wrapper file remains the source
+of truth. tmux also works on macOS and needs no launchd job per run.
 
-The macOS path is weaker than Linux in this evidence: no probe was run on a Mac,
-and the launchd behavior above comes from its manual and from the systemd
-analogy. Confidence is moderate for the holder model and low for exact exit
-status and logout behavior. [Inference]
+The macOS path is weaker than Linux in this evidence: no probe was run on a Mac.
+The lifecycle description comes from Apple's documentation. Confidence is
+moderate for the holder model and low for exact exit-status behavior. [Inference]
 
 ## Prior art
 
@@ -636,17 +643,15 @@ tmux, Shipyard and OpenHands survive client disconnects. Coder and Codex survive
 client reconnects through a holder process. Only a job that writes its own
 outcome to disk makes the outcome recoverable after the holder is gone.
 
-## Comparison
-
-| Mechanism                                              | Survives daemon restart                                               | Extra dependency                               | Works under the Sandbox options                                                                               | How stop works                                                                   | Exit status recovery                                         |
-| ------------------------------------------------------ | --------------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Double fork plus `setsid`, no runner                   | Yes, but nothing reaps or reports it                                  | None                                           | Inherits Landlock and seccomp. A host-kernel Sandbox is kept. A container or microVM must outlive the daemon. | Process group, which misses `setsid` escapees, or a `/proc` walk                 | None unless a wrapper writes a status file                   |
-| Per-job runner (subreaper or plain parent) plus detach | Yes. The runner is the parent, so it reaps and reports.               | None                                           | Same as above. The runner owns the confinement for the job.                                                   | Signal the process group, then the runner and its descendants, or the job cgroup | The runner writes status and output files on every exit path |
-| systemd transient service per job                      | Yes, the user manager is the parent                                   | systemd, logind, D-Bus, a session or lingering | Keeps Landlock and seccomp. Not available in most containers. Needs its own unit or cgroup for cgroup kill.   | `systemctl stop` kills the control group, by default `KillMode=control-group`    | `Result=` and `ExecMainStatus=` while the unit remains       |
-| systemd transient scope per job                        | The unit outlives the client. The run itself is synchronous.          | Same as the service                            | Same as the service                                                                                           | The unit stop kills the cgroup                                                   | Same as the service                                          |
-| tmux or screen session per job                         | Yes, the server is the parent                                         | tmux or screen                                 | Keeps Landlock and seccomp. Dies with the user manager or container.                                          | `kill-session` kills the pane's process tree                                     | `pane_dead_status` while the pane is retained                |
-| bwrap PID namespace per job                            | Only while the namespace init lives, so a separate holder is required | bubblewrap and user namespaces                 | This is the Sandbox itself. A container or microVM works the same way.                                        | Killing the namespace init kills every member                                    | The sandbox init or the holder writes it, not the new daemon |
-| Today's daemon call                                    | No. `endSession` waits for process groups.                            | None                                           | Whatever the daemon has                                                                                       | The abort signal kills the process group                                         | The daemon call result only                                  |
+| Mechanism                                              | Survives daemon restart                                               | Extra dependency                               | Works under the Sandbox options                                                                                                                                   | How stop works                                                                   | Exit status recovery                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Double fork plus `setsid`, no runner                   | Yes, but nothing reaps or reports it                                  | None                                           | Direct children inherit Landlock and seccomp. Container or microVM lifetime is unchanged.                                                                         | Process group, which misses `setsid` escapees, or a `/proc` walk                 | None unless a wrapper writes a status file                                               |
+| Per-job runner (subreaper or plain parent) plus detach | Yes. The runner is the parent, so it reaps and reports.               | None                                           | The runner must start the job under the intended confinement.                                                                                                     | Signal the process group, then the runner and its descendants, or the job cgroup | The runner writes status and output files on every exit path                             |
+| systemd transient service per job                      | Yes, the user manager is the parent                                   | systemd, logind, D-Bus, a session or lingering | Does not inherit caller Landlock or seccomp. Reapply confinement inside the unit. Not available in most containers. Needs its own unit or cgroup for cgroup kill. | `systemctl stop` kills the control group, by default `KillMode=control-group`    | `Result=` and `ExecMainStatus=` while the unit remains                                   |
+| systemd transient scope per job                        | The unit outlives the client. The run itself is synchronous.          | Same as the service                            | Inherits the caller's Landlock and seccomp.                                                                                                                       | The unit stop kills the cgroup                                                   | No main-process result. Parent must collect status or a separate recorder must write it. |
+| tmux or screen session per job                         | Yes, the server is the parent                                         | tmux or screen                                 | A new server inherits confinement; an existing server does not confer caller Landlock or seccomp on new panes. Dies with the user manager or container.           | `kill-session` kills the pane's process tree                                     | `pane_dead_status` while the pane is retained                                            |
+| bwrap PID namespace per job                            | Only while the namespace init lives, so a separate holder is required | bubblewrap and user namespaces                 | This is the Sandbox itself. A container or microVM works the same way.                                                                                            | Killing the namespace init kills every member                                    | The sandbox init or the holder writes it, not the new daemon                             |
+| Historical Node daemon call                            | No. `endSession` waited for process groups.                           | None                                           | Whatever the daemon had                                                                                                                                           | The abort signal killed the process group                                        | The daemon call result only                                                              |
 
 ## Recommendation
 
@@ -657,29 +662,32 @@ outcome to disk makes the outcome recoverable after the holder is gone.
    that escape the shell. [^linux-subreaper]
 2. **Adopt by identity, never by pid alone.** Store the pid, the boot id and the
    start time, and open a pidfd for a job that is still running. Treat a pidfd
-   `ESRCH` plus a status file as a settled job, and a missing status file as
-   `lost`. [^linux-pidfd-open]
+   `ESRCH` plus a valid status file as a settled job. If the boot id differs,
+   accept a valid status file first and mark only unknown outcomes `lost`.
+   [^linux-pidfd-open]
 3. **Prefer a cgroup for stop, and keep the process-group kill as a fallback.**
    A job in its own transient unit or delegated cgroup gets a complete stop that
    survives `setsid` escapees. [^cgroup-v2][^systemd-kill]
 4. **Treat systemd as an optional accelerator and tmux as a fallback holder.**
-   Use a transient unit for stop and status when a user manager exists. Use a
-   tmux session only when the daemon cannot carry a runner and the Machine has
-   tmux. Report the holder in the job record so a later event is explainable.
-5. **Expect confinement to survive and design for it.** A detached job keeps
-   the daemon's Landlock domain and seccomp filters, so the Sandbox is not lost
-   by detachment. Do not put each job in its own PID namespace unless the holder
-   owns that namespace. [^linux-landlock][^bubblewrap]
-6. **Settle jobs from another boot as `lost`.** The existing worker heartbeat
-   and `lost` state already express the right outcome, and the boot id makes the
-   check exact. [^llame-job-loss]
+   Use a transient unit for stop and status when a user manager exists. Confine
+   service jobs inside the unit, and do not rely on a pre-existing tmux server
+   to inherit the caller's restrictions. Use a tmux session only when the daemon
+   cannot carry a runner and the Machine has tmux. Report the holder in the job
+   record so a later event is explainable.
+5. **Expect confinement to survive direct detachment only.** A directly
+   detached child keeps the daemon's Landlock domain and seccomp filters.
+   `LANDLOCK_SCOPE_SIGNAL` can limit signal-based stop. Do not put each job in
+   its own PID namespace unless the holder owns that namespace.
+   [^linux-landlock][^bubblewrap]
+6. **Settle jobs from another boot as `lost` only when their outcome is
+   unknown.** Read a valid wrapper status file first. [^llame-job-loss]
 
 ## Confidence and limits
 
-The process, pidfd, subreaper, Landlock, seccomp, cgroup and systemd statements
-are **high confidence** for Linux. Each was probed on this box, and each cited
-page states the contract. The probes used harmless `sleep` and marker files, and
-every process was cleaned up.
+The Linux process, pidfd, subreaper, Landlock, seccomp, cgroup and systemd
+claims are high confidence from the cited contracts and the contemporaneous
+study record. The temporary probe sources and raw output are absent, so these
+observations cannot now be independently reproduced.
 
 Three limits apply. The box is WSL2 with systemd 249, so newer systemd behavior
 and system-scope units were not exercised. The daemon's own cgroup case is
@@ -690,37 +698,33 @@ The report does not decide the OpenSpec contract for background jobs on every
 Machine. It establishes what the kernel and the candidate holders permit, and it
 recommends one durable shape for the decision on that ticket.
 
-[^linux-pid-namespaces]: [pid_namespaces(7)](https://man7.org/linux/man-pages/man7/pid_namespaces.7.html) states that the kernel kills every process in a namespace when its init terminates, and that orphans reparent to the namespace init or a nearer subreaper.
+[^linux-pid-namespaces]: [pid_namespaces(7), man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man7/pid_namespaces.7) states that the kernel kills every process in a namespace when its init terminates, and that orphans reparent to the namespace init or a nearer subreaper.
 
-[^linux-subreaper]: [PR_SET_CHILD_SUBREAPER(2const)](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html) states that orphans reparent to the nearest living ancestor subreaper, that the subreaper reaps them and learns their status, and that the attribute is not inherited across `fork`.
+[^linux-subreaper]: [PR_SET_CHILD_SUBREAPER, man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/prctl.2) states that orphans reparent to the nearest living ancestor subreaper, that the subreaper reaps them and learns their status, and that the attribute is not inherited across `fork`.
 
-[^linux-pdeathsig]: [PR_SET_PDEATHSIG(2const)](https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html) states that the parent-death signal is cleared for the child of a `fork` and preserved across `execve`.
+[^linux-pdeathsig]: [PR_SET_PDEATHSIG, man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/prctl.2) states that the parent-death signal is cleared for the child of a `fork` and preserved across `execve`.
 
-[^linux-daemon7]: [daemon(7)](https://man7.org/linux/man-pages/man7/daemon.7.html) describes the `fork`, `setsid`, `fork` sequence, the reparenting to init, and the race-free PID file requirement.
+[^linux-daemon7]: [daemon(7), man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man7/daemon.7) describes the `fork`, `setsid`, `fork` sequence, the reparenting to init, and the race-free PID file requirement.
 
-[^linux-pidfd-open]: [pidfd_open(2)](https://man7.org/linux/man-pages/man2/pidfd_open.2.html) describes `poll` on exit, `waitid` only for a child, and the `ESRCH` failure for a process that no longer exists.
+[^linux-pidfd-open]: [pidfd_open(2), man-pages 6.12](https://kernel.googlesource.com/pub/scm/docs/man-pages/man-pages/+/refs/tags/man-pages-6.12/man/man2/pidfd_open.2) describes `poll` on exit, `waitid` only for a child, and the `ESRCH` failure for a process that no longer exists.
 
-[^systemd-kill]: [systemd.kill](https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html) documents `KillMode=` with the `control-group` default and the `SIGTERM` then `SIGKILL` escalation.
+[^systemd-kill]: [systemd.kill 249](https://www.freedesktop.org/software/systemd/man/249/systemd.kill.html) documents `KillMode=` with the `control-group` default and the `SIGTERM` then `SIGKILL` escalation.
 
-[^systemd-run]: [systemd-run](https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html) says a transient service runs in a clean detached environment with the service manager as parent, and that a transient scope runs synchronously under `systemd-run`.
+[^systemd-run]: [systemd-run 249](https://www.freedesktop.org/software/systemd/man/249/systemd-run.html) says a transient service runs in a clean detached environment with the service manager as parent, while a transient scope runs synchronously under `systemd-run`.
 
-[^systemd-unit]: [systemd.unit](https://www.freedesktop.org/software/systemd/man/latest/systemd.unit.html) lists `/run/systemd/transient` and `$XDG_RUNTIME_DIR/systemd/transient` as the load paths for transient units.
+[^systemd-unit]: [systemd.unit 249](https://www.freedesktop.org/software/systemd/man/249/systemd.unit.html) lists `/run/systemd/transient` and `$XDG_RUNTIME_DIR/systemd/transient` as the load paths for transient units.
 
-[^systemd-service]: [systemd.service](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html) documents service types and `Restart=` supervision.
+[^systemd-service]: [systemd.service 249](https://www.freedesktop.org/software/systemd/man/249/systemd.service.html) documents service types and `Restart=` supervision.
 
-[^loginctl]: [loginctl](https://www.freedesktop.org/software/systemd/man/latest/loginctl.html) says `enable-linger` spawns a user manager at boot and keeps it after logouts.
+[^loginctl]: [loginctl 249](https://www.freedesktop.org/software/systemd/man/249/loginctl.html) says `enable-linger` spawns a user manager at boot and keeps it after logouts.
 
-[^logind-conf]: [logind.conf](https://www.freedesktop.org/software/systemd/man/latest/logind.conf.html) documents `KillUserProcesses=` and user manager termination.
+[^logind-conf]: [logind.conf 249](https://www.freedesktop.org/software/systemd/man/249/logind.conf.html) documents `KillUserProcesses=` and user manager termination.
 
-[^cgroup-v2]: [cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) documents `cgroup.kill`, which kills the cgroup and all descendants by `SIGKILL` and handles concurrent forks.
+[^cgroup-v2]: [cgroup v2, Linux 6.12](https://docs.kernel.org/6.12/admin-guide/cgroup-v2.html) documents `cgroup.kill`, which kills the cgroup and all descendants by `SIGKILL` and handles concurrent forks.
 
-[^linux-landlock]: [Landlock userspace API](https://docs.kernel.org/userspace-api/landlock.html) states that children inherit the domain and that a landlocked thread cannot remove the restriction.
+[^linux-landlock]: [Landlock userspace API, Linux 6.12](https://docs.kernel.org/6.12/userspace-api/landlock.html) states that children inherit the domain, a landlocked thread cannot remove the restriction, and ABI 6 signal scope restricts targets.
 
-[^bubblewrap]: [bwrap(1)](https://man.archlinux.org/man/bwrap.1.en) documents the pid 1 reaper, sandbox cleanup when no processes remain, `--die-with-parent` and `--as-pid-1`.
-
-[^tmux]: [tmux(1)](https://man.archlinux.org/man/tmux.1.en) documents the separate server and client processes, persistent sessions, and the `pane_dead_status` format.
-
-[^wsl-systemd]: [Use systemd to manage Linux services with WSL](https://learn.microsoft.com/en-us/windows/wsl/systemd) documents the `[boot] systemd=true` opt-in and the WSL version requirement.
+[^wsl-systemd]: [Use systemd to manage Linux services with WSL, inspected commit](https://github.com/MicrosoftDocs/WSL/blob/526e57752f7241dc7e98f14b1033905e8e675587/WSL/systemd.md) documents the `[boot] systemd=true` opt-in and the WSL version requirement.
 
 [^claude-background]: [Claude Code interactive mode](https://code.claude.com/docs/en/interactive-mode) documents background Bash output files, cleanup at exit, and the stop of `setsid` descendants.
 
@@ -740,8 +744,10 @@ recommends one durable shape for the decision on that ticket.
 
 [^launchd-plist]: [launchd.plist at the inspected revision](https://github.com/apple-oss-distributions/launchd/blob/d448a1c8f70a61202f8705f94337f686b87c30c4/man/launchd.plist.5) documents `~/Library/LaunchAgents`, `KeepAlive` and `ExitTimeOut`.
 
+[^launchd-lifecycle]: [Creating Launch Daemons and Agents, version 6.3.4](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html) says a user agent executes only while that user is logged in and receives `SIGTERM` at logout.
+
 [^llame-bash-spec]: [bash execution spec](../../../openspec/specs/bash-execution/spec.md) refuses `async` on other Machines until background jobs run there.
 
-[^llame-daemon-serve]: [serve.ts](../../../apps/machine/src/serve.ts) ends a session only after `session.processes.settled()`.
+[^llame-daemon-serve]: [serve.ts at the inspected pre-rewrite revision](https://github.com/leon0399/llame/blob/852b663d869897ac948f3e67dbbdc8028f54d07c/apps/machine/src/serve.ts) ends a session only after `session.processes.settled()`.
 
 [^llame-job-loss]: [chat-jobs.repository.ts](../../../apps/api/src/jobs/chat-jobs.repository.ts) settles the running jobs of a dead worker as `lost`.

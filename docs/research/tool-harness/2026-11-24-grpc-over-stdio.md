@@ -31,8 +31,8 @@ observed:
     grpc-js: 1.14.5
 sources:
   - id: node-http2-v22
-    resource: "https://nodejs.org/docs/latest-v22.x/api/http2.html"
-    title: "Node.js v22 HTTP/2 API"
+    resource: "https://nodejs.org/docs/v22.23.3/api/http2.html"
+    title: "Node.js v22.23.3 HTTP/2 API"
   - id: node-http2-connect-source
     resource: "https://github.com/nodejs/node/blob/v22.23.3/lib/internal/http2/core.js"
     title: "Node.js v22.23.3 http2.connect implementation"
@@ -64,20 +64,20 @@ sources:
     resource: "https://buf.build/docs/generate/"
     title: "Buf code generation"
   - id: grpc-core-concepts
-    resource: "https://grpc.io/docs/what-is-grpc/core-concepts/"
-    title: "gRPC call and streaming concepts"
+    resource: "https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md"
+    title: "gRPC concepts and streaming at v1.70.0"
   - id: grpc-flow-control
-    resource: "https://grpc.io/docs/guides/flow-control/"
-    title: "gRPC flow control"
+    resource: "https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md"
+    title: "gRPC HTTP/2 flow control at v1.70.0"
   - id: grpc-keepalive
-    resource: "https://grpc.io/docs/guides/keepalive/"
-    title: "gRPC keepalive"
+    resource: "https://github.com/grpc/grpc/blob/v1.70.0/doc/keepalive.md"
+    title: "gRPC Core keepalive guide at v1.70.0"
   - id: grpc-retry
-    resource: "https://grpc.io/docs/guides/retry/"
-    title: "gRPC retry behavior"
+    resource: "https://github.com/grpc/proposal/blob/80f4562cb5f659ab4c7c4ba07e83d9d29b495009/A6-client-retries.md"
+    title: "gRPC retry design at the inspected proposal revision"
   - id: grpc-protocol
-    resource: "https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md"
-    title: "gRPC HTTP/2 wire protocol"
+    resource: "https://github.com/grpc/grpc/blob/v1.70.0/doc/PROTOCOL-HTTP2.md"
+    title: "gRPC HTTP/2 wire protocol at v1.70.0"
   - id: buildkit-session
     resource: "https://github.com/moby/buildkit/blob/v0.33.1/session/grpc.go"
     title: "BuildKit gRPC sessions over net.Conn at v0.33.1"
@@ -91,11 +91,11 @@ sources:
     resource: "https://github.com/containerd/ttrpc/tree/v1.2.7"
     title: "containerd ttrpc project"
   - id: vscode-remote
-    resource: "https://code.visualstudio.com/docs/remote/ssh"
-    title: "VS Code Remote SSH architecture"
+    resource: "https://github.com/microsoft/vscode-docs/blob/1fe2a3edbeaf6c255e968d706ee350fb862b5d2c/docs/remote/ssh.md"
+    title: "VS Code Remote SSH at the inspected commit"
   - id: ssh-manual
-    resource: "https://man.openbsd.org/ssh"
-    title: "OpenSSH ssh(1) command and forwarding"
+    resource: "https://man.openbsd.org/OpenBSD-7.6/ssh.1"
+    title: "OpenSSH ssh(1), OpenBSD 7.6"
 ---
 
 # gRPC over a child process stdio from Node and Rust
@@ -112,8 +112,14 @@ This report answers the transport question for the selected Node and Rust librar
 
 ## What the prototype established
 
-The scratch prototype was outside the repository at `/tmp/grpc-stdio-proto`. The repo was not changed by the prototype. The Rust side used `tonic` 0.14.9, `tonic-prost-build` 0.14.9, `prost` 0.14.6, Tokio 1.54.1 and `protoc` 36.2. The Node side used Node v22.23.3, Connect-ES 1.7.0, Connect Node 1.7.0 and generated protobuf code using `protoc-gen-es` 1.10.1. Buf was 1.75.0.
-
+The scratch prototype was outside the repository at `/tmp/grpc-stdio-proto`.
+That directory is absent in the current checkout environment, so its source and
+raw output could not be recovered or independently reproduced. The measurements
+below are the contemporaneous record of the probe, not a runnable artifact.
+The Rust side used `tonic` 0.14.9, `tonic-prost-build` 0.14.9, `prost` 0.14.6,
+Tokio 1.54.1 and `protoc` 36.2. The Node side used Node v22.23.3, Connect-ES
+1.7.0, Connect Node 1.7.0 and generated protobuf code using `protoc-gen-es`
+1.10.1. Buf was 1.75.0.
 The Rust service implemented a unary echo method and a server-streaming method. `tonic::transport::Server::serve_with_incoming()` served one `tokio::io::DuplexStream`. Two `tokio::io::copy()` loops relayed bytes between that stream and the process stdin and stdout. The Node probe spawned this server, combined `child.stdout` and `child.stdin` using `Duplex.from()`, and passed that duplex to Node `http2.connect({ createConnection })`.
 
 Exact build and generation commands were:
@@ -236,7 +242,7 @@ Confidence is moderate for Connect-ES use with the exact stdio adapter. Its publ
 
 No grpc-js stdio injection was implemented. The conclusion comes from the inspected public API and channel implementation at v1.14.5. No reconnect timing, large payload benchmark, SSH network interruption, bidirectional stream probe, keepalive setting, macOS behavior or cross-platform pipe semantics were tested. The report does not make a performance claim.
 
-[^node-http2-v22]: Node v22 documentation describes the HTTP/2 core API and its connection/session options. [Node.js HTTP/2](https://nodejs.org/docs/latest-v22.x/api/http2.html).
+[^node-http2-v22]: Node v22.23.3 documentation describes the HTTP/2 core API and its connection/session options. [Node.js HTTP/2](https://nodejs.org/docs/v22.23.3/api/http2.html).
 
 [^node-http2-connect-source]: Node v22.23.3 calls `options.createConnection(authority, options)` when provided to `http2.connect()`, then constructs a `ClientHttp2Session` on the returned socket-like stream. [Node source](https://github.com/nodejs/node/blob/v22.23.3/lib/internal/http2/core.js).
 
@@ -258,15 +264,15 @@ No grpc-js stdio injection was implemented. The conclusion comes from the inspec
 
 [^buf-generate]: Buf's `buf generate` runs configured plugins against protobuf inputs. [Buf code generation](https://buf.build/docs/generate/).
 
-[^grpc-core-concepts]: gRPC defines unary and three streaming RPC types, and each side determines call success locally. [gRPC core concepts](https://grpc.io/docs/what-is-grpc/core-concepts/).
+[^grpc-core-concepts]: gRPC defines unary and streaming RPCs, and each side determines call success locally. [gRPC concepts at v1.70.0](https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md).
 
-[^grpc-flow-control]: gRPC uses the underlying transport flow control to prevent a fast sender from overwhelming a receiver. Writes can buffer before reaching the transport. [gRPC flow control](https://grpc.io/docs/guides/flow-control/).
+[^grpc-flow-control]: gRPC uses the underlying HTTP/2 flow-control mechanism to manage in-flight messages. [gRPC concepts at v1.70.0](https://github.com/grpc/grpc/blob/v1.70.0/CONCEPTS.md).
 
-[^grpc-keepalive]: gRPC keepalive uses HTTP/2 PING frames and documents server enforcement against overly frequent pings. [gRPC keepalive](https://grpc.io/docs/guides/keepalive/).
+[^grpc-keepalive]: gRPC Core keepalive uses HTTP/2 PING frames and documents server enforcement against overly frequent pings. [Keepalive guide at v1.70.0](https://github.com/grpc/grpc/blob/v1.70.0/doc/keepalive.md).
 
-[^grpc-retry]: gRPC retry behavior depends on retry policy and whether the call has been committed. [gRPC retry](https://grpc.io/docs/guides/retry/).
+[^grpc-retry]: Retry behavior depends on policy and whether the RPC is committed. [gRFC A6 at the inspected revision](https://github.com/grpc/proposal/blob/80f4562cb5f659ab4c7c4ba07e83d9d29b495009/A6-client-retries.md).
 
-[^grpc-protocol]: The gRPC wire protocol maps each RPC to an HTTP/2 stream and carries message frames and final status. [gRPC HTTP/2 protocol](https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md).
+[^grpc-protocol]: The gRPC wire protocol maps each RPC to an HTTP/2 stream and carries message frames and final status. [gRPC HTTP/2 protocol at v1.70.0](https://github.com/grpc/grpc/blob/v1.70.0/doc/PROTOCOL-HTTP2.md).
 
 [^buildkit-session]: BuildKit calls `http2.Server.ServeConn()` on its supplied `net.Conn`, and uses the connection as a gRPC custom dialer's result. [BuildKit source at v0.33.1](https://github.com/moby/buildkit/blob/v0.33.1/session/grpc.go).
 
@@ -276,8 +282,8 @@ No grpc-js stdio injection was implemented. The conclusion comes from the inspec
 
 [^containerd-ttrpc]: ttrpc is containerd's separate RPC library. [containerd/ttrpc v1.2.7](https://github.com/containerd/ttrpc/tree/v1.2.7).
 
-[^vscode-remote]: VS Code Remote SSH documents connecting to a remote machine through a VS Code Server. [Remote SSH](https://code.visualstudio.com/docs/remote/ssh).
+[^vscode-remote]: VS Code Remote SSH documents connecting to a remote machine through a VS Code Server. [Remote SSH at the inspected commit](https://github.com/microsoft/vscode-docs/blob/1fe2a3edbeaf6c255e968d706ee350fb862b5d2c/docs/remote/ssh.md).
 
-[^ssh-manual]: `ssh` can execute a remote command and forward Unix sockets with `-L`. [OpenSSH ssh(1)](https://man.openbsd.org/ssh).
+[^ssh-manual]: `ssh` can execute a remote command and forward Unix sockets with `-L`. [OpenSSH ssh(1), OpenBSD 7.6](https://man.openbsd.org/OpenBSD-7.6/ssh.1).
 
-[^stdio-probe]: The prototype ran in `/tmp/grpc-stdio-proto`. Source code was not committed. Versions, commands, outcomes and the limits of the probe are recorded above.
+[^stdio-probe]: The prototype path `/tmp/grpc-stdio-proto` was absent when this note was updated. The recorded test source and raw output are unavailable; versions, commands, outcomes and the limits of the probe above are preserved from the study record and cannot now be independently rerun.
