@@ -34,7 +34,7 @@ split required safety tests away from their behavior to meet the review target.
 - [x] 1.1 Commit the initial planning draft and verify the parent-relative diff contains only this change's planning artifacts.
 - [x] 1.2 Run at least two independent reviewers per round, verify findings against code or executable probes, and commit each revision separately until convergence. Three rounds ran and converged.
 - [x] 1.3 Prove the proposal with `pnpm exec openspec validate worktreeinclude --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
-- [ ] 1.4 Obtain publication permission, publish the draft with `$gh-stack`, and complete SR of the actual parent-relative diff before ready.
+- [x] 1.4 Obtain publication permission, publish the draft with `$gh-stack`, and complete SR of the actual parent-relative diff before ready.
 - [ ] 1.5 Complete GR and current-head CI with the CONTRIBUTING.md monitoring loop, verify Project state when access permits, and obtain Leo's approval of the published revision before implementation.
 
 ## 2. Implementation layer: `worktreeinclude/copy`
