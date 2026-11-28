@@ -1,0 +1,22 @@
+crates/machine-files/src/lib.rs
+  a1e71e0bb766681a 47-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "8c6f84b226cd3f16df9fdcea04674ab6142d60ad",
+  "prompts": {
+    "a1e71e0bb766681a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66a80c5c-f01f-47ad-bfba-959bcbd895db",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 7,
+      "total_deletions": 6,
+      "accepted_lines": 7,
+      "overriden_lines": 0
+    }
+  }
+}
