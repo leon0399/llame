@@ -708,8 +708,8 @@ describe('host ignore files above the scope', () => {
 describe('host excluded-directory report', () => {
   it('names the excluded directory a later scope searches', async () => {
     await withRoot(async (root) => {
-      await writeAt(root, '.gitignore', 'node_modules/\n');
-      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      await writeAt(root, '.gitignore', 'vendor/\n');
+      await writeAt(root, 'vendor/dep.js', 'needle\n');
 
       const first = await run(contextOf(), {
         patterns: ['needle'],
@@ -718,17 +718,17 @@ describe('host excluded-directory report', () => {
 
       expect(ignoredOf(first)).toEqual({
         count: 1,
-        locators: [`machine://host-a${root}/node_modules`],
+        locators: [`machine://host-a${root}/vendor`],
         atLeast: false,
       });
 
       const second = await run(contextOf(), {
         patterns: ['needle'],
-        scopes: [`${root}/node_modules`],
+        scopes: [`${root}/vendor`],
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/node_modules/dep.js:L1-1`,
+        `machine://host-a${root}/vendor/dep.js:L1-1`,
       ]);
     });
   });
@@ -757,8 +757,8 @@ describe('host excluded-directory report', () => {
 
   it('does not name a directory the read group refuses', async () => {
     await withRoot(async (root) => {
-      await writeAt(root, '.gitignore', 'node_modules/\nsecrets/\n');
-      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      await writeAt(root, '.gitignore', 'vendor/\nsecrets/\n');
+      await writeAt(root, 'vendor/dep.js', 'needle\n');
       await writeAt(root, 'secrets/key.txt', 'needle\n');
 
       const result = await run(
@@ -776,7 +776,7 @@ describe('host excluded-directory report', () => {
 
       expect(ignoredOf(result)).toEqual({
         count: 1,
-        locators: [`machine://host-a${root}/node_modules`],
+        locators: [`machine://host-a${root}/vendor`],
         atLeast: false,
       });
     });
@@ -806,8 +806,8 @@ describe('host excluded-directory report', () => {
 
   it('names an excluded directory in bypass mode', async () => {
     await withRoot(async (root) => {
-      await writeAt(root, '.gitignore', 'node_modules/\n');
-      await writeAt(root, 'node_modules/dep.js', 'needle\n');
+      await writeAt(root, '.gitignore', 'vendor/\n');
+      await writeAt(root, 'vendor/dep.js', 'needle\n');
 
       const context: ToolContext = {
         ...contextOf({
@@ -815,7 +815,7 @@ describe('host excluded-directory report', () => {
             grep: { allow: true },
             read: {
               allow: true,
-              reject: [{ field: 'path', literal: `${root}/node_modules` }],
+              reject: [{ field: 'path', literal: `${root}/vendor` }],
             },
           },
         }),
@@ -828,7 +828,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(ignoredOf(result)?.locators).toEqual([
-        `machine://host-a${root}/node_modules`,
+        `machine://host-a${root}/vendor`,
       ]);
     });
   });
@@ -854,8 +854,8 @@ describe('host excluded-directory report', () => {
 
   it('spells a bracketed directory so a later scope searches it', async () => {
     await withRoot(async (root) => {
-      await writeAt(root, '.gitignore', 'node_modules/\n');
-      await writeAt(root, 'app/[id]/node_modules/dep.js', 'needle\n');
+      await writeAt(root, '.gitignore', 'vendor/\n');
+      await writeAt(root, 'app/[id]/vendor/dep.js', 'needle\n');
 
       const first = await run(contextOf(), {
         patterns: ['needle'],
@@ -863,24 +863,24 @@ describe('host excluded-directory report', () => {
       });
 
       expect(ignoredOf(first)?.locators).toEqual([
-        `machine://host-a${root}/app/%5Bid%5D/node_modules`,
+        `machine://host-a${root}/app/%5Bid%5D/vendor`,
       ]);
 
       const second = await run(contextOf(), {
         patterns: ['needle'],
-        scopes: [`${root}/app/%5Bid%5D/node_modules`],
+        scopes: [`${root}/app/%5Bid%5D/vendor`],
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/app/[id]/node_modules/dep.js:L1-1`,
+        `machine://host-a${root}/app/[id]/vendor/dep.js:L1-1`,
       ]);
     });
   });
 
   it('spells a literal percent so a later scope searches it', async () => {
     await withRoot(async (root) => {
-      await writeAt(root, '.gitignore', 'node_modules/\n');
-      await writeAt(root, '100%41/node_modules/dep.js', 'needle\n');
+      await writeAt(root, '.gitignore', 'vendor/\n');
+      await writeAt(root, '100%41/vendor/dep.js', 'needle\n');
 
       const first = await run(contextOf(), {
         patterns: ['needle'],
@@ -888,16 +888,16 @@ describe('host excluded-directory report', () => {
       });
 
       expect(ignoredOf(first)?.locators).toEqual([
-        `machine://host-a${root}/100%2541/node_modules`,
+        `machine://host-a${root}/100%2541/vendor`,
       ]);
 
       const second = await run(contextOf(), {
         patterns: ['needle'],
-        scopes: [`${root}/100%2541/node_modules`],
+        scopes: [`${root}/100%2541/vendor`],
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/100%2541/node_modules/dep.js:L1-1`,
+        `machine://host-a${root}/100%2541/vendor/dep.js:L1-1`,
       ]);
     });
   });

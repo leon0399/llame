@@ -796,3 +796,50 @@ async fn binary_file_stays_skipped_after_a_byte_bound_resume() {
     }
     assert!(matches.is_empty());
 }
+
+#[tokio::test]
+async fn search_never_enters_or_reports_the_fixed_set() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    for name in [".git", ".jj", ".hg", ".svn", "node_modules"] {
+        std::fs::create_dir_all(root.join(name).join("deep")).unwrap();
+        std::fs::write(root.join(name).join("deep/hit.txt"), "needle\n").unwrap();
+        std::fs::create_dir_all(root.join("sub").join(name)).unwrap();
+        std::fs::write(root.join("sub").join(name).join("hit.txt"), "needle\n").unwrap();
+    }
+    std::fs::create_dir_all(root.join("worktree")).unwrap();
+    std::fs::write(root.join("worktree/.git"), "gitdir: needle\n").unwrap();
+    std::fs::write(root.join(".gitignore"), "node_modules/\n").unwrap();
+    std::fs::write(root.join("kept.txt"), "needle\n").unwrap();
+    let (mut child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    let mut req = request(root, &["needle"]);
+    req.respect_ignore_files = true;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let (mut matches, mut skipped) = (Vec::new(), Vec::new());
+    while let Some(response) = stream.message().await.unwrap() {
+        match response.event {
+            Some(Event::Match(found)) => matches.push(found.path),
+            Some(Event::Skipped(skip)) => skipped.push(skip.path),
+            _ => {}
+        }
+    }
+    assert_eq!(matches, ["kept.txt"]);
+    assert!(
+        skipped.is_empty(),
+        "fixed-set entries were reported: {skipped:?}"
+    );
+
+    let mut explicit = request(&root.join("node_modules"), &["needle"]);
+    explicit.respect_ignore_files = true;
+    let mut stream = client.search_files(explicit).await.unwrap().into_inner();
+    let mut matches = Vec::new();
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::Match(found)) = response.event {
+            matches.push(found.path);
+        }
+    }
+    assert_eq!(matches, ["deep/hit.txt"]);
+    child.kill().await.unwrap();
+}
