@@ -65,7 +65,7 @@ this policy, which closes #1654 and #1655.
 
 ## 3. finalize
 
-- [ ] 3.1 Enter `unified-walk-policy/finalize` with `$gh-stack` before any spec synchronization writes.
-- [ ] 3.2 Run `$openspec-sync-specs`. Re-read the shipped `grep-tool` and `native-file-tools` requirements before sync, in case another change archived against them first. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [x] 3.1 Enter `unified-walk-policy/finalize` with `$gh-stack` before any spec synchronization writes.
+- [x] 3.2 Run `$openspec-sync-specs`. Re-read the shipped `grep-tool` and `native-file-tools` requirements before sync, in case another change archived against them first. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
 - [ ] 3.3 Run `$openspec-archive-change` after readiness is proved. Preserve checked task history and check MODIFIED requirement wording for semantic consistency.
 - [ ] 3.4 Publish the finalize PR as draft with `$gh-stack`, self-review its actual diff after archive movement, then mark ready and run the Ready-PR monitoring loop. Post-archive gates, not pre-archive checkboxes.

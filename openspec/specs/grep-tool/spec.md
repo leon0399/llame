@@ -348,15 +348,17 @@ A host, Machine, or Knowledge walk MUST NOT follow a symbolic link. A skill
 walk MUST follow the agent-skills link semantics, under the same bounds and
 the same call deadline. A skill walk MUST NOT enter a directory whose
 canonical identity is already on the current path. It MUST count such a
-directory as a `link` skip. It MUST also count a link that the operating
-system reports as a loop as a `link` skip.
+directory as a `link` skip. It MUST also count a link that the operating system
+reports as a loop as a `link` skip.
 
-A host or Machine walk MUST include hidden entries. It MUST NOT enter a
-directory named `.git`. It MUST apply ignore files as the ignore-file
-requirements define. When a scope names one exact file, the tool MUST search
-that file, even when an ignore rule matches it. A Knowledge walk MUST keep the
-Knowledge filesystem rules. It refuses a symbolic link at every component, and
-the path stays in the resolved Space.
+A host or Machine walk MUST include hidden entries. It MUST NOT enter a fixed
+infrastructure directory, as the walk policy states. It MUST apply the ignore
+files that the walk policy defines. A scope that names one exact file MUST
+search that file, as the walk policy states. A Knowledge walk MUST include
+hidden entries and MUST NOT enter a directory named `.git`. It applies no
+ignore file. A Knowledge walk MUST keep the Knowledge filesystem rules. It
+refuses a symbolic link at every component, and the path stays in the resolved
+Space.
 
 #### Scenario: gitignored directory is not entered
 
@@ -372,6 +374,17 @@ the path stays in the resolved Space.
 
 - **WHEN** a scope is `/home/u/repo/**` and `.git/config` contains a match
 - **THEN** no passage names `.git/config`
+
+#### Scenario: The jj directory is never entered
+
+- **WHEN** a scope is `/home/u/repo/**` and `.jj/repo/hidden.md` contains a match
+- **THEN** no passage names `.jj/repo/hidden.md`
+
+#### Scenario: A vendored dependency tree is never entered
+
+- **WHEN** a scope is `machine://build/srv/app` and `node_modules/x/README.md` contains a match
+- **THEN** no passage names `node_modules/x/README.md`
+- **AND** `ignored` names no locator below `node_modules`
 
 #### Scenario: Hidden file is searched
 
@@ -714,109 +727,11 @@ ahead of a stop MUST NOT count as reached.
 - **THEN** the bound, the skip counts, and the excluded directories match the same walk without a rank
 - **AND** the inline part and the artifact follow the ranked order
 
-### Requirement: Ignore files from the scope and above it apply
-
-A host or Machine walk MUST apply `.ignore` files from the registered root that
-holds the prefix down to each candidate. It MUST apply `.gitignore` files in the
-same way, under the repository limit of the next requirement. On a Machine, the
-walk starts at the registered root that holds the prefix. A deeper ignore file
-outranks a shallower one. In one directory, `.ignore` outranks `.gitignore`.
-The walk MUST NOT take either file as a candidate of a directory scope.
-
-#### Scenario: A rule at the repository root applies to a narrower scope
-
-- **WHEN** `/home/u` is the registered root, `/home/u/repo/.git` exists,
-  `/home/u/repo/.gitignore` names `dist/`, and a scope is `/home/u/repo/apps`
-- **THEN** the walk examines no file below `/home/u/repo/apps/web/dist`
-
-#### Scenario: An ignore file outside a repository applies
-
-- **WHEN** `/mnt/d/Projects` is the registered root,
-  `/mnt/d/Projects/.ignore` names `.build-cache/`, and a scope is
-  `/mnt/d/Projects/Arduino`
-- **THEN** the walk examines no file below
-  `/mnt/d/Projects/Arduino/libraries/.build-cache`
-
-#### Scenario: An ignore file is not searched
-
-- **WHEN** `/home/u/repo/.ignore` contains a match and a scope is
-  `/home/u/repo`
-- **THEN** no passage names `/home/u/repo/.ignore`
-
-### Requirement: A gitignore above the scope applies only in its repository
-
-The repository directory is the nearest directory at or above the prefix that
-holds a `.git` entry, a directory or a file. A `.gitignore` above the prefix
-MUST apply only in the repository directory or below it. Without a repository
-directory, the walk MUST NOT apply a `.gitignore` above the prefix. On a
-Machine, the walk looks for it only up to the registered root, and without
-one there, the registered root is the repository directory.
-
-#### Scenario: A gitignore above the repository does not apply
-
-- **WHEN** `/home/u/.gitignore` names `*.md`, `/home/u/repo/.git` exists, and a scope is `/home/u/repo`
-- **THEN** the walk searches `/home/u/repo/README.md`
-
-#### Scenario: A gitignore outside a repository does not apply above the scope
-
-- **WHEN** `/mnt/d/Projects/.gitignore` names `*.md`, no `.git` exists at or above `/mnt/d/Projects/Arduino`, and that directory is the scope
-- **THEN** the walk searches `/mnt/d/Projects/Arduino/README.md`
-
-#### Scenario: A Machine repository above the registered root
-
-- **WHEN** a Machine root is `/srv/app/packages`, `.git` is at `/srv/app`, `/srv/app/packages/.gitignore` names `dist/`, and a scope is `machine://build/srv/app/packages/api`
-- **THEN** the daemon examines no file below `/srv/app/packages/api/dist`
-
-### Requirement: An ignore rule decides an entry by its own path
-
-The scope directory is the directory that the literal prefix of the scope
-names. An ignore rule MUST NOT exclude the scope directory or a directory above
-it. A rule MUST decide an entry only when its pattern matches the path of that
-entry. A match on a directory above the entry MUST NOT decide it. In one ignore
-file, the last rule that decides an entry wins.
-
-#### Scenario: An explicit scope searches an ignored directory
-
-- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/node_modules/react`
-- **THEN** the walk searches the files below that scope
-
-#### Scenario: A glob does not override an ignore rule
-
-- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/**/node_modules/react/*.js`
-- **THEN** the walk examines no file below `/home/u/repo/node_modules`
-
-#### Scenario: A re-included directory keeps the other rules
-
-- **WHEN** `/home/u/repo/.gitignore` names `build/` and `*.log`, and `/home/u/repo/src/.gitignore` names `!build/`
-- **THEN** the walk enters `/home/u/repo/src/build`
-- **AND** it examines no `.log` file below it
-
-#### Scenario: A nested ignored directory below an explicit scope is excluded
-
-- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/node_modules/react`
-- **THEN** the walk examines no file below `/home/u/repo/node_modules/react/x/node_modules`
-
-#### Scenario: An allow list keeps its files
-
-- **WHEN** `/home/u/repo/.gitignore` names `*`, then `!*/`, then `!src/**`
-- **THEN** the walk searches `/home/u/repo/src/a/b.js`
-- **AND** it examines no `/home/u/repo/lib/c.js`
-
-#### Scenario: A negated directory keeps the rule for its files
-
-- **WHEN** `/home/u/repo/.gitignore` names `build*` and `!build-tools/`
-- **THEN** the walk enters `/home/u/repo/build-tools`
-- **AND** it examines no `/home/u/repo/build-tools/build.sh`
-
-#### Scenario: A rule that matches a file directly still excludes it
-
-- **WHEN** `/home/u/repo/.gitignore` names `docs/**` and then `!docs/keep/`
-- **THEN** the walk enters `/home/u/repo/docs/keep`
-- **AND** it examines no `/home/u/repo/docs/keep/a.md`
-
 ### Requirement: Excluded directories are reported
 
-The walk MUST record each directory that an ignore rule excludes. It MUST NOT record a directory below an excluded
+The walk MUST record each directory that an ignore rule excludes. It MUST NOT
+record a directory that the fixed set names, because the fixed set decides
+first and stays silent. It MUST NOT record a directory below an excluded
 directory, or an excluded file. When the `read` group admits at least one
 recorded locator, the result MUST carry `ignored`. `ignored.count` MUST count
 the admitted locators. `ignored.locators` MUST hold the first five of them in
@@ -824,19 +739,25 @@ canonical order.
 
 #### Scenario: The model learns which directory to scope
 
-- **WHEN** a search over `/home/u/repo` finds no match and `node_modules/` excluded `/home/u/repo/node_modules`
-- **THEN** `ignored.locators` holds `/home/u/repo/node_modules`
-- **AND** a later scope of `/home/u/repo/node_modules` searches it
+- **WHEN** a search over `/home/u/repo` finds no match and `vendor/` excluded `/home/u/repo/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/vendor`
+- **AND** a later scope of `/home/u/repo/vendor` searches it
 
 #### Scenario: Nested excluded directories are not repeated
 
-- **WHEN** `node_modules/` excluded `/home/u/repo/node_modules`, and that directory holds another `node_modules`
+- **WHEN** `vendor/` excluded `/home/u/repo/vendor`, and that directory holds another `vendor`
 - **THEN** `ignored.count` counts one directory
 
 #### Scenario: A resumed page does not repeat earlier exclusions
 
-- **WHEN** a Machine scope answers in two `fs.grep` responses, and the first response excluded `/srv/app/node_modules`
-- **THEN** the result counts `/srv/app/node_modules` once
+- **WHEN** a Machine scope answers in two `fs.grep` responses, and the first response excluded `/srv/app/vendor`
+- **THEN** the result counts `/srv/app/vendor` once
+
+#### Scenario: A fixed-set directory is never reported
+
+- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/**`
+- **THEN** `ignored` neither counts nor names `/home/u/repo/node_modules`
+- **AND** the walk examines no file below `/home/u/repo/node_modules`
 
 ### Requirement: The excluded-directory report is filtered and bounded
 
@@ -884,15 +805,15 @@ tool MUST NOT refuse `%5B`, `%5D`, `%7B`, or `%7D` as glob operators.
 
 #### Scenario: A reported directory with brackets can be scoped
 
-- **WHEN** `node_modules/` excluded `/home/u/repo/app/[id]/node_modules`
-- **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/node_modules`
+- **WHEN** `vendor/` excluded `/home/u/repo/app/[id]/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/vendor`
 - **AND** a later scope of that locator searches that directory
 
 #### Scenario: A reported directory with a percent sign can be scoped
 
-- **WHEN** `node_modules/` excluded `/home/u/repo/100%41/node_modules`
-- **THEN** `ignored.locators` holds `/home/u/repo/100%2541/node_modules`
-- **AND** a later scope of that locator searches `/home/u/repo/100%41/node_modules`
+- **WHEN** `vendor/` excluded `/home/u/repo/100%41/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/100%2541/vendor`
+- **AND** a later scope of that locator searches `/home/u/repo/100%41/vendor`
 
 ### Requirement: Host scopes decode the literal spellings
 
