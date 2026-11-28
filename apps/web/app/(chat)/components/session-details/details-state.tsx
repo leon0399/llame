@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
@@ -23,6 +29,26 @@ const WIDE_STYLE = {
   "--finished-jobs-width": "20rem",
   "--sidebar-width": "calc(16rem + var(--finished-jobs-width))",
 } as CSSProperties;
+
+const WIDE_QUERY = "(min-width: 80rem)";
+
+function subscribeToWide(onChange: () => void) {
+  const query = window.matchMedia(WIDE_QUERY);
+
+  query.addEventListener("change", onChange);
+
+  return () => query.removeEventListener("change", onChange);
+}
+
+/** Room for the chats rail, the transcript and session details side by
+ *  side (80rem). The server assumes it, like the desktop branch elsewhere. */
+function useWideViewport(): boolean {
+  return useSyncExternalStore(
+    subscribeToWide,
+    () => window.matchMedia(WIDE_QUERY).matches,
+    () => true,
+  );
+}
 
 /** The open chat's id, or undefined off a `/chat/:id` route. */
 export function useOpenChatId(): string | undefined {
@@ -70,6 +96,11 @@ export function SessionDetailsProvider({
   children: ReactNode;
 }) {
   const [open, setOpenState] = useState(defaultOpen);
+  // Below 80rem the details would squeeze the transcript to a column, so
+  // they start shut there; opening them is per visit and leaves the saved
+  // desktop preference alone.
+  const wideViewport = useWideViewport();
+  const [narrowOpen, setNarrowOpen] = useState(false);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const chatId = useOpenChatId();
 
@@ -78,14 +109,15 @@ export function SessionDetailsProvider({
     document.cookie = `${SESSION_DETAILS_COOKIE}=${String(next)}; path=/; max-age=${String(COOKIE_MAX_AGE_SECONDS)}`;
   }, []);
 
-  const wide = open && openFor !== null && openFor === chatId;
+  const shown = wideViewport ? open : narrowOpen;
+  const wide = shown && openFor !== null && openFor === chatId;
 
   return (
     <MainRailProvider>
       <FinishedJobsPanelContext value={{ openFor, setOpenFor }}>
         <SidebarProvider
-          open={open}
-          onOpenChange={setOpen}
+          open={shown}
+          onOpenChange={wideViewport ? setOpen : setNarrowOpen}
           keyboardShortcut={null}
           className="h-full min-h-0 min-w-0"
           style={wide ? WIDE_STYLE : undefined}
