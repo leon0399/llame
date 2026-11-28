@@ -134,7 +134,7 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.getByText("Memory")).toBeInTheDocument();
+    // The page heading names the section; the card carries no title.
     await expect(
       canvasElement.querySelector('[data-slot="skeleton"]'),
     ).not.toBeNull();
