@@ -5,7 +5,9 @@ import {
   SidebarProvider,
   AppSidebar,
 } from "@/app/shell/app-sidebar";
+import { AppSidebarActions } from "@/app/shell/app-sidebar/app-sidebar-actions";
 import { AppShellFrame } from "@/app/shell/app-shell-frame";
+import { CommandPaletteProvider } from "@/app/shell/command-palette";
 import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
 
@@ -27,12 +29,14 @@ export default async function SettingsLayout({
       <SidebarProvider defaultOpen={defaultOpen} className="min-h-0 flex-1">
         <LiveUpdatesProvider>
           <ActiveRunsProvider>
-            <AppSidebar />
-            <SettingsRail />
-            <SidebarInset className="flex h-full flex-col overflow-hidden">
-              <SettingsHeader />
-              {children}
-            </SidebarInset>
+            <CommandPaletteProvider>
+              <AppSidebar topActions={<AppSidebarActions />} />
+              <SettingsRail />
+              <SidebarInset className="flex h-full flex-col overflow-hidden">
+                <SettingsHeader />
+                {children}
+              </SidebarInset>
+            </CommandPaletteProvider>
           </ActiveRunsProvider>
         </LiveUpdatesProvider>
       </SidebarProvider>
