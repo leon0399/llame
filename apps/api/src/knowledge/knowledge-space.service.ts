@@ -25,6 +25,9 @@ import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
 export const KNOWLEDGE_SPACE_DEFAULT_LIMIT = 50;
 export const KNOWLEDGE_SPACE_MAX_LIMIT = 100;
 
+export const ARCHIVED_KNOWLEDGE_SPACE_RENAME =
+  'This Knowledge Space is archived. Unarchive it before you rename it.';
+
 function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
   const resolved = limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
 
@@ -183,7 +186,7 @@ export class KnowledgeSpaceService {
     const space = await this.tenantDb.runAs(ownerUserId, async (tx) => {
       const repository = new KnowledgeSpaceRepository(tx);
 
-      const current = await repository.findByIdForOwner(
+      const current = await repository.findByIdForOwnerForUpdate(
         knowledgeSpaceId,
         ownerUserId,
       );
@@ -191,12 +194,20 @@ export class KnowledgeSpaceService {
       if (current === undefined) return undefined;
 
       if (current.archivedAt !== null) {
-        throw new ConflictException(
-          'This Knowledge Space is archived. Unarchive it before you rename it.',
-        );
+        throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
       }
 
-      return repository.updateName(knowledgeSpaceId, ownerUserId, name);
+      const updated = await repository.updateName(
+        knowledgeSpaceId,
+        ownerUserId,
+        name,
+      );
+
+      if (updated === undefined) {
+        throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+      }
+
+      return updated;
     });
 
     return space === undefined

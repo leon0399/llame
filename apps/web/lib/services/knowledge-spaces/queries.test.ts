@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { knowledgeSpaceQueryKeys } from "./queries";
+import { archiveScopeFromListKey, knowledgeSpaceQueryKeys } from "./queries";
 
 describe("knowledgeSpaceQueryKeys", () => {
   it("keeps the active, archived, and combined lists under one list prefix", () => {
@@ -21,6 +21,18 @@ describe("knowledgeSpaceQueryKeys", () => {
     ]);
     expect(knowledgeSpaceQueryKeys.list("only").slice(0, 2)).toEqual(
       knowledgeSpaceQueryKeys.lists(),
+    );
+  });
+
+  it("reads the archive filter from the list key", () => {
+    expect(
+      archiveScopeFromListKey(knowledgeSpaceQueryKeys.list()),
+    ).toBeUndefined();
+    expect(archiveScopeFromListKey(knowledgeSpaceQueryKeys.list("only"))).toBe(
+      "only",
+    );
+    expect(archiveScopeFromListKey(knowledgeSpaceQueryKeys.list("with"))).toBe(
+      "with",
     );
   });
 });

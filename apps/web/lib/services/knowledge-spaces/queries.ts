@@ -1,8 +1,4 @@
-import {
-  type InfiniteData,
-  type QueryKey,
-  useInfiniteQuery,
-} from "@tanstack/react-query";
+import { type InfiniteData, useInfiniteQuery } from "@tanstack/react-query";
 
 import { listKnowledgeSpaces } from "../../api/generated/knowledge/knowledge";
 import type { KnowledgeSpaceCollectionResponse } from "../../api/generated/models";
@@ -18,6 +14,19 @@ export const knowledgeSpaceQueryKeys = {
     [...knowledgeSpaceQueryKeys.lists(), archived ?? "active"] as const,
 };
 
+type KnowledgeSpaceListKey = ReturnType<typeof knowledgeSpaceQueryKeys.list>;
+
+/** The archive filter stored in a list key. `active` means the working list. */
+export function archiveScopeFromListKey(
+  queryKey: KnowledgeSpaceListKey,
+): "only" | "with" | undefined {
+  const scope = queryKey[2];
+
+  if (scope === "only" || scope === "with") return scope;
+
+  return undefined;
+}
+
 function authenticatedFetch(): typeof fetch {
   return createAuthenticatedBrowserFetch(globalThis.fetch);
 }
@@ -32,16 +41,16 @@ export function useKnowledgeSpacesQuery(archived?: "only" | "with") {
     KnowledgeSpaceCollectionResponse,
     Error,
     InfiniteData<KnowledgeSpaceCollectionResponse, string | undefined>,
-    QueryKey,
+    KnowledgeSpaceListKey,
     string | undefined
   >({
     queryKey: knowledgeSpaceQueryKeys.list(archived),
-    queryFn: ({ pageParam, signal }) =>
+    queryFn: ({ pageParam, signal, queryKey }) =>
       listKnowledgeSpaces(
         {
           limit: KNOWLEDGE_SPACE_PAGE_SIZE,
           after: pageParam,
-          archived,
+          archived: archiveScopeFromListKey(queryKey),
         },
         { signal },
         authenticatedFetch(),

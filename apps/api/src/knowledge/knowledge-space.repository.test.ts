@@ -217,4 +217,54 @@ describe('KnowledgeSpaceRepository archive scope', () => {
     expect(sets[1]?.archivedAt).toBeNull();
     expect(sets[1]?.updatedAt).toBeInstanceOf(Date);
   });
+
+  it('locks the row and writes a name only while it is active', async () => {
+    const modes: Array<string> = [];
+    const wheres: Array<SQL> = [];
+    const db = drizzle.mock();
+    Object.assign(db, {
+      select: () => ({
+        from: () => ({
+          where: (clause: SQL) => {
+            wheres.push(clause);
+
+            return {
+              for: (mode: string) => {
+                modes.push(mode);
+
+                return { limit: () => Promise.resolve([]) };
+              },
+              limit: () => {
+                modes.push('unlocked');
+
+                return Promise.resolve([]);
+              },
+            };
+          },
+        }),
+      }),
+      update: () => ({
+        set: () => ({
+          where: (clause: SQL) => {
+            wheres.push(clause);
+
+            return { returning: () => Promise.resolve([]) };
+          },
+        }),
+      }),
+    });
+    const repository = new KnowledgeSpaceRepository(db);
+
+    await repository.findByIdForOwnerForUpdate(SPACE_ID, OWNER_ID);
+    await repository.updateName(SPACE_ID, OWNER_ID, 'Field notes');
+
+    const renameWhere = wheres[1];
+
+    if (renameWhere === undefined) {
+      throw new Error('Expected the rename predicate');
+    }
+
+    expect(modes).toEqual(['update']);
+    expect(sqlText(renameWhere)).toContain('is null');
+  });
 });

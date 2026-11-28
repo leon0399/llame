@@ -168,6 +168,26 @@ export class KnowledgeSpaceRepository {
     return row;
   }
 
+  /** Locks the owner row so a rename cannot pass an archive that commits first. */
+  async findByIdForOwnerForUpdate(
+    knowledgeSpaceId: string,
+    ownerUserId: string,
+  ): Promise<KnowledgeSpace | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(knowledgeSpaces)
+      .where(
+        and(
+          eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
+          eq(knowledgeSpaces.ownerUserId, ownerUserId),
+        ),
+      )
+      .for('update')
+      .limit(1);
+
+    return row;
+  }
+
   /**
    * Returns at most `limit + 1` rows. The extra row lets the service produce a
    * next cursor without counting or materializing an uncapped inventory.
@@ -235,6 +255,7 @@ export class KnowledgeSpaceRepository {
         and(
           eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
           eq(knowledgeSpaces.ownerUserId, ownerUserId),
+          isNull(knowledgeSpaces.archivedAt),
         ),
       )
       .returning();
