@@ -1,0 +1,38 @@
+apps/web/components/machines/machine-list.tsx
+  83a574157e2c33d7 1-2,8-28,34-100,102-133,136-154,161-252,256-257,261-265,268-272,274-281,288-298,300-338,342-346,348-349,352-380
+apps/web/app/(app)/signed-in-layout.test.ts
+  83a574157e2c33d7 1-19,21-27,29-79
+apps/web/components/font-switcher.tsx
+  83a574157e2c33d7 124-127
+apps/web/components/setting-field.tsx
+  83a574157e2c33d7 1-45,49-50,53-61
+apps/web/components/mod-enter-submit.tsx
+  83a574157e2c33d7 1-14,18-23,25-29,31-34,36-58
+apps/web/lib/thinking-verbs.ts
+  83a574157e2c33d7 1-123,125-204
+apps/web/lib/calendar-day.ts
+  83a574157e2c33d7 1-151
+apps/web/app/(app)/layout.tsx
+  83a574157e2c33d7 1-51
+DESIGN.md
+  83a574157e2c33d7 178-185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "9ccc7eab838a9d09d987a563b304472a3a2e15aa",
+  "prompts": {
+    "83a574157e2c33d7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b18b7014-3c11-457e-9891-f122a6fd3466",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "total_additions": 395,
+      "total_deletions": 138,
+      "accepted_lines": 941,
+      "overriden_lines": 0
+    }
+  }
+}
