@@ -5,9 +5,9 @@
 - Projects are reachable on a phone: the rail's Projects entry is enabled,
   and `/projects` lists the owner's projects with New project where the
   desktop shows its projects rail.
-- Below 1280px, session details start closed, so on a tablet the chat is
-  not squeezed between the chats rail and the details. They still open on
-  demand, without changing the saved desktop preference.
+- Below 1280px, session details start closed and open as a sheet over the
+  chat, so on a tablet the chat is never squeezed between the chats rail
+  and the details. The saved desktop preference is untouched.
 - Administration opens on a phone: the rail entry is enabled and its pages
   switch sections from the breadcrumb. Keyboard hints in the rail are
   hidden on touch screens.

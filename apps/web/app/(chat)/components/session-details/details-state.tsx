@@ -42,7 +42,7 @@ function subscribeToWide(onChange: () => void) {
 
 /** Room for the chats rail, the transcript and session details side by
  *  side (80rem). The server assumes it, like the desktop branch elsewhere. */
-function useWideViewport(): boolean {
+export function useWideViewport(): boolean {
   return useSyncExternalStore(
     subscribeToWide,
     () => window.matchMedia(WIDE_QUERY).matches,
