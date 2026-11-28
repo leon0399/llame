@@ -20,7 +20,7 @@ import {
 } from "@workspace/ui/components/collapsible";
 import { Drawer, DrawerContent } from "@workspace/ui/components/custom/drawer";
 import { Sheet, SheetContent } from "@workspace/ui/components/sheet";
-import { useSidebar } from "@workspace/ui/components/sidebar";
+import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 
@@ -377,7 +377,7 @@ export function FinishedJobsPanel({
   jobs: ReadonlyArray<ChatJobResponse>;
   onClose: () => void;
 }) {
-  const { isMobile } = useSidebar();
+  const isMobile = useIsMobile();
   const wideViewport = useWideViewport();
 
   if (!isMobile && wideViewport) {

@@ -117,6 +117,7 @@ const preBundledStoryDeps = [
   "@base-ui/react/checkbox",
   "@base-ui/react/collapsible",
   "@base-ui/react/dialog",
+  "@base-ui/react/drawer",
   "@base-ui/react/field",
   "@base-ui/react/form",
   "@base-ui/react/input",
