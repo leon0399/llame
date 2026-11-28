@@ -66,7 +66,11 @@ export const Rows: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const heading = canvas.getByRole("heading", { name: "devl" });
+    // Each row's h3 sits under the page's h2, so headings never skip a level.
+    await expect(
+      canvas.getByRole("heading", { level: 2, name: "Configured Machines" }),
+    ).toBeVisible();
+    const heading = canvas.getByRole("heading", { level: 3, name: "devl" });
     const item = heading.closest("li");
 
     if (item === null) throw new Error("no row for devl");

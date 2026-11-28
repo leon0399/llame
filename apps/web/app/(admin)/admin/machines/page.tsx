@@ -47,7 +47,12 @@ export default function AdminMachinesPage() {
       title="Machines"
       description="The computers this instance runs tools on, configured under machines in the instance configuration file."
     >
-      <MachinesBody />
+      {/* The rows title each Machine with an h3, so the list sits under an
+          h2 as it does in Settings. */}
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold">Configured Machines</h2>
+        <MachinesBody />
+      </section>
     </SectionPage>
   );
 }
