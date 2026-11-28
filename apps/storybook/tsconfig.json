@@ -16,7 +16,10 @@
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
     "test/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    // Ambient platform types packages/ui's hooks read (navigator.userAgentData),
+    // reached through apps/web's shortcuts provider in preview.tsx.
+    "../../packages/ui/types/**/*.d.ts"
   ],
   "exclude": ["node_modules"]
 }
