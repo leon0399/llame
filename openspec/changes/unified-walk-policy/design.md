@@ -67,7 +67,11 @@ scenarios. Repository detection stays keyed on `.git`, and it governs only a
 ignore filenames are read inside the walked tree unconditionally. A
 `.gitignore` inside the walked tree therefore applies with no repository at
 all. A symlink or special file is never a policy source. A deeper layer
-outranks a shallower one. Nothing changes in behavior; only the home moves.
+outranks a shallower one. Nothing changes in the daemon's behavior; only the home moves. The moved text
+now states the daemon's rule for a walk with no repository: the registered root
+counts as the repository, so its `.gitignore` applies. The `grep-tool` text
+also described an in-process host walk that no longer exists, which applied no
+`.gitignore` above the scope without a repository.
 Extending repository detection to `.jj` is a follow-up if a case appears.
 
 ### D4. Listings render by entry class, split across the daemon and the presentation
