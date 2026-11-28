@@ -71,6 +71,7 @@ import { SessionDetails } from "./session-details";
 import { parseSessionDetailsLayout } from "./session-details/details-cookie";
 import { ChatPage } from "./chat-page";
 import { NewChatHome } from "./new-chat-home";
+import { requestNewChat } from "@/lib/new-chat";
 import {
   setChatMarkdownLoadForTests,
   type ChatMarkdownRenderers,
@@ -706,6 +707,27 @@ export const NewChatHomeOpensDraft: Story = {
     await expect(canvas.queryByRole("log")).toBeNull();
     await expect(sentRoutes()).toEqual([]);
     await expect(getRouter().replace).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * New chat while already on `/` starts a clean draft: the address does not
+ * change, so the request itself discards the unsent text.
+ *
+ * @summary New chat on the home page clears the unsent draft
+ */
+export const NewChatHomeNewChatStartsClean: Story = {
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/" } } },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+
+    await userEvent.type(input, "an unsent draft");
+    await expect(input).toHaveValue("an unsent draft");
+
+    requestNewChat();
+
+    await waitFor(() => expect(composer(canvasElement)).toHaveValue(""));
   },
 };
 

@@ -20,6 +20,7 @@ import {
   SHORTCUT_KEY_NEW_CHAT,
 } from "@/lib/command-palette";
 import { useCommandPalette } from "../command-palette";
+import { requestNewChat } from "@/lib/new-chat";
 
 const SHORTCUT_KEY_SEARCH = "k";
 
@@ -33,6 +34,7 @@ function useNewChatShortcut() {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || !isNewChatShortcut(e, isMac)) return;
       e.preventDefault();
+      requestNewChat();
       router.push("/");
     };
 
@@ -79,7 +81,7 @@ export function AppSidebarActions() {
     <SidebarMenu>
       <SidebarMenuItem>
         <SidebarMenuButton
-          render={<Link href="/" prefetch={false} />}
+          render={<Link href="/" prefetch={false} onClick={requestNewChat} />}
           isActive={pathname === "/"}
           className={cn("group/button")}
           tooltip={shortcutTooltip("New Chat", newChatShortcut)}

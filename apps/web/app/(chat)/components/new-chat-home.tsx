@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 
+import { useNewChatRequests } from "@/lib/new-chat";
 import { safeRandomUUID } from "@/lib/uuid";
 
 import { ChatPage } from "./chat-page";
@@ -13,7 +14,8 @@ import { ChatPage } from "./chat-page";
  * the URL until the first send makes the chat addressable. That send moves
  * the address bar to `/chat/:id` without a navigation, so this page stays
  * mounted under it; when the address returns to `/` (New chat, Back), the
- * sent chat is left behind and a new draft starts.
+ * sent chat is left behind and a new draft starts. New chat while already on
+ * `/` starts one too, discarding the unsent text and choices (`requestNewChat`).
  *
  * History can land this page on another chat's address (Back or Forward to an
  * entry a home send rewrote). That address is routed again so the chat's own
@@ -22,17 +24,20 @@ import { ChatPage } from "./chat-page";
 export function NewChatHome() {
   const pathname = usePathname();
   const router = useRouter();
+  const requests = useNewChatRequests();
 
   const [draft, setDraft] = useState(() => ({
     chatId: safeRandomUUID(),
     pathname,
+    requests,
   }));
 
-  if (pathname !== draft.pathname) {
+  // TODO(#1997): keep the New chat draft instead of discarding it here.
+  if (pathname !== draft.pathname || requests !== draft.requests) {
     setDraft(
       pathname === "/"
-        ? { chatId: safeRandomUUID(), pathname }
-        : { ...draft, pathname },
+        ? { chatId: safeRandomUUID(), pathname, requests }
+        : { ...draft, pathname, requests },
     );
   }
 

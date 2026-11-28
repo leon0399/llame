@@ -21,6 +21,7 @@ import { topBarClasses } from "@/app/shell/top-bar";
 import { SHORTCUT_KEY_NEW_CHAT } from "@/lib/command-palette";
 import { ListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
+import { requestNewChat } from "@/lib/new-chat";
 
 /** The rail's new-chat button. Its tooltip names the same Ctrl/⌘+Shift+O
  *  chord as the main rail's New Chat, which the main rail binds. */
@@ -34,6 +35,7 @@ function NewChatButton() {
         render={
           <Link
             href="/"
+            onClick={requestNewChat}
             prefetch={false}
             aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Shift+${key}`}
             className={cn(
