@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { FolderIcon, FolderPlusIcon } from "lucide-react";
 
+import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
@@ -13,10 +14,54 @@ import { useProjectsQuery } from "@/lib/services/project/queries";
 import { NewProjectDialog } from "../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../components/page-header";
 
+/** The projects, or what stands in for them while they load or failed to. */
+function PhoneProjectRows() {
+  const { data, isPending, isError, refetch } = useProjectsQuery();
+
+  if (isPending) return <Skeleton className="h-24" />;
+
+  // Without this a failed read would say "No projects yet".
+  if (isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Could not load your projects.</AlertTitle>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Try again
+          </Button>
+        </AlertAction>
+      </Alert>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        No projects yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y rounded-xl border">
+      {data.map((project) => (
+        <li key={project.id}>
+          <Link
+            href={`/projects/${project.id}`}
+            className="flex min-h-11 items-center gap-3 px-4 text-sm [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          >
+            <FolderIcon aria-hidden />
+            <span className="truncate">{project.name}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The phone's project list. The projects rail is desktop-only, so without
  *  this a phone could reach a project only through a pin or a deep link. */
 function PhoneProjectList() {
-  const { data, isPending } = useProjectsQuery();
   const [creating, setCreating] = useState(false);
 
   return (
@@ -26,27 +71,7 @@ function PhoneProjectList() {
         <FolderPlusIcon aria-hidden />
         New project
       </Button>
-      {isPending ? (
-        <Skeleton className="h-24" />
-      ) : (data ?? []).length === 0 ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          No projects yet.
-        </p>
-      ) : (
-        <ul className="divide-y rounded-xl border">
-          {(data ?? []).map((project) => (
-            <li key={project.id}>
-              <Link
-                href={`/projects/${project.id}`}
-                className="flex min-h-11 items-center gap-3 px-4 text-sm [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
-              >
-                <FolderIcon aria-hidden />
-                <span className="truncate">{project.name}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+      <PhoneProjectRows />
       <NewProjectDialog open={creating} onOpenChange={setCreating} />
     </div>
   );
