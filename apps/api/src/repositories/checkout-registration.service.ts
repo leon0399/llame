@@ -419,6 +419,8 @@ function gitInspectionFailure(result: GitFailure): HttpException {
   switch (result.type) {
     case 'invalid_input':
       return repositoryFailure('invalid_path', result.message);
+    case 'copy_failed':
+      return repositoryFailure('git_failed', result.message);
     case 'not_a_repository':
       return repositoryFailure(
         'not_a_repository',

@@ -52,8 +52,9 @@ const OK_STATE: GitStateSuccess = {
   remotes: [],
 };
 
-const failure = (type: Exclude<GitFailure['type'], 'invalid_input'>) =>
-  ({ status: 'error', type, stderr: 'fatal: dubious ownership' }) as const;
+const failure = (
+  type: Exclude<GitFailure['type'], 'invalid_input' | 'copy_failed'>,
+) => ({ status: 'error', type, stderr: 'fatal: dubious ownership' }) as const;
 
 type Calls = {
   locate: Array<{ address: string; signal: AbortSignal | undefined }>;

@@ -359,6 +359,12 @@ form, the inspected main clone, and the canonical worktree directory before any
 write; the Worktree checkout, its lease, any adopted repository and main checkout,
 the recorded `worktree` attempt and its result, and the bound root commit in one
 transaction, so a failure leaves the previous binding and generation unchanged.
+When the source checkout has a `.worktreeinclude` file, the Machine daemon also
+copies the ignored files it selects into the new worktree during creation, once,
+under the creation deadline. Creation authorizes the copy, so the copy runs no
+per-file `read` or `write` decision, and a failed copy keeps the directory and
+binds nothing. See [Worktree creation authorizes environment
+copying](docs/adr/2026-11-28-worktree-creation-authorizes-environment-copying.md).
 The owner's repository catalog records repositories by normalized remote, the
 checkouts where each exists on a Machine, and the leases that say which Chat
 created a worktree; an owner removes a clean worktree through
