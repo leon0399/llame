@@ -1,0 +1,15 @@
+apps/web/app/(app)/signed-in-layout.test.ts
+  83a574157e2c33d7 1-19,21-27,29-79
+apps/web/app/(app)/layout.tsx
+  83a574157e2c33d7 1-51
+apps/web/lib/thinking-verbs.ts
+  83a574157e2c33d7 1-123,125-204
+apps/web/lib/calendar-day.ts
+  83a574157e2c33d7 1-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "cda3b4c825b6aa4bf9d99772bd9ca2f581411148",
+  "prompts": {}
+}
