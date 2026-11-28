@@ -1,18 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { FolderIcon, FolderPlusIcon, XIcon } from "lucide-react";
-
-import { ButtonGroup } from "@workspace/ui/components/button-group";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuPortal,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
 
 import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useProjectsQuery } from "@/lib/services/project/queries";
@@ -22,12 +10,10 @@ import {
   ProjectRadioList,
   ProjectSearchFilter,
 } from "./chat-list-sidebar/chat-item-menu";
-import { ComposerTooltip } from "./composer-tooltip";
-import { PromptInputButton } from "./prompt-input";
 
 /** The project a composer files its chat into, and the ways to change it. */
 export type ComposerProject = {
-  /** The owner's projects the `+` menu offers. */
+  /** The owner's projects the row under the input offers. */
   projects: Array<ProjectResponse>;
   /** The chosen project, or null for an unfiled chat. */
   selected: Pick<ProjectResponse, "id" | "name"> | null;
@@ -68,7 +54,7 @@ export function useChatPageProject(exists: boolean): ChatPageProject {
 
 /** The owner's projects as one filtered radio list. Re-picking the chosen
  *  project removes it, as the sidebar's "Move to project" does. */
-function ProjectPickerItems({ project }: { project: ComposerProject }) {
+export function ProjectPickerItems({ project }: { project: ComposerProject }) {
   const [filter, setFilter] = useState("");
 
   return (
@@ -83,113 +69,5 @@ function ProjectPickerItems({ project }: { project: ComposerProject }) {
         onFile={project.onSelect}
       />
     </>
-  );
-}
-
-/** The `+` menu's "Add to project" submenu. */
-export function ComposerProjectSubmenu({
-  project,
-}: {
-  project: ComposerProject;
-}) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger disabled={project.locked}>
-        <FolderPlusIcon />
-        <span>
-          {project.selected === null ? "Add to project" : "Change project"}
-        </span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuPortal>
-        <DropdownMenuSubContent className="w-56">
-          <ProjectPickerItems project={project} />
-        </DropdownMenuSubContent>
-      </DropdownMenuPortal>
-    </DropdownMenuSub>
-  );
-}
-
-/** The chip where the page fixes the project: present, but not a control. */
-function LockedProjectChip({ name }: { name: string }) {
-  return (
-    <PromptInputButton
-      variant="secondary"
-      size="default"
-      disabled
-      aria-label={`Project ${name}`}
-    >
-      <FolderIcon aria-hidden className="size-4" />
-      <span className="max-w-32 truncate font-normal">{name}</span>
-    </PromptInputButton>
-  );
-}
-
-/** The chip's remove cell: only this control leaves the chat unfiled. */
-export function ChipRemoveButton({
-  label,
-  onRemove,
-}: {
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <ComposerTooltip
-      label={label}
-      render={
-        <PromptInputButton
-          variant="secondary"
-          size="icon"
-          aria-label={label}
-          onClick={onRemove}
-        />
-      }
-    >
-      <XIcon aria-hidden className="size-4" />
-    </ComposerTooltip>
-  );
-}
-
-/**
- * The filled chip beside `+` while the chat is filed: the project's name opens
- * the project list to change it, and the joined × removes it. Where the page
- * fixes the project, the chip is disabled.
- */
-export function ComposerProjectChip({ project }: { project: ComposerProject }) {
-  const selected = project.selected;
-
-  if (selected === null) return null;
-
-  if (project.locked === true)
-    return <LockedProjectChip name={selected.name} />;
-
-  return (
-    <ButtonGroup>
-      <DropdownMenu>
-        <ComposerTooltip
-          label="Project"
-          render={
-            <DropdownMenuTrigger
-              render={
-                <PromptInputButton
-                  variant="secondary"
-                  size="default"
-                  aria-label={`Project ${selected.name}`}
-                />
-              }
-            />
-          }
-        >
-          <FolderIcon aria-hidden className="size-4" />
-          <span className="max-w-32 truncate font-normal">{selected.name}</span>
-        </ComposerTooltip>
-        <DropdownMenuContent align="start" className="w-56">
-          <ProjectPickerItems project={project} />
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <ChipRemoveButton
-        label={`Remove from project ${selected.name}`}
-        onRemove={() => project.onSelect(null)}
-      />
-    </ButtonGroup>
   );
 }

@@ -1,25 +1,12 @@
 "use client";
 
-import {
-  type ReactNode,
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { PaperclipIcon, PlusIcon } from "lucide-react";
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { PlusIcon } from "lucide-react";
 
-import { Kbd } from "@workspace/ui/components/kbd";
 import {
   detectPrimaryModifier,
   usePrimaryModifierKey,
 } from "@workspace/ui/hooks/use-modifier-key";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@workspace/ui/components/dropdown-menu";
 import {
   MediaThumbnailRow,
   type MediaThumbnailItem,
@@ -118,9 +105,10 @@ export function ComposerAttachmentRow({
 
 const UPLOAD_SHORTCUT_KEY = "u";
 
-/** "Upload photos & files" with its shortcut shown the way the sidebar shows
- *  New Chat's and Search's. */
-function UploadMenuItem({
+/** The `+` button: opens the file picker at once. Filing the chat and its
+ *  working directory live in the row under the input, where they read as
+ *  choices made before the first send, not actions for later. */
+function AttachButton({
   disabled,
   onUpload,
 }: {
@@ -130,60 +118,27 @@ function UploadMenuItem({
   const modifierKey = usePrimaryModifierKey();
 
   return (
-    <DropdownMenuItem
-      disabled={disabled}
-      onClick={onUpload}
-      // Only announced while the shortcut is live.
-      aria-keyshortcuts={
-        disabled ? undefined : `${modifierKey === "⌘" ? "Meta" : "Control"}+U`
+    <ComposerTooltip
+      label="Attach photos & files"
+      shortcut={`${modifierKey}+${UPLOAD_SHORTCUT_KEY.toUpperCase()}`}
+      render={
+        <PromptInputButton
+          variant="ghost"
+          size="icon"
+          aria-label="Attach photos & files"
+          disabled={disabled}
+          onClick={onUpload}
+          // Only announced while the shortcut is live.
+          aria-keyshortcuts={
+            disabled
+              ? undefined
+              : `${modifierKey === "⌘" ? "Meta" : "Control"}+U`
+          }
+        />
       }
     >
-      <PaperclipIcon />
-      <span>Upload photos & files</span>
-      {/* Announced through `aria-keyshortcuts`, not the item's name. */}
-      <Kbd aria-hidden="true" className="ml-auto">
-        {`${modifierKey}+${UPLOAD_SHORTCUT_KEY.toUpperCase()}`}
-      </Kbd>
-    </DropdownMenuItem>
-  );
-}
-
-/** The `+` button and its menu: the file upload, then the items the composer
- *  adds (filing into a project, a working directory). */
-function ComposerAddDropdown({
-  attachDisabled,
-  onUpload,
-  children,
-}: {
-  attachDisabled: boolean;
-  onUpload: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <DropdownMenu>
-      <ComposerTooltip
-        label="Add files and more"
-        render={
-          <DropdownMenuTrigger
-            render={
-              <PromptInputButton
-                variant="ghost"
-                size="icon"
-                aria-label="Add files and more"
-              />
-            }
-          />
-        }
-      >
-        <PlusIcon size={16} />
-      </ComposerTooltip>
-      {/* Sized to its widest row, so a label never wraps beside its
-          shortcut. */}
-      <DropdownMenuContent align="start" className="w-max min-w-56">
-        <UploadMenuItem disabled={attachDisabled} onUpload={onUpload} />
-        {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      <PlusIcon size={16} />
+    </ComposerTooltip>
   );
 }
 
@@ -214,32 +169,27 @@ function useUploadShortcut(
   }, [inputRef, enabled]);
 }
 
-/** The toolbar's `+` menu. "Upload photos & files" opens a hidden multi-file
- *  input limited to the kinds the selected model declares (`accept`), and is
- *  disabled, shortcut included, while the selected model declares none. */
+/** The toolbar's `+`. It opens a hidden multi-file input limited to the
+ *  kinds the selected model declares (`accept`), and is disabled, shortcut
+ *  included, while the selected model declares none. */
 export function ComposerAddMenu({
   onFiles,
   accept,
   attachDisabled,
-  children,
 }: {
   onFiles: (files: Iterable<File>) => void;
   accept: string;
   attachDisabled: boolean;
-  /** Menu items after the upload. */
-  children?: ReactNode;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   useUploadShortcut(inputRef, !attachDisabled);
 
   return (
     <>
-      <ComposerAddDropdown
-        attachDisabled={attachDisabled}
+      <AttachButton
+        disabled={attachDisabled}
         onUpload={() => inputRef.current?.click()}
-      >
-        {children}
-      </ComposerAddDropdown>
+      />
       <input
         ref={inputRef}
         type="file"

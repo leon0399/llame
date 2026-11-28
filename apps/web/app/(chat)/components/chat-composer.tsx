@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 
 import type { ChatStatus } from "ai";
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
@@ -22,21 +22,13 @@ import {
   dropFilesInto,
   pasteFilesInto,
 } from "./composer-attachments";
-import { ComposerLocationPill } from "./composer-location-pill";
 import {
   DeliverySendButton,
   type MenuDeliveryMode,
 } from "./composer-delivery-send";
-import {
-  type ComposerProject,
-  ComposerProjectChip,
-  ComposerProjectSubmenu,
-} from "./composer-project";
+import type { ComposerProject } from "./composer-project";
+import { ComposerStartRow } from "./composer-start-row";
 import { ComposerTooltip } from "./composer-tooltip";
-import {
-  ComposerWorkingDirectorySubmenu,
-  OtherFolderDialog,
-} from "./composer-working-directory";
 import type { ComposerAttachments } from "./use-composer-attachments";
 import type { ComposerLocation } from "./use-composer-location";
 
@@ -131,22 +123,38 @@ function ChatComposerSendButton({
   );
 }
 
-/** The row under the input card: the permission mode on the left, the model
- *  and its effort on the right, as small ghost buttons. Outside the form, so
- *  their popups are not part of the message being composed. */
-function ChatComposerSettingsRow({ chatId }: { chatId: string }) {
+/** The row under the input card: where a new chat starts on the left, the
+ *  model, its effort and the permission mode on the right, as small ghost
+ *  buttons. Outside the form, so their popups are not part of the message
+ *  being composed. Its shape depends only on the composer's width: one line
+ *  from 42rem, else the start controls take their own line, so no name
+ *  length or choice moves the input. */
+function ChatComposerSettingsRow({
+  chatId,
+  project,
+  location,
+}: {
+  chatId: string;
+  project: ComposerProject | undefined;
+  location: ComposerLocation | undefined;
+}) {
   return (
-    <div className="mt-1.5 flex items-center gap-2 px-1.5">
-      <PermissionModeSelector chatId={chatId} />
-      {/* One group, so the pair reads as a single setting: the two ghost
-          fills join with squared inner corners, as one hover block. */}
-      <ButtonGroup className="ml-auto">
-        <ModelSelector />
-        {/* Only present when the selected model declares an effort
-            vocabulary; the group collapses to one cell when it renders
-            nothing. */}
-        <EffortSelector />
-      </ButtonGroup>
+    <div className="@container mt-1.5 px-1.5">
+      <div className="flex flex-col gap-1 @2xl:flex-row @2xl:items-center @2xl:gap-2">
+        <ComposerStartRow project={project} location={location} />
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {/* One group, so the pair reads as a single setting: the two ghost
+            fills join with squared inner corners, as one hover block. */}
+          <ButtonGroup>
+            <ModelSelector />
+            {/* Only present when the selected model declares an effort
+              vocabulary; the group collapses to one cell when it renders
+              nothing. */}
+            <EffortSelector />
+          </ButtonGroup>
+          <PermissionModeSelector chatId={chatId} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -190,100 +198,36 @@ type ChatComposerToolbarProps = Pick<
   | "modelReadyForSend"
   | "pendingStop"
   | "attachments"
-  | "project"
-  | "location"
 > & {
   /** The whole composer is locked: no upload, by menu or by shortcut. */
   locked: boolean;
 };
 
-/** The working-directory pill and the typed-folder dialog its menus open. */
-function ComposerLocationChip({
-  location,
-  otherFolder,
-  onOtherFolderChange,
-}: {
-  location: ComposerLocation;
-  otherFolder: boolean;
-  onOtherFolderChange: (open: boolean) => void;
-}) {
-  return (
-    <>
-      <ComposerLocationPill
-        location={location}
-        onOtherFolder={() => onOtherFolderChange(true)}
-      />
-      <OtherFolderDialog
-        open={otherFolder}
-        onOpenChange={onOtherFolderChange}
-        location={location}
-      />
-    </>
-  );
-}
-
-/** The toolbar's left side: the `+` menu with its project and working
- *  directory items, then the project and working-directory chips. */
-function ComposerToolbarStart({
-  attachments,
-  project,
-  location,
-  locked,
-}: Pick<
-  ChatComposerToolbarProps,
-  "attachments" | "project" | "location" | "locked"
->) {
-  const [otherFolder, setOtherFolder] = useState(false);
-
-  return (
-    <div className="flex items-center gap-1">
-      <ComposerAddMenu
-        onFiles={attachments.add}
-        accept={attachments.accept}
-        attachDisabled={attachments.attachDisabled || locked}
-      >
-        {project === undefined ? null : (
-          <ComposerProjectSubmenu project={project} />
-        )}
-        {location === undefined ? null : (
-          <ComposerWorkingDirectorySubmenu
-            location={location}
-            onOtherFolder={() => setOtherFolder(true)}
-          />
-        )}
-      </ComposerAddMenu>
-      {project === undefined ? null : <ComposerProjectChip project={project} />}
-      {location === undefined ? null : (
-        <ComposerLocationChip
-          location={location}
-          otherFolder={otherFolder}
-          onOtherFolderChange={setOtherFolder}
-        />
-      )}
-    </div>
-  );
-}
-
-/** The toolbar under the textarea: the `+` menu and the project chip on the
- *  left, send/stop on the right. */
+/** The toolbar under the textarea: `+` to attach on the left, send/stop on
+ *  the right. */
 function ChatComposerToolbar({
   runActive,
   onStop,
   onDeliver,
   modelReadyForSend,
   pendingStop,
-  ...start
+  attachments,
+  locked,
 }: ChatComposerToolbarProps) {
   return (
     <PromptInputToolbar>
-      <ComposerToolbarStart {...start} />
+      <ComposerAddMenu
+        onFiles={attachments.add}
+        accept={attachments.accept}
+        attachDisabled={attachments.attachDisabled || locked}
+      />
       <div className="ml-auto">
         <ChatComposerSendButton
           runActive={runActive}
           onStop={onStop}
           onDeliver={onDeliver}
           modelReadyForSend={
-            modelReadyForSend && !start.locked && !start.attachments.sendBlocked
+            modelReadyForSend && !locked && !attachments.sendBlocked
           }
           pendingStop={pendingStop}
         />
@@ -308,6 +252,7 @@ function ChatComposerForm({
   disabled,
   attachments,
   chatId,
+  project,
   location,
   ...toolbar
 }: ChatComposerFormProps) {
@@ -335,11 +280,10 @@ function ChatComposerForm({
         <ChatComposerToolbar
           {...toolbar}
           attachments={attachments}
-          location={location}
           locked={disabled}
         />
       </PromptInput>
-      <ChatComposerSettingsRow chatId={chatId} />
+      <ChatComposerSettingsRow {...{ chatId, project, location }} />
     </fieldset>
   );
 }
@@ -365,8 +309,8 @@ type ChatComposerProps = {
   disabled?: boolean;
   /** Images and PDFs attached to the unsent message. */
   attachments: ComposerAttachments;
-  /** The project the chat is filed into, with the `+` menu's way to change
-   *  it; absent where the composer cannot file a chat. */
+  /** The project the chat is filed into, with the row's way to change it;
+   *  absent where the composer cannot file a chat. */
   project?: ComposerProject;
   /** The filed chat's start location, for the row under the input. */
   location?: ComposerLocation;
