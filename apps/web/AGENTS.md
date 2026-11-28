@@ -14,7 +14,10 @@ Before changing Next behavior, read the relevant installed guide under
   in `lib/services/chat/ag-ui/` owns chat streams: `transport.ts` requests
   them, `event-stream.ts` validates each event, `reply.ts` folds the events of
   a Run into the reply's stored-shape parts, and `chat.ts` holds the live log.
-- `app/(auth)/`: login/register; `app/(chat)/`: chat UI.
+- `app/(auth)/`: login/register. `app/(app)/layout.tsx` is the signed-in
+  shell (frame, live connection, command palette, main rail), mounted once;
+  `app/(app)/(chat)/`, `(settings)/` and `(admin)/` add only their own rail,
+  header and pages.
 - `lib/`: API policies, feature services, hooks, appearance, and model display.
 - `proxy.ts`: cookie-presence UX gate; API guards remain authoritative.
 

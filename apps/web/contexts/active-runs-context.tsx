@@ -266,8 +266,8 @@ function useTrackedRuns() {
  * newly observed. That alone isn't sufficient, though: `data` is returned
  * synchronously from whatever's already cached (React Query's normal
  * stale-while-revalidate contract) BEFORE the forced refetch resolves — if
- * this provider previously mounted, unmounted (e.g. navigating out of the
- * (chat) route group), and remounted within the query's gcTime, `data`
+ * this provider previously mounted, unmounted (e.g. signing out and back
+ * in), and remounted within the query's gcTime, `data`
  * could briefly be THAT OLDER mount's snapshot. Re-tracking a run from it
  * is otherwise idempotent, but this provider's own `handledRunIds`/
  * `unseenRunOutcomes` are fresh per-mount state with no memory of a

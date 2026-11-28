@@ -300,7 +300,7 @@ describe("ActiveRunsProvider — mount re-hydration (GET /me/runs?status=active)
     stubActiveRunsNetwork();
     const queryClient = new QueryClient();
     // Simulate a leftover cache entry from an EARLIER provider mount (e.g.
-    // before navigating out of (chat) and back within gcTime) that still
+    // before signing out and back in within gcTime) that still
     // lists a run — one that, in reality, has since completed and was
     // already notified about in that earlier mount's own (now-gone) state.
     queryClient.setQueryData(activeRunsQueryKeys.list(), [

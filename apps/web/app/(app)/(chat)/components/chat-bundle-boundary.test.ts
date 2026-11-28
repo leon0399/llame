@@ -4,7 +4,7 @@ import path from "node:path";
 import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
-const repoRoot = path.resolve(import.meta.dirname, "../../../../..");
+const repoRoot = path.resolve(import.meta.dirname, "../../../../../..");
 
 function parse(relativePath: string): ts.SourceFile {
   const absolutePath = path.join(repoRoot, relativePath);
@@ -108,11 +108,11 @@ describe("chat bundle boundary", () => {
 
   test("loads markdown renderers from ChatMarkdownProvider, not the message row", () => {
     const row = parse(
-      "apps/web/app/(chat)/components/transcript/chat-message-row.tsx",
+      "apps/web/app/(app)/(chat)/components/transcript/chat-message-row.tsx",
     );
 
     const ready = parse(
-      "apps/web/app/(chat)/components/use-chat-markdown-ready.tsx",
+      "apps/web/app/(app)/(chat)/components/use-chat-markdown-ready.tsx",
     );
 
     const renderers = [
