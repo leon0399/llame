@@ -65,6 +65,16 @@ export type ChatInit = {
 
 export type SendMessageInput = { text?: string; files?: Array<FileUIPart> };
 
+/** A dropped connection, which the browser reports as a TypeError: it names
+ *  the fetch or the network in Chromium and Firefox, and reads "Load failed"
+ *  in WebKit, so in every iOS browser. The Run is not affected by it. */
+function isConnectionDrop(error: unknown): boolean {
+  return (
+    error instanceof TypeError &&
+    /fetch|network|load failed/i.test(error.message)
+  );
+}
+
 export class AgUiChat {
   readonly id: string;
   private snapshot: ChatSnapshot;
@@ -213,8 +223,7 @@ export class AgUiChat {
   private reconnectFailed(error: Error): void {
     this.fail(error);
 
-    if (!(error instanceof TypeError) || !/fetch|network/i.test(error.message))
-      return;
+    if (!isConnectionDrop(error)) return;
 
     this.init.onFinish({
       message: this.replyMessage(new ReplyReducer().reply()),
@@ -279,9 +288,7 @@ export class AgUiChat {
         this.fail(error instanceof Error ? error : new Error(String(error)));
         finish.isError = true;
 
-        // A dropped fetch is a TypeError naming the fetch or the network.
-        finish.isDisconnect =
-          error instanceof TypeError && /fetch|network/i.test(error.message);
+        finish.isDisconnect = isConnectionDrop(error);
 
         if (error instanceof ChatRequestRejectedError) return error;
       }
