@@ -17,3 +17,5 @@
 - Choosing an interface or code font applies it again.
 - The settings and administration breadcrumb shows the current section in
   regular weight, as shadcn's breadcrumb does.
+- Leaving Personalization, or reloading with the project instructions
+  editor open, with unsaved edits asks first.

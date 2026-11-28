@@ -18,6 +18,7 @@ import { Spinner } from "@workspace/ui/components/spinner";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
 import {
   ModEnterKbd,
   submitOnModEnter,
@@ -173,6 +174,8 @@ function useEditorDraft(props: InstructionsEditorProps) {
     count,
     tooLong,
     canSave,
+    /** Typed text that saving would change. */
+    dirty: !props.archived && !unchanged,
     save,
     onKeyDown: submitOnModEnter(save),
   };
@@ -266,6 +269,17 @@ function EditorActions({
  * open, and is bounded to the viewport and scrollable so its footer stays
  * reachable on a short screen.
  */
+function EditorHeader({ archived }: { archived: boolean }) {
+  return (
+    <DialogHeader>
+      <DialogTitle>Project instructions</DialogTitle>
+      <DialogDescription>
+        {archived ? ARCHIVED_DESCRIPTION : EDITOR_DESCRIPTION}
+      </DialogDescription>
+    </DialogHeader>
+  );
+}
+
 export function InstructionsEditor(props: InstructionsEditorProps) {
   const { archived, pending } = props;
   const editor = useEditorDraft(props);
@@ -273,12 +287,8 @@ export function InstructionsEditor(props: InstructionsEditorProps) {
 
   return (
     <DialogContent className="max-h-11/12 overflow-y-auto sm:max-w-2xl">
-      <DialogHeader>
-        <DialogTitle>Project instructions</DialogTitle>
-        <DialogDescription>
-          {archived ? ARCHIVED_DESCRIPTION : EDITOR_DESCRIPTION}
-        </DialogDescription>
-      </DialogHeader>
+      <UnsavedChangesGuard dirty={editor.dirty} />
+      <EditorHeader archived={archived} />
       <Textarea
         aria-label="Project instructions"
         aria-invalid={editor.tooLong}
