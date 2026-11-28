@@ -42,6 +42,8 @@ export { compareEntries } from "./directory-listing";
 
 export { renderCollectedDirectoryParts } from "./directory-listing";
 
+export { isWalkFixedName } from "./walk-policy";
+
 export type {
   ChildDir,
   DirEntry,

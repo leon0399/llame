@@ -97,7 +97,8 @@ A `kb://` touch also triggers the Space's instruction chain; see
 `kb://<id>` and `kb://<id>/` list the Space's directory through the same depth-2
 listing as an absolute directory path, except that every symbolic link renders
 as the bare `- name@` with no target, because a `kb://` result exposes no
-resolved bare path.
+resolved bare path. A Space listing renders a `.git`, `.jj`, `.hg`, `.svn`, or
+`node_modules` entry with no entries below it, and it applies no ignore file.
 
 ## Errors
 

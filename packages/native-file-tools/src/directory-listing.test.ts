@@ -63,6 +63,28 @@ describe("directory listing", () => {
     expect(lines[5]).toBe("  - notes.md");
   });
 
+  it("renders fixed-set directories without reading below them", async () => {
+    for (const name of [".git", ".jj", "node_modules"]) {
+      await mkdir(join(root, name));
+      await writeFile(join(root, name, "inner.txt"), "");
+    }
+
+    const result = await readFile({ path: root });
+
+    if (result.status !== "success" || result.kind !== "directory")
+      throw new Error();
+    expect(result.content).toContain("  - .git/");
+    expect(result.content).toContain("  - .jj/");
+    expect(result.content).toContain("  - node_modules/");
+    expect(result.content).not.toContain("inner.txt");
+
+    const requested = await readFile({ path: join(root, ".git") });
+
+    if (requested.status !== "success" || requested.kind !== "directory")
+      throw new Error();
+    expect(requested.content).toContain("  - inner.txt");
+  });
+
   it("counts grandchildren without rendering them", async () => {
     await mkdir(join(root, "parent"));
     await mkdir(join(root, "parent", "child"));

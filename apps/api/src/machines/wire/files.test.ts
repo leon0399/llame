@@ -173,6 +173,8 @@ describe('wire file handlers', () => {
                       entries: [
                         { name: 'notes.md', kind: EntryKind.FILE },
                         { name: 'nested', kind: EntryKind.DIRECTORY },
+                        { name: '.git', kind: EntryKind.DIRECTORY },
+                        { name: 'node_modules', kind: EntryKind.DIRECTORY },
                         {
                           name: 'linked',
                           kind: EntryKind.SYMLINK,
@@ -181,7 +183,7 @@ describe('wire file handlers', () => {
                         },
                         { name: 'socket', kind: EntryKind.OTHER },
                       ],
-                      total: 4,
+                      total: 6,
                     }
                   : {
                       entries: [{ name: 'child.md', kind: EntryKind.FILE }],
@@ -202,7 +204,7 @@ describe('wire file handlers', () => {
       status: 'success',
       kind: 'directory',
       path: 'machine://test/work',
-      entryCount: 4,
+      entryCount: 6,
     });
 
     if (result.status === 'success' && result.kind === 'directory') {
@@ -217,6 +219,18 @@ describe('wire file handlers', () => {
       { path: '/work/nested', offset: 0, limit: 1 },
       expect.anything(),
     );
+
+    const listed = vi
+      .mocked(fake.clients.files.listDirectory)
+      .mock.calls.map(([request]) => request.path);
+
+    expect(listed).not.toContain('/work/.git');
+    expect(listed).not.toContain('/work/node_modules');
+
+    if (result.status === 'success' && result.kind === 'directory') {
+      expect(result.content).toContain('.git/');
+      expect(result.content).toContain('node_modules/');
+    }
   });
 
   it('reports the daemon canonical target for a symlink stat', async () => {

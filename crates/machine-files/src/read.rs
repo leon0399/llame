@@ -6,6 +6,7 @@ use std::{
 };
 
 use machine_core::Context;
+use machine_grep::walk_policy;
 use machine_protocol::v1::{
     Directory, Entry, EntryKind, FileFailure, FileFailureReason, GetEntryResponse,
     ListDirectoryResponse, ReadBytesResponse, ReadLinesResponse, get_entry_response,
@@ -128,11 +129,24 @@ pub fn list_directory(
         }
         let iter =
             fs::read_dir(&guarded.canonical).map_err(|e| (FileFailureReason::Io, e.to_string()))?;
+        // Rules decide the entries only, never the listed directory itself.
+        let mut rules = Vec::new();
+        walk_policy::collect_ignores(
+            &guarded.canonical,
+            walk_policy::registered_root(context.guard().roots(), &guarded.canonical),
+            &mut rules,
+        );
         let mut paths = Vec::new();
+        let mut seen = 0usize;
         for item in iter {
             let item = item.map_err(|e| (FileFailureReason::Io, e.to_string()))?;
-            paths.push(item.path());
-            if paths.len() > MAX_DIRECTORY_ENTRIES {
+            seen += 1;
+            let path = item.path();
+            let is_dir = item.file_type().is_ok_and(|kind| kind.is_dir());
+            if walk_policy::is_fixed(&path) || !walk_policy::ignored(&path, is_dir, &rules) {
+                paths.push(path);
+            }
+            if seen > MAX_DIRECTORY_ENTRIES {
                 return Err((
                     FileFailureReason::DirectoryTooLarge,
                     "The directory exceeds 100000 entries.".into(),

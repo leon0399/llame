@@ -511,3 +511,48 @@ async fn create_parents_reports_filesystem_errors_as_io_failures() {
             if failure.reason == FileFailureReason::Io as i32
     ));
 }
+
+#[tokio::test]
+async fn directory_listing_omits_ignore_ruled_entries_and_keeps_the_fixed_set() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    for dir in [".git", ".agents", "dist", "node_modules", "src"] {
+        std::fs::create_dir_all(repo.join(dir)).unwrap();
+    }
+    std::fs::write(repo.join("dist/app.js"), "").unwrap();
+    std::fs::write(repo.join("debug.log"), "").unwrap();
+    std::fs::write(repo.join(".gitignore"), "dist/\nnode_modules/\n*.log\n").unwrap();
+    std::fs::write(root.join(".ignore"), ".agents/\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut list = async |path: &std::path::Path| {
+        let response = client
+            .list_directory(ListDirectoryRequest {
+                path: path.to_string_lossy().into_owned(),
+                offset: 0,
+                limit: 0,
+            })
+            .await
+            .unwrap()
+            .into_inner();
+        let Some(list_directory_response::Result::Directory(directory)) = response.result else {
+            panic!("listing failed");
+        };
+        let names: Vec<String> = directory.entries.into_iter().map(|e| e.name).collect();
+        (directory.total, names)
+    };
+    assert_eq!(
+        list(&repo).await,
+        (
+            4,
+            vec![
+                ".git".into(),
+                ".gitignore".into(),
+                "node_modules".into(),
+                "src".into()
+            ]
+        )
+    );
+    assert_eq!(list(&repo.join("dist")).await, (1, vec!["app.js".into()]));
+}
