@@ -1,11 +1,3 @@
-#![allow(
-    clippy::expect_used,
-    clippy::unwrap_used,
-    clippy::panic,
-    clippy::wildcard_enum_match_arm,
-    clippy::too_many_lines
-)]
-
 mod common;
 
 use machine_protocol::v1::{
@@ -16,6 +8,10 @@ use machine_protocol::v1::{
 use tokio_stream::wrappers::ReceiverStream;
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn lists_resolved_servers_and_relays_stdio_until_stream_close() {
     let machine = common::Machine::new();
     let script = machine.root().join("fixture.sh");
@@ -116,7 +112,9 @@ done
             ResponseMessage::JsonRpc(text) => {
                 got_message |= text.contains("protocolVersion");
             }
-            _ => {}
+            ResponseMessage::Opened(_)
+            | ResponseMessage::Secrets(_)
+            | ResponseMessage::Failure(_) => {}
         }
         if got_stderr && got_message {
             break;
@@ -218,6 +216,10 @@ async fn stdio_exit_closes_session_while_client_stream_stays_open() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Keep the RPC sequence and its assertions together"
+)]
 async fn streamable_http_forwards_protocol_and_session_headers() {
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -354,7 +356,9 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
             ResponseMessage::JsonRpc(text) => {
                 got_message = text.contains("protocolVersion");
             }
-            _ => {}
+            ResponseMessage::Opened(_)
+            | ResponseMessage::Stderr(_)
+            | ResponseMessage::Failure(_) => {}
         }
     }
     assert!(got_protected);

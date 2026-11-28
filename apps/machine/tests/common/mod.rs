@@ -1,7 +1,15 @@
 //! Drives the built `llame-machine` binary through `attach --stdio`, the way
 //! the installation does, with an isolated config and state directory.
 
-#![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
+#![allow(
+    dead_code,
+    reason = "Each integration test uses a subset of these helpers"
+)]
+#![expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "Fixture setup errors fail the calling test"
+)]
 
 use std::{
     path::{Path, PathBuf},

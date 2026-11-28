@@ -1478,7 +1478,7 @@ mod tests {
         sync::Arc,
     };
 
-    pub(crate) static PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    pub static PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     async fn assert_alternate_refused_before_git(alternate: impl FnOnce(&Path) -> Vec<u8> + Send) {
         let _path_lock = PATH_LOCK.lock().await;

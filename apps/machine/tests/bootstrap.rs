@@ -1,11 +1,3 @@
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::panic,
-    clippy::wildcard_enum_match_arm,
-    clippy::too_many_lines
-)]
-
 mod common;
 
 use machine_protocol::{

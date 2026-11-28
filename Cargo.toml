@@ -44,7 +44,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
   "stream",
 ] }
-rustix = { version = "1", features = ["process", "fs", "fs", "system"] }
+rustix = { version = "1", features = ["process", "fs", "system"] }
 libc = "0.2"
 sha2 = "0.10"
 hex = "0.4"
@@ -54,7 +54,8 @@ tempfile = "3"
 ignore = "0.4"
 
 [workspace.lints.rust]
-unsafe_code = "deny"
+unsafe_code = "forbid"
+unused_must_use = "deny"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
@@ -66,6 +67,9 @@ panic = "deny"
 todo = "deny"
 unimplemented = "deny"
 dbg_macro = "deny"
+disallowed_methods = "deny"
+exit = "deny"
+mem_forget = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
 wildcard_enum_match_arm = "deny"
