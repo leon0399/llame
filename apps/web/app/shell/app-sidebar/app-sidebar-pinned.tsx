@@ -20,12 +20,12 @@ import type { RunPhase } from "@/lib/services/live/live-messages";
 import {
   DeleteChatDialog,
   RenameChatDialog,
-} from "@/app/(chat)/components/app-sidebar/chat-item-dialogs";
+} from "@/app/(app)/(chat)/components/app-sidebar/chat-item-dialogs";
 import {
   ChatActivityIndicator,
   resolveChatActivityStatus,
   type ChatActivityStatus,
-} from "@/app/(chat)/components/chat-list-sidebar/chat-activity-indicator";
+} from "@/app/(app)/(chat)/components/chat-list-sidebar/chat-activity-indicator";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { useOptionalActiveRuns } from "@/contexts/active-runs-context";
@@ -35,7 +35,7 @@ import { useReorderPins, useUnpinItem } from "@/lib/services/pins/mutations";
 import { usePins } from "@/lib/services/pins/queries";
 import type { PinnedItem } from "@/lib/services/pins/types";
 
-import { pinnedChatsFilters } from "@/app/(chat)/components/chat-list-view";
+import { pinnedChatsFilters } from "@/app/(app)/(chat)/components/chat-list-view";
 
 import { PinnedProjectRow } from "./pinned-project-row";
 import { PinDragHandle, PinRowMenu, PinRowSurface } from "./pinned-row-parts";
