@@ -75,18 +75,23 @@ fn failed_at(phrase: &'static str, path: &[u8]) -> SeedError {
 }
 
 /// Copies the selected files of `source` into `destination`, the literal requested path, within
-/// `deadline`. A destination whose real path differs from it receives nothing and fails, so no
+/// `deadline`. The manifest is read and screened first, and the destination is bound only once
+/// something is selected, so an absent or empty manifest never depends on the platform. A
+/// destination whose real path differs from the requested one receives nothing and fails, so no
 /// caller binds an unseeded Worktree.
 pub async fn seed(source: &Path, destination: &Path, deadline: Instant) -> Result<(), SeedError> {
     let source_root = rustix::fs::open(source, directory_flags(), Mode::empty())
         .map_err(|_| failed("copy source cannot be opened"))?;
-    let Some(destination_root) = bind_root(destination)? else {
-        return Err(failed("worktree root moved"));
-    };
     let Some(matcher) = read_manifest(&source_root, source)? else {
         return Ok(());
     };
     let selected = enumerate(source, &matcher, deadline).await?;
+    if selected.is_empty() {
+        return Ok(());
+    }
+    let Some(destination_root) = bind_root(destination)? else {
+        return Err(failed("worktree root moved"));
+    };
     tokio::task::spawn_blocking(move || {
         for relative in &selected {
             if Instant::now() >= deadline {
@@ -112,6 +117,8 @@ fn bind_root(destination: &Path) -> Result<Option<OwnedFd>, SeedError> {
         Err(rustix::io::Errno::LOOP | rustix::io::Errno::NOTDIR) => return Ok(None),
         Err(_) => return Err(failed("worktree root cannot be opened")),
     };
+    // ponytail: /proc/self/fd is Linux procfs; macOS would need F_GETPATH. Upgrade when the
+    // daemon targets a non-Linux platform.
     let real = rustix::fs::readlink(format!("/proc/self/fd/{}", root.as_raw_fd()), Vec::new())
         .map_err(|_| failed("worktree root cannot be resolved"))?;
     Ok((Path::new(OsStr::from_bytes(real.to_bytes())) == destination).then_some(root))
@@ -343,20 +350,21 @@ fn copy_file(
         std::process::id(),
         TEMPORARY.fetch_add(1, Ordering::Relaxed)
     );
-    let temporary_fd = openat(
-        &destination_directory,
-        temporary_name.as_str(),
-        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-        Mode::from_raw_mode(0o600),
-    )
-    .map_err(|_| failed_at("destination file cannot be created", relative))?;
     let mut temporary = Temporary {
         directory: destination_directory
             .try_clone()
             .map_err(|_| failed_at("destination file cannot be created", relative))?,
         name: temporary_name,
-        armed: true,
+        armed: false,
     };
+    let temporary_fd = openat(
+        &destination_directory,
+        temporary.name.as_str(),
+        OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::from_raw_mode(0o600),
+    )
+    .map_err(|_| failed_at("destination file cannot be created", relative))?;
+    temporary.armed = true;
     let mut input = File::from(source_fd);
     let mut output = File::from(temporary_fd);
     let mut buffer = vec![0; CHUNK];
@@ -529,6 +537,15 @@ mod tests {
             outside,
         }
     }
+    fn init_repository(path: &Path) {
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
     fn copy(fixture: &Fixture, relative: &str) -> Result<(), SeedError> {
         let source = rustix::fs::open(&fixture.source, directory_flags(), Mode::empty()).unwrap();
         let destination = bind_root(&fixture.destination).unwrap().unwrap();
@@ -685,7 +702,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_moved_root_fails_and_receives_nothing() {
+        let _path_lock = crate::tests::PATH_LOCK.lock().await;
         let f = fixture();
+        init_repository(&f.source);
+        fs::write(f.source.join(".gitignore"), ".env\n").unwrap();
         fs::write(f.source.join(".worktreeinclude"), ".env\n").unwrap();
         fs::write(f.source.join(".env"), "SECRET=1\n").unwrap();
         let alias = f.outside.join("alias");
@@ -697,5 +717,60 @@ mod tests {
             Err(SeedError::Failed("worktree root moved", None))
         ));
         assert!(!f.destination.join(".env").exists());
+    }
+
+    #[tokio::test]
+    async fn nothing_selected_never_binds_the_destination() {
+        let _path_lock = crate::tests::PATH_LOCK.lock().await;
+        let f = fixture();
+        let missing = f.outside.join("missing");
+        let deadline = Instant::now() + Duration::from_secs(30);
+        seed(&f.source, &missing, deadline).await.unwrap();
+        fs::write(f.source.join(".worktreeinclude"), "# nothing\n").unwrap();
+        seed(&f.source, &missing, deadline).await.unwrap();
+        init_repository(&f.source);
+        fs::write(f.source.join(".worktreeinclude"), ".env\n").unwrap();
+        seed(&f.source, &missing, deadline).await.unwrap();
+        assert!(!missing.exists());
+    }
+
+    #[tokio::test]
+    async fn enumeration_stops_at_the_deadline() {
+        let _path_lock = crate::tests::PATH_LOCK.lock().await;
+        let f = fixture();
+        let git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|directory| directory.join("git"))
+            .find(|path| path.is_file())
+            .unwrap();
+        let sleep = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+            .map(|directory| directory.join("sleep"))
+            .find(|path| path.is_file())
+            .unwrap();
+        init_repository(&f.source);
+        let bin = f.outside.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let shim = bin.join("git");
+        fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\ncase \" $* \" in *' ls-files '*) exec '{}' 30;; esac\nexec '{}' \"$@\"\n",
+                sleep.display(),
+                git.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(f.source.join(".worktreeinclude"), ".env\n").unwrap();
+        *crate::GIT_PATH_OVERRIDE.lock().unwrap() = Some(bin);
+        let started = Instant::now();
+        let result = seed(
+            &f.source,
+            &f.destination,
+            Instant::now() + Duration::from_millis(300),
+        )
+        .await;
+        *crate::GIT_PATH_OVERRIDE.lock().unwrap() = None;
+        assert!(matches!(result, Err(SeedError::TimedOut)), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(10));
     }
 }
