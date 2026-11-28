@@ -71,6 +71,7 @@ import { SessionDetails } from "./session-details";
 import { parseSessionDetailsLayout } from "./session-details/details-cookie";
 import { ChatPage } from "./chat-page";
 import { NewChatHome } from "./new-chat-home";
+import { wideViewport } from "@/lib/test-support/wide-viewport";
 import { requestNewChat } from "@/lib/new-chat";
 import {
   setChatMarkdownLoadForTests,
@@ -156,6 +157,8 @@ type ChatPageParameters = {
   pending?: Array<ChatDeliveryResponse>;
   /** The model selection the Chat read reports; null when it stores none. */
   modelSelection?: ChatModelSelectionResponse | null;
+  /** Session details docked beside the chat, as from 80rem. */
+  wide?: boolean;
 };
 
 const RENDERERS: ChatMarkdownRenderers = { MessageResponse, ReasoningContent };
@@ -400,6 +403,7 @@ const meta = {
       latestRun = null,
       pending = [],
       modelSelection = null,
+      wide = false,
     }: ChatPageParameters = parameters;
 
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
@@ -429,8 +433,10 @@ const meta = {
     });
     const restoreFetch = routeOpenChat(history, latestRun, pending);
     const restoreChunks = holdMarkdownChunks();
+    const restoreViewport = wide ? wideViewport() : () => {};
 
     return () => {
+      restoreViewport();
       restoreChunks();
       restoreFetch();
       window.history.replaceState(window.history.state, "", href);
@@ -2705,6 +2711,8 @@ function ChatUnderHeader(props: ComponentProps<typeof ChatPage>) {
 
 // The chat header reads the open chat from the route.
 const HEADED_CHAT = {
+  // Session details dock beside the chat only from 80rem.
+  wide: true,
   history: historyWithUsage({ status: "completed" }),
   nextjs: { navigation: { pathname: `/chat/${CHAT_ID}` } },
 };

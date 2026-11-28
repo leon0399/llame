@@ -7,6 +7,7 @@ import type { ChatJobResponse } from "@/lib/api/generated/models";
 import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 
 import { FinishedJobsPanel } from "./finished-jobs-panel";
+import { wideViewport } from "@/lib/test-support/wide-viewport";
 
 // SAFETY: `--finished-jobs-width` is a CSS custom property, a valid inline
 // style key that CSSProperties does not model; the app's provider sets it too.
@@ -144,6 +145,9 @@ const meta = {
       </SeededOutputs>
     ),
   ],
+  // Docked beside the details, as from 80rem; narrower, it opens in a
+  // sheet or a drawer instead.
+  beforeEach: () => wideViewport(),
 } satisfies Meta<typeof FinishedJobsPanel>;
 
 export default meta;
