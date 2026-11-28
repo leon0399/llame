@@ -88,7 +88,7 @@ function NameField({ control }: { control: RegisterControl }) {
         <FormItem>
           <FormLabel>Name</FormLabel>
           <FormControl>
-            <Input placeholder="John Doe" {...field} />
+            <Input placeholder="Your name" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -106,7 +106,7 @@ function EmailField({ control }: { control: RegisterControl }) {
         <FormItem>
           <FormLabel>Email</FormLabel>
           <FormControl>
-            <Input type="email" placeholder="johndoe@gmail.com" {...field} />
+            <Input type="email" placeholder="you@example.com" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -124,7 +124,7 @@ function PasswordField({ control }: { control: RegisterControl }) {
         <FormItem>
           <FormLabel>Password</FormLabel>
           <FormControl>
-            <Input type="password" placeholder="********" {...field} />
+            <Input type="password" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -140,9 +140,9 @@ function ConfirmPasswordField({ control }: { control: RegisterControl }) {
       name="confirmPassword"
       render={({ field }) => (
         <FormItem>
-          <FormLabel>Confirm Password</FormLabel>
+          <FormLabel>Confirm password</FormLabel>
           <FormControl>
-            <Input type="password" placeholder="********" {...field} />
+            <Input type="password" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -200,7 +200,7 @@ export function RegisterForm() {
       <CardHeader>
         <CardTitle>Create an account</CardTitle>
         <CardDescription>
-          Enter your information to create an account
+          An account on this instance, with its own chats and projects.
         </CardDescription>
       </CardHeader>
       <CardContent>
