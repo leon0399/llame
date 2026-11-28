@@ -35,7 +35,7 @@ function NewChatButton() {
         render={
           <Link
             href="/"
-            onClick={requestNewChat}
+            onNavigate={requestNewChat}
             prefetch={false}
             aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Shift+${key}`}
             className={cn(
