@@ -727,7 +727,7 @@ export const PdfOnlyModelRefusesImage: Story = {
       canvasElement.querySelector<HTMLInputElement>('input[type="file"]');
 
     await expect(picker).toHaveAttribute("accept", "application/pdf");
-    await expectUploadEnabled(canvas, userEvent, true);
+    await expectUploadEnabled(canvas, true);
 
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("shot.png")]));
@@ -777,7 +777,7 @@ export const SwitchingAwayFromPdfBlocksSend: Story = {
       await canvas.findByText("Vision One has no pdf input"),
     ).toBeVisible();
     await expect(send).toBeDisabled();
-    await expectUploadEnabled(canvas, userEvent, true);
+    await expectUploadEnabled(canvas, true);
     await expect(
       within(canvas.getByRole("list", { name: "Attachments" })).getAllByRole(
         "listitem",
@@ -855,7 +855,7 @@ export const TextOnlyModelRefusesAttach: Story = {
   beforeEach: resolveUploads,
   render: attachingStory(TEXT_MODEL_ID),
   play: async ({ canvas, userEvent }) => {
-    await expectUploadEnabled(canvas, userEvent, false);
+    await expectUploadEnabled(canvas, false);
     await userEvent.click(canvas.getByPlaceholderText(PLACEHOLDER));
     await userEvent.paste(filesTransfer([pngFile("shot.png")]));
 
@@ -881,50 +881,29 @@ async function chooseModel(
 
 type StoryUserEvent = Parameters<NonNullable<Story["play"]>>[0]["userEvent"];
 
-/** Opens the `+` menu, waits for its upload item to reach the expected
- *  state, then closes the menu again. */
+/** Waits for the `+` button to reach the expected state. Its shortcut is
+ *  announced only while it works. */
 async function expectUploadEnabled(
   canvas: ReturnType<typeof within>,
-  userEvent: StoryUserEvent,
   enabled: boolean,
 ) {
-  await userEvent.click(
-    canvas.getByRole("button", { name: "Add files and more" }),
-  );
-
-  // The menu is portalled, so query the document, not the canvas.
-  const upload = await screen.findByRole("menuitem", {
-    name: "Upload photos & files",
-  });
+  const attach = canvas.getByRole("button", { name: "Attach photos & files" });
 
   await waitFor(() =>
-    enabled
-      ? expect(upload).not.toHaveAttribute("aria-disabled", "true")
-      : expect(upload).toHaveAttribute("aria-disabled", "true"),
+    enabled ? expect(attach).toBeEnabled() : expect(attach).toBeDisabled(),
   );
 
-  // The shortcut is announced only while it works.
-  if (!enabled) await expect(upload).not.toHaveAttribute("aria-keyshortcuts");
-  await userEvent.keyboard("{Escape}");
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  if (!enabled) await expect(attach).not.toHaveAttribute("aria-keyshortcuts");
 }
 
 /**
- * The `+` menu: "Upload photos & files" opens the file picker and shows its
- * Ctrl+U shortcut, which opens the picker from the page too. A composer that
- * cannot file a chat offers nothing else.
+ * The `+` button opens the file picker at once and names its Ctrl+U
+ * shortcut, which opens the picker from the page too.
  *
- * @summary the add menu and Ctrl+U open the picker
+ * @summary the attach button and Ctrl+U open the picker
  */
-export const AddMenu: Story = {
+export const AttachButton: Story = {
   tags: ["ai-generated"],
-  // Base UI's portalled menu leaves aria-hidden focus guards that axe's
-  // aria-hidden-focus rule misreads (as in the model-picker stories above).
-  parameters: {
-    a11y: {
-      config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
-    },
-  },
   beforeEach: resolveUploads,
   render: attachingStory(VISION_MODEL_ID),
   play: async ({ canvas, canvasElement, userEvent }) => {
@@ -936,33 +915,22 @@ export const AddMenu: Story = {
       event.preventDefault();
       openPicker();
     });
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Add files and more" }),
-    );
 
-    const upload = await screen.findByRole("menuitem", {
-      name: "Upload photos & files",
+    const attach = canvas.getByRole("button", {
+      name: "Attach photos & files",
     });
-
-    await expect(screen.getAllByRole("menuitem")).toEqual([upload]);
 
     // The chord this browser's platform uses, as command-palette.stories does.
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
     );
 
-    await expect(upload).toHaveAttribute(
+    await expect(attach).toHaveAttribute(
       "aria-keyshortcuts",
       isMac ? "Meta+U" : "Control+U",
     );
-    // The menu fades in, so the shortcut is only visible once it settles.
-    await waitFor(() =>
-      expect(within(upload).getByText(isMac ? "⌘+U" : "Ctrl+U")).toBeVisible(),
-    );
-    await userEvent.click(upload);
+    await userEvent.click(attach);
     await expect(openPicker).toHaveBeenCalledTimes(1);
-
-    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     await userEvent.keyboard(
       isMac ? "{Meta>}u{/Meta}" : "{Control>}u{/Control}",
     );
@@ -1002,39 +970,24 @@ function FilingComposer(args: ComponentProps<typeof ChatComposer>) {
   );
 }
 
-/** A radio choice leaves the menu open, so each level is dismissed in turn. */
-async function closeMenus(userEvent: {
-  keyboard: (text: string) => Promise<void>;
-}) {
-  for (let open = screen.queryAllByRole("menu").length; open > 0; open--) {
-    await userEvent.keyboard("{Escape}");
-    await waitFor(() =>
-      expect(screen.queryAllByRole("menu").length).toBeLessThan(open),
-    );
-  }
-}
-
-/** Picks a menu radio item by keyboard: a submenu's popup is not yet
- *  hit-testable while it opens, and a pointer click would miss it. */
-async function chooseRadio(
-  userEvent: { keyboard: (text: string) => Promise<void> },
-  name: string,
-) {
-  const item = await screen.findByRole("menuitemradio", { name });
-  item.focus();
-  await userEvent.keyboard("{Enter}");
+/** Picks an option of the open search list by its name. */
+async function chooseOption(userEvent: StoryUserEvent, name: string | RegExp) {
+  await userEvent.click(await screen.findByRole("option", { name }));
+  await waitFor(() =>
+    expect(screen.queryByRole("dialog", { name: "Project" })).toBeNull(),
+  );
 }
 
 /**
- * "Add to project" in the `+` menu files the draft: the chip names the
- * project, its menu changes it, and only its × removes it.
+ * The Project picker under the input files the draft: it names the project,
+ * changes it, and its "No project" option leaves the draft unfiled.
  *
- * @summary adding, changing, and removing the draft's project
+ * @summary choosing, changing, and clearing the draft's project
  */
-export const ProjectChip: Story = {
+export const ProjectPicker: Story = {
   tags: ["ai-generated"],
-  // Base UI's portalled menu leaves aria-hidden focus guards that axe's
-  // aria-hidden-focus rule misreads (as in AddMenu above).
+  // Base UI's portalled popover leaves aria-hidden focus guards that axe's
+  // aria-hidden-focus rule misreads (as in the model-picker stories above).
   parameters: {
     a11y: {
       config: { rules: [{ id: "aria-hidden-focus", enabled: false }] },
@@ -1042,30 +995,19 @@ export const ProjectChip: Story = {
   },
   render: (args) => <FilingComposer {...args} />,
   play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Project" }));
+    await chooseOption(userEvent, /^Trip planning/);
     await userEvent.click(
-      canvas.getByRole("button", { name: "Add files and more" }),
+      await canvas.findByRole("button", { name: "Project, Trip planning" }),
     );
+    await chooseOption(userEvent, /^Taxes/);
     await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
+      await canvas.findByRole("button", { name: "Project, Taxes" }),
     );
-    await chooseRadio(userEvent, "Trip planning");
-    await closeMenus(userEvent);
-
-    const chip = await canvas.findByRole("button", {
-      name: "Project Trip planning",
-    });
-
-    await userEvent.click(chip);
-    await chooseRadio(userEvent, "Taxes");
-    await closeMenus(userEvent);
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Remove from project Taxes" }),
-    );
-    await waitFor(() =>
-      expect(
-        canvas.queryByRole("button", { name: /^Project / }),
-      ).not.toBeInTheDocument(),
-    );
+    await chooseOption(userEvent, /^No project/);
+    await expect(
+      await canvas.findByRole("button", { name: "Project" }),
+    ).toBeVisible();
   },
 };
 
@@ -1082,7 +1024,7 @@ export const LockedComposerIgnoresUploadShortcut: Story = {
   beforeEach: resolveUploads,
   render: attachingStory(VISION_MODEL_ID),
   play: async ({ canvas }) => {
-    await canvas.findByRole("button", { name: "Add files and more" });
+    await canvas.findByRole("button", { name: "Attach photos & files" });
 
     const isMac = /Mac|iPod|iPhone|iPad/.test(
       navigator.platform || navigator.userAgent || "",
@@ -1132,7 +1074,7 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
       await canvas.findByText("Model One has no image input"),
     ).toBeVisible();
     await expect(send).toBeDisabled();
-    await expectUploadEnabled(canvas, userEvent, false);
+    await expectUploadEnabled(canvas, false);
     const list = canvas.getByRole("list", { name: "Attachments" });
     await expect(
       within(list)
@@ -1142,7 +1084,7 @@ export const SwitchingToTextOnlyBlocksSend: Story = {
 
     await chooseModel(canvas, userEvent, /Vision One/);
     await waitFor(() => expect(send).toBeEnabled());
-    await expectUploadEnabled(canvas, userEvent, true);
+    await expectUploadEnabled(canvas, true);
     await expect(canvas.queryByText("Model One has no image input")).toBeNull();
   },
 };

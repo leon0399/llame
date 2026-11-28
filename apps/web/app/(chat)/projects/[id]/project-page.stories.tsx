@@ -517,9 +517,10 @@ export const NoChats: Story = {
     ).toBeVisible();
     await expect(canvas.getByRole("button", { name: "Pin" })).toBeVisible();
     await expect(canvas.getByRole("button", { name: "More" })).toBeVisible();
-    // The composer is enabled, its project chip names this project and is
-    // fixed here, and this project links no repository, so there is no
-    // working-directory pill and a send creates an unbound chat (#1328).
+    // The composer is enabled; the page fixes its project, which the heading
+    // already names, so the row offers no project picker; and this project
+    // links no repository, so no folder is chosen and a send creates an
+    // unbound chat (#1328).
     await expect(
       canvas.getByPlaceholderText("Describe a task or ask a question"),
     ).not.toBeDisabled();
@@ -529,8 +530,8 @@ export const NoChats: Story = {
       ).toBeEnabled(),
     );
     await expect(
-      await canvas.findByRole("button", { name: "Project Trip planning" }),
-    ).toBeDisabled();
+      canvas.queryByRole("button", { name: /^Project(, |$)/ }),
+    ).not.toBeInTheDocument();
     await expect(
       canvas.queryByRole("button", { name: /^Folder, / }),
     ).not.toBeInTheDocument();

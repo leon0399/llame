@@ -185,10 +185,15 @@ function pillCell(page: Page, cell: "Machine" | "Folder") {
   return page.getByRole("button", { name: new RegExp(`^${cell}, `) });
 }
 
-/** The start row's Worktree toggle: pressed while the chat starts in a new
- *  worktree of the checkout. */
-function worktreeToggle(page: Page) {
-  return page.getByRole("button", { name: "Worktree", exact: true });
+/** The start row's mode control: "Mode, checkout" or "Mode, new worktree". */
+function modeControl(page: Page) {
+  return page.getByRole("button", { name: /^Mode, / });
+}
+
+/** Starts the chat in a new worktree of the checkout, from the mode menu. */
+async function chooseWorktree(page: Page) {
+  await modeControl(page).click();
+  await page.getByRole("menuitemradio", { name: /^A new worktree/ }).click();
 }
 
 /** The last path segment, which is how the folder cell names a checkout. */
@@ -238,8 +243,8 @@ test.describe("chat start location (browser, full stack)", () => {
     const started = await startProject(request, account, "worktree");
 
     await page.goto(`/projects/${started.project.id}`);
-    await worktreeToggle(page).click();
-    await expect(worktreeToggle(page)).toHaveAttribute("aria-pressed", "true");
+    await chooseWorktree(page);
+    await expect(modeControl(page)).toHaveAccessibleName("Mode, new worktree");
 
     const composer = await readyComposer(page);
     await composer.fill("Start in a worktree of this clone");
@@ -289,8 +294,9 @@ test.describe("chat start location (browser, full stack)", () => {
       new RegExp(`/projects/${started.project.id}\\?`),
     );
 
+    // The chosen Machine is offline, which its own control says.
     await expect(pillCell(page, "Machine")).toHaveAccessibleName(
-      `Machine, ${OFFICE_MACHINE}`,
+      new RegExp(`^Machine, ${OFFICE_MACHINE}, Offline`),
     );
     await pillCell(page, "Machine").click();
     await expect(
@@ -411,7 +417,7 @@ test.describe("chat start location (browser, full stack)", () => {
     );
     // The source chat already binds that checkout, so the start asks for a
     // worktree of it.
-    await expect(worktreeToggle(page)).toHaveAttribute("aria-pressed", "true");
+    await expect(modeControl(page)).toHaveAccessibleName("Mode, new worktree");
 
     // "New chat in project" is the project's own entry point: the deep link
     // names only the project, so the pill follows its primary link.

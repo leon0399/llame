@@ -10,7 +10,6 @@ import {
   PenLineIcon,
   PinIcon,
   PinOffIcon,
-  PlusIcon,
   Share2Icon,
   SquarePenIcon,
   TrashIcon,
@@ -24,14 +23,13 @@ import { exportChatAsMarkdown } from "@/lib/services/chat/export";
 import { useForkChat } from "@/lib/services/chat/fork";
 import type { ChatResponse } from "@/lib/services/chat/queries";
 import { useSetChatArchive } from "@/lib/services/chat/management";
-import { filterProjectsByName } from "@/lib/services/project/filter";
 import { useFileChat } from "@/lib/services/project/mutations";
 import {
   startLocationDeepLink,
   startLocationFromRoot,
 } from "@/lib/services/project/start-location-link";
 import type { ProjectResponse } from "@/lib/services/project/types";
-import { SearchFilterInput } from "@/components/search-filter-input";
+import { ProjectSelect } from "@/components/project-select";
 import { HoverReveal, SidebarRowAction } from "@/components/hover-reveal";
 import {
   DropdownMenu,
@@ -39,8 +37,6 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -72,7 +68,7 @@ const CHAT_MENU_GROUPS: Array<Array<ChatMenuAction>> = [
   [{ id: "new-here", label: "New chat here", icon: SquarePenIcon }],
   [
     { id: "rename", label: "Rename", icon: PenLineIcon },
-    // Rendered as a select-like radio submenu; the visible label is dynamic
+    // Rendered as a search-list submenu; the visible label is dynamic
     // ("Add to project" when unfiled, "Change project" when filed).
     { id: "project", label: "Add to project", icon: FolderPlusIcon },
   ],
@@ -96,9 +92,9 @@ const CHAT_MENU_GROUPS: Array<Array<ChatMenuAction>> = [
 type ChatMenuCtx = {
   chat: Pick<ChatResponse, "projectId" | "workspaceRoot">;
   projects: Array<ProjectResponse>;
-  projectFilter: string;
-  onFilterChange: (value: string) => void;
   onNewProject?: () => void;
+  /** Closes the whole menu, from inside its project submenu. */
+  closeMenu: () => void;
   onFile: (projectId: string | null) => void;
   isPinned: boolean;
   isArchived: boolean;
@@ -157,99 +153,21 @@ function resolveChatMenuAction(
   }
 }
 
-export function ProjectSearchFilter({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <>
-      <SearchFilterInput
-        value={value}
-        onChange={onChange}
-        placeholder="Search projects…"
-        // Keep typing local to the input: Radix menus typeahead-jump focus on
-        // printable keys. Escape still propagates so it closes the menu as
-        // everywhere else.
-        onKeyDown={(event) => {
-          if (event.key !== "Escape") {
-            event.stopPropagation();
-          }
-        }}
-      />
-      <DropdownMenuSeparator />
-    </>
-  );
-}
-
-export function ProjectRadioList({
-  chat,
-  allProjects,
-  filteredProjects,
-  onFile,
-}: {
-  chat: Pick<ChatResponse, "projectId">;
-  allProjects: Array<ProjectResponse>;
-  filteredProjects: Array<ProjectResponse>;
-  onFile: (projectId: string | null) => void;
-}) {
-  if (allProjects.length === 0) {
-    return <DropdownMenuItem disabled>No projects yet</DropdownMenuItem>;
-  }
-
-  if (filteredProjects.length === 0) {
-    return <DropdownMenuItem disabled>No projects found</DropdownMenuItem>;
-  }
-
-  return (
-    <DropdownMenuRadioGroup
-      value={chat.projectId ?? ""}
-      onValueChange={(value) =>
-        // Radix fires onValueChange even for the already-selected item —
-        // that's the toggle-off: re-picking the current project unfiles it.
-        onFile(value === chat.projectId ? null : value)
-      }
-    >
-      {filteredProjects.map((project) => (
-        <DropdownMenuRadioItem key={project.id} value={project.id}>
-          <span className="truncate">{project.name}</span>
-        </DropdownMenuRadioItem>
-      ))}
-    </DropdownMenuRadioGroup>
-  );
-}
-
-function NewProjectMenuItem({
-  onNewProject,
-}: Pick<ChatMenuCtx, "onNewProject">) {
-  return (
-    <DropdownMenuItem
-      disabled={!onNewProject}
-      // Deferred open, same reasoning as Rename/Share/Delete below; the
-      // caller owns ONE shared dialog and files this chat into the created
-      // project.
-      onSelect={onNewProject ? () => setTimeout(onNewProject, 0) : undefined}
-    >
-      <PlusIcon />
-      <span>New project</span>
-    </DropdownMenuItem>
-  );
-}
-
-/** Combobox-shaped submenu: filter input on top, project radio list, then
- * "New project" at the bottom — a select-like way to move a chat between
- * projects (or unfile it by re-picking the current one). */
+/** "Add to project" / "Change project": one select over "No project" and the
+ *  owner's projects, the current one checked, with "New project" last. "No
+ *  project" and "New project" are kept through any search. A choice closes
+ *  the whole menu. */
 function MoveToProjectSubmenu({
   chat,
   projects,
-  projectFilter,
-  onFilterChange,
   onNewProject,
   onFile,
+  closeMenu,
 }: ChatMenuCtx) {
-  const filteredProjects = filterProjectsByName(projects, projectFilter);
+  const choose = (projectId: string | null) => {
+    onFile(projectId);
+    closeMenu();
+  };
 
   return (
     <DropdownMenuSub>
@@ -260,21 +178,22 @@ function MoveToProjectSubmenu({
         </span>
       </DropdownMenuSubTrigger>
       <DropdownMenuPortal>
-        <DropdownMenuSubContent className="w-56">
-          {projects.length > 0 && (
-            <ProjectSearchFilter
-              value={projectFilter}
-              onChange={onFilterChange}
-            />
-          )}
-          <ProjectRadioList
-            chat={chat}
-            allProjects={projects}
-            filteredProjects={filteredProjects}
-            onFile={onFile}
+        <DropdownMenuSubContent flush className="w-64">
+          <ProjectSelect
+            projects={projects}
+            selectedId={chat.projectId}
+            onSelect={choose}
+            onNewProject={
+              onNewProject === undefined
+                ? undefined
+                : () => {
+                    closeMenu();
+                    // Deferred, like Rename and Delete below: the dialog
+                    // opens after the menu's own close and focus return.
+                    setTimeout(onNewProject, 0);
+                  }
+            }
           />
-          <DropdownMenuSeparator />
-          <NewProjectMenuItem onNewProject={onNewProject} />
         </DropdownMenuSubContent>
       </DropdownMenuPortal>
     </DropdownMenuSub>
@@ -415,8 +334,10 @@ function useChatMenuCtx({
   onRename,
   onShare,
   onDelete,
-}: Omit<ChatItemMenuProps, "isActive">): ChatMenuCtx {
-  const [projectFilter, setProjectFilter] = useState("");
+  closeMenu,
+}: Omit<ChatItemMenuProps, "isActive"> & {
+  closeMenu: () => void;
+}): ChatMenuCtx {
   const archiveMutation = useSetChatArchive();
   const forkMutation = useForkChat();
   const fileChatMutation = useFileChat();
@@ -429,9 +350,8 @@ function useChatMenuCtx({
   return {
     chat,
     projects,
-    projectFilter,
-    onFilterChange: setProjectFilter,
     onNewProject,
+    closeMenu,
     onFile: (projectId) =>
       fileChatMutation.mutate({ chatId: chat.id, projectId }),
     isPinned,
@@ -454,16 +374,11 @@ function useChatMenuCtx({
  * export, fork, archive, delete. Split out of `ChatItem` so the row and its
  * menu are each independently reviewable. */
 export function ChatItemMenu({ isActive, ...props }: ChatItemMenuProps) {
-  const ctx = useChatMenuCtx(props);
+  const [open, setOpen] = useState(false);
+  const ctx = useChatMenuCtx({ ...props, closeMenu: () => setOpen(false) });
 
   return (
-    <DropdownMenu
-      modal={true}
-      // Reset the project filter so reopening the menu starts unfiltered.
-      onOpenChange={(open) => {
-        if (!open) ctx.onFilterChange("");
-      }}
-    >
+    <DropdownMenu modal={true} open={open} onOpenChange={setOpen}>
       {/* Always in layout on the active row (as on the pre-redesign list),
           hover-revealed elsewhere. */}
       <HoverReveal atRest={isActive}>

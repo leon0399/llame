@@ -37,6 +37,7 @@ import {
 } from "@/lib/services/models/selection";
 import { useChatContext } from "@/contexts/chat-context";
 import { ModelPreviewCard } from "@/components/ai/model-preview-card";
+import { useComposerControlSize } from "./composer-control-size";
 import { ComposerTooltip } from "./composer-tooltip";
 import { useComposerSelection } from "./use-composer-selection";
 
@@ -72,7 +73,7 @@ function ModelSelectorTrigger({
               variant="ghost"
               // `xs` (h-6, text-xs), like the permission and effort triggers in
               // the row under the input card.
-              size="xs"
+              size={useComposerControlSize()}
               // Deliberate: this trigger opens a Command/cmdk popup whose own
               // searchable input (not this button) is the real combobox host,
               // so `aria-controls` can't be wired to it meaningfully — and
@@ -103,7 +104,9 @@ function ModelSelectorTrigger({
         <Skeleton className="h-4 w-24" aria-label="Loading models" />
       ) : (
         // Regular weight: a quiet setting under the input, not an action.
-        <span className="font-normal">{selectedLabel}</span>
+        <span className="min-w-0 overflow-x-clip font-normal text-ellipsis whitespace-nowrap text-trim-cap">
+          {selectedLabel}
+        </span>
       )}
     </ComposerTooltip>
   );
