@@ -102,12 +102,27 @@ function OutdatedItem({ machines }: { machines: Array<MachineResponse> }) {
 
   if (outdated.length === 0) return null;
 
+  const label =
+    outdated.length === 1
+      ? `${outdated[0]!.name} runs an older daemon`
+      : `${String(outdated.length)} Machines run an older daemon`;
+
   return (
-    <StatusBarItem render={<Link href="/settings/machines" />}>
+    <StatusBarItem
+      render={<Link href="/settings/machines" />}
+      aria-label={label}
+    >
       <ArrowUpCircleIcon aria-hidden="true" />
-      {outdated.length === 1
-        ? `${outdated[0]!.name} runs an older daemon`
-        : `${String(outdated.length)} Machines run an older daemon`}
+      {outdated.length === 1 ? (
+        <>
+          {/* Names run to 63 characters; bounded like the Machine items so
+              the warning cannot crowd them out. */}
+          <span className="max-w-32 truncate">{outdated[0]!.name}</span>
+          <span>runs an older daemon</span>
+        </>
+      ) : (
+        label
+      )}
     </StatusBarItem>
   );
 }

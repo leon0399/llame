@@ -200,6 +200,27 @@ function ResourceMeter({
   );
 }
 
+/** The disk the roots live on. Each root reports the size of the filesystem
+ *  that holds it, and roots can share one, so the sizes are never added: one
+ *  size is shown as is, and differing sizes as the largest. */
+function diskCapacity(
+  rootDisks: ReadonlyArray<{ totalBytes: number | null }>,
+): string | null {
+  const sizes = new Set(
+    rootDisks.flatMap((disk) =>
+      disk.totalBytes === null || disk.totalBytes === 0
+        ? []
+        : [disk.totalBytes],
+    ),
+  );
+
+  if (sizes.size === 0) return null;
+
+  const largest = formatBytes(Math.max(...sizes));
+
+  return sizes.size === 1 ? largest : `largest ${largest}`;
+}
+
 /** Processors, memory and the disks under the roots, each with how much is
  *  in use once the daemon reports it. */
 export function MachineResources({
@@ -210,11 +231,6 @@ export function MachineResources({
   load?: MachineLoad;
 }) {
   const facts = machine.facts;
-
-  const disk = facts?.rootDisks.reduce(
-    (sum, d) => sum + (d.totalBytes ?? 0),
-    0,
-  );
 
   return (
     <div className="grid grid-cols-3 gap-4">
@@ -235,7 +251,7 @@ export function MachineResources({
       <ResourceMeter
         label="Disk"
         fraction={load?.disk}
-        capacity={disk === undefined || disk === 0 ? null : formatBytes(disk)}
+        capacity={diskCapacity(facts?.rootDisks ?? [])}
       />
     </div>
   );

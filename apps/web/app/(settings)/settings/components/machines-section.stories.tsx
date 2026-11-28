@@ -219,6 +219,51 @@ export const Offline: Story = {
   },
 };
 
+const sharedFilesystem = machine({
+  name: "nas",
+  roots: ["/srv/projects", "/srv/data"],
+  facts: {
+    ...current.facts!,
+    rootDisks: [
+      { root: "/srv/projects", totalBytes: 1024 * GIB },
+      { root: "/srv/data", totalBytes: 1024 * GIB },
+    ],
+  },
+});
+
+const twoDisks = machine({
+  name: "storage",
+  roots: ["/srv/projects", "/mnt/archive"],
+  facts: {
+    ...current.facts!,
+    rootDisks: [
+      { root: "/srv/projects", totalBytes: 1024 * GIB },
+      { root: "/mnt/archive", totalBytes: 4096 * GIB },
+    ],
+  },
+});
+
+/**
+ * Each root reports the size of the filesystem that holds it, and roots can
+ * share one, so the sizes are never added: two roots on one 1 TiB disk read
+ * "1 TiB", and roots on different disks read the largest.
+ *
+ * @summary disk capacity across several roots
+ */
+export const SeveralRoots: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => listed([sharedFilesystem, twoDisks]),
+  play: async ({ canvasElement }) => {
+    const nas = row(canvasElement, "nas");
+    const storage = row(canvasElement, "storage");
+
+    await expect(within(nas).getAllByText("1 TiB")[0]).toBeVisible();
+    await expect(within(nas).queryByText("2 TiB")).toBeNull();
+    await expect(within(storage).getByText("largest 4 TiB")).toBeVisible();
+    await expect(within(storage).queryByText("5 TiB")).toBeNull();
+  },
+};
+
 /**
  * An instance with no Machines configured says so instead of standing blank.
  *
