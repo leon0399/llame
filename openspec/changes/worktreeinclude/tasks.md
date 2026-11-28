@@ -53,8 +53,8 @@ split required safety tests away from their behavior to meet the review target.
 - [x] 2.12 Publish the ADR drafted in `design.md` under `docs/adr/` with its acceptance date and status. Link it from the shipped architecture and owning spec. Verify Markdown links and ADR prose rules.
 - [x] 2.13 Update `docs/product/reference/tools/enter-workspace.md`, the existing repository and permission operator pages, tool-description behavior, and `SPEC.md`. Explain aggregate authority, tracked overwrites, leftovers, matching, ignored-file removal, and that patterns selecting package trees containing symlinks (for example `node_modules/.bin`) fail the copy. Add `.changeset/worktreeinclude.md` (the PR never edits `CHANGELOG.md`) and remove completed roadmap text if present. Verify the exact existing page names before editing and run Markdown checks.
 - [x] 2.14 Run the focused checks below, affected workspace lint/typecheck, Rust fmt and clippy through `pnpm --filter machine lint`, formatting, Markdown checks, and `git diff --check`. Record exact commands and distinguish local evidence from full CI.
-- [ ] 2.15 Publish the authorized draft with `Closes #1910`, complete SR of the actual parent-relative diff before ready, and resolve verified findings with focused checks.
-- [ ] 2.16 Complete GR, current-head CI, and the required monitoring loop. Verify Project readback where authorized and obtain explicit merge permission.
+- [x] 2.15 Publish the authorized draft with `Closes #1910`, complete SR of the actual parent-relative diff before ready, and resolve verified findings with focused checks.
+- [x] 2.16 Complete GR, current-head CI, and the required monitoring loop. Verify Project readback where authorized and obtain explicit merge permission. (merge permission is the merge gate, recorded on the PR)
 
 ### Focused proof surfaces
 
@@ -85,8 +85,8 @@ quality evaluation is required for this deterministic contract.
 
 ## 3. Finalize layer: `worktreeinclude/finalize`
 
-- [ ] 3.1 Verify proposal and implementation gates, then enter this branch with `$gh-stack` before `$openspec-sync-specs` writes canonical specs. Confirm the branch parent and keep application changes out.
-- [ ] 3.2 Run `$openspec-sync-specs` and inspect all five affected capabilities. Verify the new capability purpose, aggregate authorization, source distinction, failure semantics, and unchanged existing scenarios.
+- [x] 3.1 Verify proposal and implementation gates, then enter this branch with `$gh-stack` before `$openspec-sync-specs` writes canonical specs. Confirm the branch parent and keep application changes out.
+- [x] 3.2 Run `$openspec-sync-specs` and inspect all five affected capabilities. Verify the new capability purpose, aggregate authorization, source distinction, failure semantics, and unchanged existing scenarios.
 - [ ] 3.3 Prove archive readiness with `openspec status`, complete task records, strict spec/change validation, Markdown checks, formatting, and `git diff --check`. Stop if any tracked pre-archive task remains incomplete.
 
 After readiness, run `$openspec-archive-change`. Archive movement precedes draft
