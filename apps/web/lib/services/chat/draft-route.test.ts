@@ -1,18 +1,19 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   draftChatPath,
   draftChatPathWithHash,
   draftPhaseFromSearchParam,
-  type DraftPhase,
+  replaceDraftUrl,
 } from "./draft-route";
 
 const CHAT_ID = "chat-123";
 
 const draftPhaseCases: Array<
-  [string | Array<string> | undefined, DraftPhase | null]
+  [string | Array<string> | undefined, "sent" | null]
 > = [
-  ["fresh", "fresh"],
+  ["fresh", null],
   ["sent", "sent"],
   [undefined, null],
   ["unknown", null],
@@ -26,10 +27,8 @@ describe("draftPhaseFromSearchParam", () => {
 });
 
 describe("draftChatPath", () => {
-  it("adds the fresh draft phase as a query parameter", () => {
-    expect(draftChatPath(CHAT_ID, "fresh")).toBe(
-      `/chat/${CHAT_ID}?draft=fresh`,
-    );
+  it("keeps a fresh draft on the new-chat page", () => {
+    expect(draftChatPath(CHAT_ID, "fresh")).toBe("/");
   });
 
   it("adds the sent draft phase as a query parameter", () => {
@@ -49,6 +48,38 @@ describe("draftChatPath", () => {
   it("preserves malformed hashes verbatim for navigation state", () => {
     expect(draftChatPathWithHash(CHAT_ID, null, "#not-a-target")).toBe(
       `/chat/${CHAT_ID}#not-a-target`,
+    );
+  });
+});
+
+describe("replaceDraftUrl", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("keeps the router's history state when only the query changes", () => {
+    window.history.replaceState({ __NA: true }, "", `/chat/${CHAT_ID}`);
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    replaceDraftUrl(`/chat/${CHAT_ID}?draft=sent`);
+
+    expect(replace).toHaveBeenCalledWith(
+      { __NA: true },
+      "",
+      `/chat/${CHAT_ID}?draft=sent`,
+    );
+  });
+
+  it("passes no state when the path changes, so the router adopts it", () => {
+    window.history.replaceState({ __NA: true }, "", "/");
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    replaceDraftUrl(`/chat/${CHAT_ID}?draft=sent`);
+
+    expect(replace).toHaveBeenCalledWith(
+      null,
+      "",
+      `/chat/${CHAT_ID}?draft=sent`,
     );
   });
 });

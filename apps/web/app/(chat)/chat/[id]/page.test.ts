@@ -99,7 +99,7 @@ afterEach(() => {
 });
 
 describe("chat route", () => {
-  it.each([undefined, "invalid", ["fresh"]])(
+  it.each([undefined, "invalid", "fresh", ["sent"]])(
     "strictly loads a route whose draft value is %j",
     async (draft) => {
       fetchMock.mockResolvedValue(jsonResponse(EMPTY_HISTORY));
@@ -138,35 +138,32 @@ describe("chat route", () => {
     expect(notFoundMock).toHaveBeenCalledOnce();
   });
 
-  it.each<DraftPhase>(["fresh", "sent"])(
-    "tolerantly loads a %s draft route",
-    async (draft) => {
-      fetchMock.mockResolvedValue(jsonResponse(EMPTY_HISTORY));
+  it("tolerantly loads a sent draft route", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(EMPTY_HISTORY));
 
-      const element = await Page({
-        params: Promise.resolve({ id: CHAT_ID }),
-        searchParams: Promise.resolve({ draft }),
-      });
+    const element = await Page({
+      params: Promise.resolve({ id: CHAT_ID }),
+      searchParams: Promise.resolve({ draft: "sent" }),
+    });
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const request = requestFromCall(fetchMock);
-      expect(new URL(request.url).pathname).toBe(
-        `/api/v1/chats/${CHAT_ID}/messages`,
-      );
-      expect(chatPageProps(element)).toMatchObject({
-        chatId: CHAT_ID,
-        initialChatExists: true,
-        initialDraftPhase: draft,
-      });
-    },
-  );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = requestFromCall(fetchMock);
+    expect(new URL(request.url).pathname).toBe(
+      `/api/v1/chats/${CHAT_ID}/messages`,
+    );
+    expect(chatPageProps(element)).toMatchObject({
+      chatId: CHAT_ID,
+      initialChatExists: true,
+      initialDraftPhase: "sent",
+    });
+  });
 
-  it("does not seed a missing fresh draft as persisted history", async () => {
+  it("does not seed a missing sent draft as persisted history", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
 
     const element = await Page({
       params: Promise.resolve({ id: CHAT_ID }),
-      searchParams: Promise.resolve({ draft: "fresh" }),
+      searchParams: Promise.resolve({ draft: "sent" }),
     });
 
     expect(notFoundMock).not.toHaveBeenCalled();
@@ -174,7 +171,7 @@ describe("chat route", () => {
     expect(chatPageProps(element)).toMatchObject({
       chatId: CHAT_ID,
       initialChatExists: false,
-      initialDraftPhase: "fresh",
+      initialDraftPhase: "sent",
     });
   });
 });

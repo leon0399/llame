@@ -4,7 +4,10 @@ import type {
   DraftSessionEvent,
   DraftSessionState,
 } from "@/lib/services/chat/draft-session";
-import { draftChatPathWithHash } from "@/lib/services/chat/draft-route";
+import {
+  draftChatPathWithHash,
+  replaceDraftUrl,
+} from "@/lib/services/chat/draft-route";
 
 type TargetSendState =
   | { status: "active"; hash: string }
@@ -32,9 +35,7 @@ function useTargetSendState(
       }
 
       targetSendStateRef.current = { status };
-      window.history.replaceState(
-        window.history.state,
-        "",
+      replaceDraftUrl(
         draftChatPathWithHash(
           chatId,
           status === "interrupted" ? "sent" : null,
@@ -70,11 +71,7 @@ function useOnSendStarted({
         status: "active",
         hash: window.location.hash,
       };
-      window.history.replaceState(
-        window.history.state,
-        "",
-        draftChatPathWithHash(chatId, "sent", ""),
-      );
+      replaceDraftUrl(draftChatPathWithHash(chatId, "sent", ""));
 
       if (sessionKind === "fresh") dispatch({ type: "send-started" });
 
@@ -82,9 +79,7 @@ function useOnSendStarted({
     }
 
     if (sessionKind !== "fresh") return;
-    window.history.replaceState(
-      window.history.state,
-      "",
+    replaceDraftUrl(
       draftChatPathWithHash(chatId, "sent", window.location.hash),
     );
     dispatch({ type: "send-started" });
@@ -103,9 +98,7 @@ function useOnSendFailed(
     if (targetSeq !== null) {
       if (targetSendState?.status !== "active") return;
       targetSendStateRef.current = { status: "failed" };
-      window.history.replaceState(
-        window.history.state,
-        "",
+      replaceDraftUrl(
         draftChatPathWithHash(chatId, null, targetSendState.hash),
       );
     }
@@ -128,11 +121,7 @@ function useOnFinished(
       return true;
     }
 
-    window.history.replaceState(
-      window.history.state,
-      "",
-      draftChatPathWithHash(chatId, null, window.location.hash),
-    );
+    replaceDraftUrl(draftChatPathWithHash(chatId, null, window.location.hash));
     dispatch({ type: "finished" });
 
     return true;

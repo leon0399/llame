@@ -10,6 +10,7 @@ import {
 } from "@/lib/services/chat/draft-session";
 import {
   draftChatPathWithHash,
+  replaceDraftUrl,
   type DraftPhase,
 } from "@/lib/services/chat/draft-route";
 import {
@@ -32,9 +33,7 @@ function useDraftUrlSync(chatId: string, session: DraftSessionState) {
         ? "sent"
         : draftPhase;
 
-    window.history.replaceState(
-      window.history.state,
-      "",
+    replaceDraftUrl(
       draftChatPathWithHash(chatId, recoveryDraft, window.location.hash),
     );
   }, [chatId, draftPhase]);
