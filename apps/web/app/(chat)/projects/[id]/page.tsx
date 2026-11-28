@@ -24,7 +24,7 @@ import {
 import {
   ChatTimeGroups,
   PinnedChatGroup,
-} from "../../components/chat-time-groups";
+} from "../../components/transcript/chat-time-groups";
 import { CreateProjectForChatDialog } from "../../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../../components/page-header";
 import { SidebarRowSkeletons } from "../../components/sidebar-row-skeletons";

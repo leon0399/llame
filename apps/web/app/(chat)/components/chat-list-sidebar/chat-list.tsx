@@ -20,7 +20,10 @@ import {
   useChatListShow,
   withOpenItem,
 } from "../chat-list-view";
-import { ChatTimeGroups, PinnedChatGroup } from "../chat-time-groups";
+import {
+  ChatTimeGroups,
+  PinnedChatGroup,
+} from "../transcript/chat-time-groups";
 import { SidebarRowSkeletons } from "../sidebar-row-skeletons";
 import { CreateProjectForChatDialog } from "./project-dialogs";
 

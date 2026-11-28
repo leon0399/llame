@@ -107,7 +107,9 @@ describe("chat bundle boundary", () => {
   });
 
   test("loads markdown renderers from ChatMarkdownProvider, not the message row", () => {
-    const row = parse("apps/web/app/(chat)/components/chat-message-row.tsx");
+    const row = parse(
+      "apps/web/app/(chat)/components/transcript/chat-message-row.tsx",
+    );
 
     const ready = parse(
       "apps/web/app/(chat)/components/use-chat-markdown-ready.tsx",

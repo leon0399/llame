@@ -32,7 +32,7 @@ import {
   ChatMarkdownProvider,
   useChatMarkdownReady,
 } from "./use-chat-markdown-ready";
-import { ChatTranscript } from "./chat-transcript";
+import { ChatTranscript } from "./transcript/chat-transcript";
 import { type ChatComposer, ChatComposerBody } from "./composer/chat-composer";
 import { PendingDeliveries } from "./composer/pending-deliveries";
 import { QuotaWaitNotice } from "./composer/quota-wait-notice";
@@ -42,7 +42,7 @@ import {
   ArchivedChatBanner,
   useOpenChatArchived,
 } from "./archived-chat-banner";
-import { EffectiveContextInspector } from "./effective-context-inspector";
+import { EffectiveContextInspector } from "./transcript/effective-context-inspector";
 import { NewChatGreeting } from "./new-chat-greeting";
 
 // Module-level so a draft's empty history keeps a stable identity across

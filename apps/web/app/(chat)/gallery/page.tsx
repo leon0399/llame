@@ -1,6 +1,6 @@
 "use client";
 
-import { MediaGallery } from "../components/media-gallery";
+import { MediaGallery } from "../components/transcript/media-gallery";
 import { PageHeader } from "../components/page-header";
 
 // /gallery: every image and PDF the caller has stored, newest first. The

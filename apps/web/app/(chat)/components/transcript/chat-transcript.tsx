@@ -35,7 +35,7 @@ import { ChatMessageRow } from "./chat-message-row";
 import { messageBoundaries } from "./message-boundaries";
 import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
 import { TurnActions } from "./turn-actions";
-import { QuotaResetTime } from "./composer/quota-wait-notice";
+import { QuotaResetTime } from "../composer/quota-wait-notice";
 import {
   messageRenderKey,
   messageSeqFromMetadata,

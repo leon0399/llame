@@ -26,7 +26,7 @@ import {
 } from "./use-chat-engine";
 import { useComposerSelection } from "./composer/use-composer-selection";
 import { useChatHistorySync } from "./use-chat-history-sync";
-import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
+import { hiddenFollowUpReplyIndex } from "./transcript/turn-action-rules";
 import {
   replacementContext,
   supersededReplyIndexes,
