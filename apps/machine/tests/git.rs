@@ -1258,3 +1258,72 @@ async fn a_symlink_among_selected_candidates_fails_and_keeps_earlier_copies() {
     assert!(temporaries(&path).is_empty());
     child.kill().await.unwrap();
 }
+
+async fn delete(client: &mut Client, path: &Path) -> delete_worktree_response::Result {
+    client
+        .delete_worktree(DeleteWorktreeRequest {
+            request_id: format!("delete-{}", path.display()),
+            path: absolute(path),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .result
+        .unwrap()
+}
+
+#[tokio::test]
+async fn an_edited_ignored_copy_does_not_block_removal() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    source_repository(&repo, ".env\n");
+    write(&repo.join(".env"), "SECRET=1\n");
+    write(&repo.join(".worktreeinclude"), ".env\n");
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let path = machine.root().join("seeded");
+    created(&mut client, &repo, &path).await;
+    write(&path.join(".env"), "SECRET=edited\n");
+    assert!(matches!(
+        delete(&mut client, &path).await,
+        delete_worktree_response::Result::Deleted(_)
+    ));
+    assert!(!path.exists());
+    assert_eq!(text(&repo.join(".env")).as_deref(), Some("SECRET=1\n"));
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_tracked_overwrite_blocks_removal_as_dirty() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    source_repository(&repo, ".env\n");
+    git(&repo, &["checkout", "-q", "-b", "with-env"]);
+    write(&repo.join(".env"), "target\n");
+    git(&repo, &["add", "-f", ".env"]);
+    git(&repo, &["commit", "-m", "track env"]);
+    git(&repo, &["checkout", "-q", "-"]);
+    write(&repo.join(".env"), "source\n");
+    write(&repo.join(".worktreeinclude"), ".env\n");
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let path = machine.root().join("differing");
+    let result = create(
+        &mut client,
+        &repo,
+        &absolute(&repo),
+        &path,
+        Some("with-env"),
+    )
+    .await;
+    assert!(matches!(
+        result,
+        create_worktree_response::Result::Worktree(_)
+    ));
+    assert!(matches!(
+        delete(&mut client, &path).await,
+        delete_worktree_response::Result::Failure(_)
+    ));
+    assert!(path.exists());
+    child.kill().await.unwrap();
+}

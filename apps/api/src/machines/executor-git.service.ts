@@ -305,6 +305,8 @@ export class ExecutorGit {
       readonly source: string;
       readonly branch: string;
       readonly baseRef?: string;
+      /** The selected Checkout root whose included files the add copies. */
+      readonly copySource: string;
       readonly directory: string;
     },
   ): Promise<GitWorktreeAddResult> {
@@ -315,6 +317,7 @@ export class ExecutorGit {
         source: this.executorPath(target, input.source),
         branch: input.branch,
         baseRef: input.baseRef,
+        copySource: this.executorPath(target, input.copySource),
         directory: this.executorPath(target, input.directory),
       }),
       read: readGitWorktreeAddResult,

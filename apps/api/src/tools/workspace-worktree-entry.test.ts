@@ -1185,6 +1185,128 @@ describe('the decisions of a worktree entry', () => {
     ]);
   });
 
+  it('decides the root of a linked worktree behind a subdirectory as copy_source', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const linked = linkedWorktree(source, 'feature');
+    const subdirectory = join(linked, 'apps');
+    mkdirSync(subdirectory, { recursive: true });
+    const executorsOf = executors();
+    const add = vi.spyOn(executorsOf, 'worktreeAdd');
+    const decisions: Array<{ kind: string; url: string }> = [];
+
+    await enterWorktreeCall(
+      context({
+        executorGit: executorsOf,
+        onDerivedDecision: (decision) => decisions.push(decision),
+      }),
+      subdirectory,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(decisions.map((decision) => [decision.kind, decision.url])).toEqual(
+      expect.arrayContaining([['copy_source', onHost(linked)]]),
+    );
+    expect(add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        source: onHost(source),
+        copySource: onHost(linked),
+      }),
+    );
+  });
+
+  it('records no copy_source decision when the root equals the main clone', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const subdirectory = join(source, 'apps');
+    mkdirSync(subdirectory, { recursive: true });
+    const executorsOf = executors();
+    const add = vi.spyOn(executorsOf, 'worktreeAdd');
+    const decisions: Array<{ kind: string }> = [];
+
+    await enterWorktreeCall(
+      context({
+        executorGit: executorsOf,
+        onDerivedDecision: (decision) => decisions.push(decision),
+      }),
+      subdirectory,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(decisions.map((decision) => decision.kind)).not.toContain(
+      'copy_source',
+    );
+    expect(add).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ copySource: onHost(source) }),
+    );
+  });
+
+  it('refuses a rejected linked root behind an allowed subdirectory before the add', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const linked = linkedWorktree(source, 'feature');
+    const subdirectory = join(linked, 'apps');
+    mkdirSync(subdirectory, { recursive: true });
+    const executorsOf = executors();
+    const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
+    const result = await enterWorktreeCall(
+      context({
+        executorGit: executorsOf,
+        permissionPolicy: policy({
+          allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
+          reject: [{ field: 'path', regex: `^\\${linked}$` }],
+        }),
+      }),
+      subdirectory,
+      { name: 'clear-field-0192' },
+    );
+
+    expect(errorOf(result).type).toBe('permission_denied');
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('records the copy_source decision as a bypass allow', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    const linked = linkedWorktree(source, 'feature');
+    const subdirectory = join(linked, 'apps');
+    mkdirSync(subdirectory, { recursive: true });
+    const decisions: Array<{ kind: string; decision: { reason: string } }> = [];
+
+    await enterWorktreeCall(
+      context({
+        permissionMode: 'bypass',
+        permissionPolicy: policy({ reject: [{ field: 'path', regex: '^/' }] }),
+        onDerivedDecision: (decision) => decisions.push(decision),
+      }),
+      subdirectory,
+      { name: 'clear-field-0192' },
+    );
+
+    const copy = decisions.find((decision) => decision.kind === 'copy_source');
+    expect(copy?.decision.reason).toBe('permission_mode_bypass');
+  });
+
+  it('binds a plain entry without any worktree add or manifest access', async () => {
+    stubbedDatabase();
+    const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+    writeFileSync(join(source, '.worktreeinclude'), '.env\n');
+    const executorsOf = executors();
+    const add = vi.spyOn(executorsOf, 'worktreeAdd');
+
+    const result = await enterWorktreeCall(
+      context({ executorGit: executorsOf }),
+      source,
+      undefined,
+    );
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(add).not.toHaveBeenCalled();
+  });
+
   it('records every decision as a bypass allow in bypass mode', async () => {
     stubbedDatabase();
     const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
@@ -1356,6 +1478,56 @@ describe('worktree failures that come from the executor', () => {
       message: 'The worktree command failed.',
     });
   });
+
+  it.each([
+    [
+      'copy_failed',
+      { status: 'error', type: 'copy_failed', message: 'copy failed: .env' },
+      'copy failed: .env',
+    ],
+    [
+      'timed_out',
+      { status: 'error', type: 'timed_out', stderr: '' },
+      'The worktree command failed.',
+    ],
+  ] as const)(
+    'keeps the plan directory in the result and the durable settlement after %s',
+    async (_name, failure, message) => {
+      const database = stubbedDatabase();
+      const source = clone({ remote: 'git@github.com:leon0399/llame.git' });
+      const executorsOf = executors();
+      vi.spyOn(executorsOf, 'worktreeAdd').mockResolvedValue(failure);
+
+      const result = await enterWorktreeCall(
+        context({ executorGit: executorsOf }),
+        source,
+        { name: 'clear-field-0192' },
+      );
+
+      const directory = onHost(
+        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'worktree_failed',
+        message,
+        leftDirectory: directory,
+      });
+      expect(database.append).toHaveBeenCalledWith('run-1', 'native.result', {
+        toolCallId: 'call-1',
+        result: {
+          status: 'error',
+          type: 'worktree_failed',
+          message,
+          leftDirectory: directory,
+        },
+      });
+      expect(database.createCheckout).not.toHaveBeenCalled();
+      expect(database.createLease).not.toHaveBeenCalled();
+      expect(database.enter).not.toHaveBeenCalled();
+    },
+  );
 
   it('answers the redacted standard error a git failure carries', async () => {
     const database = stubbedDatabase();

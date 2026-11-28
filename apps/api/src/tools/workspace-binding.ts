@@ -114,7 +114,7 @@ export function requireSubmittedPermission(
  */
 export function requireDerivedPermission(
   context: ToolContext,
-  kind: 'canonical' | 'main_clone' | 'worktree_directory',
+  kind: 'canonical' | 'main_clone' | 'copy_source' | 'worktree_directory',
   address: string,
 ): ToolErrorResult | undefined {
   const projected = projectNativeFilePath(address, locatorContext(context));
