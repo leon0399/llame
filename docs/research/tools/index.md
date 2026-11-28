@@ -43,6 +43,10 @@ independently reproduced performance.
 - [Code search](./code-search.md) — Compares four source-search tools and
   lists mechanisms worth studying for a future llame semantic search tool,
   without treating that tool as decided.
+- [VectorChord](./vectorchord.md) — PostgreSQL vector index extension:
+  IVF/RaBitQ and disk graph indexes, prefiltering, and AGPL-3.0-only
+  licensing in current releases. Weighs it against llame's exact
+  owner-filtered scan.
 - [agent-memory](./agent-memory.md) — Derived memory indexes and federated
   retrieval.
 - [gbrain](./gbrain.md) — File-backed knowledge and provenance-aware recall.
