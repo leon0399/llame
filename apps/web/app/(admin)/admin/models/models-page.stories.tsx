@@ -174,6 +174,29 @@ export const Directory: Story = {
 };
 
 /**
+ * A role can be the default: new chats then start on its primary candidate,
+ * which carries the Default mark.
+ *
+ * @summary a role default marks the role's primary model
+ */
+export const RoleDefault: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    served({ ...catalog, defaultSelector: "@small" });
+  },
+  play: async ({ canvasElement }) => {
+    const models = section(canvasElement, /^Models \(3\)$/);
+
+    await expect(
+      models.getByRole("button", { name: "Hy4 Flash (Go) details" }),
+    ).toHaveTextContent("Default");
+    await expect(
+      models.getByRole("button", { name: "DeepSeek V4.1 Flash (Go) details" }),
+    ).not.toHaveTextContent("Default");
+  },
+};
+
+/**
  * The search filters by name, id or description; a search that matches
  * nothing says so.
  *

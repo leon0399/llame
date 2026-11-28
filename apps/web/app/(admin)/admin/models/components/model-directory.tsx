@@ -166,6 +166,11 @@ export function ModelDirectory({ data }: { data: ModelsResponse }) {
   const [query, setQuery] = useState("");
   const shown = data.models.filter((model) => matches(model, query));
 
+  // A role default (`@small`) starts new chats on its primary candidate.
+  const defaultId =
+    data.roles.find((role) => role.selector === data.defaultSelector)
+      ?.candidates[0]?.modelId ?? data.defaultSelector;
+
   return (
     <div className="space-y-4">
       <SearchFilterInput
@@ -187,7 +192,7 @@ export function ModelDirectory({ data }: { data: ModelsResponse }) {
               <ModelRow
                 key={model.id}
                 model={model}
-                isDefault={model.id === data.defaultSelector}
+                isDefault={model.id === defaultId}
                 uses={roleUses(model, data.roles)}
               />
             ))}
