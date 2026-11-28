@@ -1347,7 +1347,13 @@ export const SendAtRestLeavesTypingInstant: Story = {
     await userEvent.keyboard("{Shift>}{Enter}{Enter}{/Shift}");
     await afterResize();
 
-    await expect(textarea.getAnimations()).toHaveLength(0);
+    // Only the height animation the expand plays; focus also starts CSS
+    // transitions on the field's border and ring, which are not resizes.
+    const resizes = textarea
+      .getAnimations()
+      .filter((animation) => !(animation instanceof CSSTransition));
+
+    await expect(resizes).toHaveLength(0);
   },
 };
 
