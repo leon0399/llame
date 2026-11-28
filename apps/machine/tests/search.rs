@@ -831,7 +831,8 @@ async fn search_never_enters_or_reports_the_fixed_set() {
         "fixed-set entries were reported: {skipped:?}"
     );
 
-    let explicit = request(&root.join("node_modules"), &["needle"]);
+    let mut explicit = request(&root.join("node_modules"), &["needle"]);
+    explicit.respect_ignore_files = true;
     let mut stream = client.search_files(explicit).await.unwrap().into_inner();
     let mut matches = Vec::new();
     while let Some(response) = stream.message().await.unwrap() {
