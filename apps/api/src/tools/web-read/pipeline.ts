@@ -62,6 +62,7 @@ type ProbeKind = Exclude<
   | 'address'
   | 'canonical'
   | 'main_clone'
+  | 'copy_source'
   | 'worktree_directory'
   | 'adapter'
   | 'grep-file'

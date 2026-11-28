@@ -22,6 +22,7 @@ export type DerivedLocatorKind =
   | 'address'
   | 'canonical'
   | 'main_clone'
+  | 'copy_source'
   | 'worktree_directory'
   | 'grep-file';
 
@@ -59,6 +60,7 @@ const KIND_NAMES: Readonly<Record<DerivedLocatorKind, true>> = {
   address: true,
   canonical: true,
   main_clone: true,
+  copy_source: true,
   worktree_directory: true,
   'grep-file': true,
 };

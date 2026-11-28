@@ -618,6 +618,7 @@ describe('ExecutorGit.inspect', () => {
     const add = added.executors.worktreeAdd(target, {
       source: LOCATOR,
       branch: 'llame/probe',
+      copySource: LOCATOR,
       directory: `${LOCATOR}/.llame-worktrees/probe/probe`,
     });
 
@@ -958,6 +959,7 @@ describe('ExecutorGit.worktreeAdd', () => {
         source: LOCATOR,
         branch: 'llame/shop',
         baseRef: 'HEAD',
+        copySource: LOCATOR,
         directory: `machine://${NAS}/srv/trees/shop`,
       }),
     ).resolves.toMatchObject({ status: 'ok', branch: 'llame/shop' });
@@ -968,6 +970,7 @@ describe('ExecutorGit.worktreeAdd', () => {
       source: MACHINE_PATH,
       branch: 'llame/shop',
       baseRef: 'HEAD',
+      copySource: MACHINE_PATH,
       directory: '/srv/trees/shop',
       options: { displayPrefix: `machine://${NAS}` },
     });

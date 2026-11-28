@@ -260,6 +260,7 @@ describe('planCreationWorktree', () => {
 
     expect(plan).toEqual({
       mainClone: at(source),
+      copySource: at(source),
       directory: at(directory),
       branch: 'llame/clear-field-0192',
       sourceHead: headOf(source),
@@ -292,6 +293,82 @@ describe('planCreationWorktree', () => {
       mainClone: at(main),
       sourceHead: headOf(main),
     });
+  });
+
+  it('copies from the linked source root, not the main clone', async () => {
+    const main = clone();
+    const linked = linkedWorktree(main, 'feature');
+    const decisions: Array<string> = [];
+
+    const plan = await planCreationWorktree(
+      executors(),
+      creationInput(linked, {
+        decide: (kind) => {
+          decisions.push(kind);
+
+          return undefined;
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      mainClone: at(main),
+      copySource: at(linked),
+    });
+    // The linked root is the canonical locator, so it needs no decision of its own.
+    expect(decisions).not.toContain('copy_source');
+  });
+
+  it('decides the root of a linked worktree when the source is a subdirectory', async () => {
+    const main = clone();
+    const linked = linkedWorktree(main, 'feature');
+    mkdirSync(join(linked, 'sub'));
+    const decisions: Array<[string, string]> = [];
+
+    const plan = await planCreationWorktree(
+      executors(),
+      creationInput(join(linked, 'sub'), {
+        decide: (kind, address) => {
+          decisions.push([kind, address]);
+
+          return undefined;
+        },
+      }),
+    );
+
+    expect(decisions.map(([kind]) => kind)).toEqual([
+      'main_clone',
+      'copy_source',
+      'worktree_directory',
+    ]);
+    expect(decisions[1]).toEqual(['copy_source', at(linked)]);
+    expect(plan).toMatchObject({
+      mainClone: at(main),
+      copySource: at(linked),
+    });
+  });
+
+  it('refuses before any add when the copy source decision rejects', async () => {
+    const main = clone();
+    const linked = linkedWorktree(main, 'feature');
+    mkdirSync(join(linked, 'sub'));
+    const worktreeAdd = vi.spyOn(ExecutorGit.prototype, 'worktreeAdd');
+
+    const rejection: ToolErrorResult = {
+      status: 'error',
+      type: 'permission_denied',
+      message: 'The root is not admitted.',
+    };
+
+    const plan = await planCreationWorktree(
+      executors(),
+      creationInput(join(linked, 'sub'), {
+        decide: (kind) => (kind === 'copy_source' ? rejection : undefined),
+      }),
+    );
+
+    expect(plan).toEqual({ status: 'failed', result: rejection });
+    expect(worktreeAdd).not.toHaveBeenCalled();
   });
 
   it('answers the rejection that ends the plan, before any write', async () => {
@@ -352,6 +429,7 @@ describe('addCreationWorktree', () => {
       creationInput(source),
       {
         mainClone: at(source),
+        copySource: at(source),
         directory: at(
           join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
@@ -416,6 +494,7 @@ describe('addCreationWorktree', () => {
 
     const plan: CreationPlan = {
       mainClone: at(source),
+      copySource: at(source),
       directory: at(
         join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
       ),
@@ -450,6 +529,7 @@ describe('addCreationWorktree', () => {
       creationInput(source),
       {
         mainClone: at(source),
+        copySource: at(source),
         directory: at(
           join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
@@ -483,6 +563,7 @@ describe('addCreationWorktree', () => {
       creationInput(source),
       {
         mainClone: at(source),
+        copySource: at(source),
         directory: at(
           join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
@@ -512,6 +593,7 @@ describe('addCreationWorktree', () => {
     await expect(
       addCreationWorktree(context(), executors(), creationInput(source), {
         mainClone: at(source),
+        copySource: at(source),
         directory: at(
           join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
@@ -530,6 +612,7 @@ describe('addCreationWorktree', () => {
     await expect(
       addCreationWorktree(context(), executors(), creationInput(source), {
         mainClone: at(source),
+        copySource: at(source),
         directory: at(
           join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
@@ -539,6 +622,74 @@ describe('addCreationWorktree', () => {
     ).rejects.toThrow('vanished under its lock');
   });
 
+  it('sends the selected root as the copy source of the add', async () => {
+    stubbedCatalog();
+    const main = clone();
+    const linked = linkedWorktree(main, 'feature');
+    const worktreeAdd = vi.spyOn(ExecutorGit.prototype, 'worktreeAdd');
+    const input = creationInput(linked);
+
+    const plan = await planCreationWorktree(executors(), input);
+
+    if ('status' in plan) throw new Error('The plan was refused.');
+    await addCreationWorktree(context(), executors(), input, plan);
+
+    expect(worktreeAdd).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ source: at(main), copySource: at(linked) }),
+    );
+  });
+
+  it.each([
+    [
+      'copy_failed',
+      { status: 'error', type: 'copy_failed', message: 'copy failed: .env' },
+      'copy failed: .env',
+    ],
+    [
+      'timed_out',
+      { status: 'error', type: 'timed_out', stderr: '' },
+      'The worktree command failed.',
+    ],
+  ] as const)(
+    'names the plan directory and commits nothing when the add reports %s',
+    async (_name, failure, message) => {
+      const catalog = stubbedCatalog();
+      const source = clone();
+      vi.spyOn(ExecutorGit.prototype, 'worktreeAdd').mockResolvedValue(failure);
+
+      const directory = at(
+        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      );
+
+      const outcome = await addCreationWorktree(
+        context(),
+        executors(),
+        creationInput(source),
+        {
+          mainClone: at(source),
+          copySource: at(source),
+          directory,
+          branch: 'llame/clear-field-0192',
+          sourceHead: headOf(source),
+        },
+      );
+
+      expect(outcome).toEqual({
+        status: 'failed',
+        result: {
+          status: 'error',
+          type: 'worktree_failed',
+          message,
+          leftDirectory: directory,
+        },
+      });
+      expect(catalog.createCheckout).not.toHaveBeenCalled();
+      expect(catalog.createLease).not.toHaveBeenCalled();
+      expect(catalog.bindAtCreation).not.toHaveBeenCalled();
+    },
+  );
+
   it('has no removal path on any outcome', async () => {
     stubbedCatalog();
     const source = clone();
@@ -546,6 +697,7 @@ describe('addCreationWorktree', () => {
 
     await addCreationWorktree(context(), executors(), creationInput(source), {
       mainClone: at(source),
+      copySource: at(source),
       directory: at(
         join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
       ),

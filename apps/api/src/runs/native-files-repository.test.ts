@@ -10,6 +10,7 @@ import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { NativeFilesRepository } from './native-files-repository';
+import { renderToolResultText } from '../tools/model-text';
 
 type StoredEvent = { eventType: string; payload: unknown };
 
@@ -73,6 +74,34 @@ describe('NativeFilesRepository prior outcomes', () => {
       message: 'exit 1',
       artifact: 'artifact://bash-4/stderr',
     });
+  });
+
+  it('keeps the left directory of a settled worktree failure, never in model text', async () => {
+    const repository = repositoryOf({
+      eventType: 'native.result',
+      payload: {
+        toolCallId: 'enter-call',
+        result: {
+          status: 'error',
+          type: 'worktree_failed',
+          message: 'copy failed: .env',
+          leftDirectory: '/work/trees/entry-1',
+        },
+      },
+    });
+
+    const replayed = await repository.priorOutcome('run-1', 'enter-call');
+
+    expect(replayed).toEqual({
+      status: 'error',
+      type: 'worktree_failed',
+      message: 'copy failed: .env',
+      leftDirectory: '/work/trees/entry-1',
+    });
+    expect(replayed).toBeDefined();
+    expect(renderToolResultText('enter_workspace', replayed!)).not.toContain(
+      '/work/trees/entry-1',
+    );
   });
 
   it('drops an artifact value that is not a locator', async () => {
