@@ -30,6 +30,24 @@ export const PromptInput = ({ className, ...props }: PromptInputProps) => (
   />
 );
 
+/** No fine pointer and no hover: a phone or a tablet without a trackpad.
+ *  Read per keypress, so attaching a keyboard and trackpad takes effect. */
+function touchOnly(): boolean {
+  return window.matchMedia("(pointer: coarse) and (hover: none)").matches;
+}
+
+/** Whether Enter (with its modifiers) sends. Fixed by `submitBehavior`, not
+ *  user-configurable. A touch-only keyboard has no Shift+Enter, so there
+ *  Enter adds a line and the Send button sends. */
+function submitsOnEnter(
+  e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  submitBehavior: "enter" | "shift-enter",
+): boolean {
+  return submitBehavior === "enter" && !touchOnly()
+    ? !e.shiftKey
+    : e.metaKey || e.ctrlKey;
+}
+
 export type PromptInputTextareaProps = ComponentProps<
   typeof InputGroupTextarea
 > & {
@@ -71,9 +89,7 @@ export const PromptInputTextarea = ({
       return;
     }
 
-    // Enter-key behaviour is fixed by `submitBehavior`; it is not user-configurable.
-    const shouldSubmit =
-      submitBehavior === "enter" ? !e.shiftKey : e.metaKey || e.ctrlKey;
+    const shouldSubmit = submitsOnEnter(e, submitBehavior);
 
     if (!shouldSubmit) return;
 
