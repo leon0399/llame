@@ -44,6 +44,9 @@ enum GitFailureReason {
   GIT_FAILURE_REASON_ENTRY_CHANGED = 6;
   GIT_FAILURE_REASON_ROOT_MISSING = 7;
   GIT_FAILURE_REASON_NO_REPOSITORY_IN_ROOT = 8;
+  // The environment copy of a new worktree failed; `message` is a fixed phrase plus at most one
+  // relative path, never stderr, OS error text, manifest lines, or file bytes.
+  GIT_FAILURE_REASON_COPY_FAILED = 9;
   // git exited non-zero for a reason without its own value; `stderr` says why. Kept last so a
   // later specific reason slots in before it.
   GIT_FAILURE_REASON_GIT_FAILED = 255;
@@ -196,6 +199,9 @@ message CreateWorktreeRequest {
   optional string base = 4;
   // Where the worktree goes; must lie inside a root.
   string path = 5;
+  // The selected checkout root whose `.worktreeinclude` seeds the new worktree. Distinct from
+  // `repository`; an empty or option-like value is refused as INVALID_INPUT.
+  string copy_source = 6;
 }
 
 message CreateWorktreeResponse {

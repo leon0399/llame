@@ -9,6 +9,9 @@
  * home.
  */
 
+import { type GitFailure } from '@workspace/machine-protocol';
+
+import { gitFailureMessage } from '../machines/git-failure';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import { machineIdentityMismatchResult } from './machine-call';
 import { type ToolErrorResult } from './types';
@@ -18,6 +21,30 @@ export type Failed = {
   readonly status: 'failed';
   readonly result: ToolErrorResult;
 };
+
+/**
+ * One failed `worktreeAdd`. A copy failure and a timeout both can leave the plan
+ * directory behind, and the API cannot tell an add timeout from a copy timeout,
+ * so each names it as a possible leftover.
+ */
+export function addFailureOutcome(
+  failure: GitFailure,
+  directory: string,
+): Failed {
+  const result: ToolErrorResult = {
+    status: 'error',
+    type: 'worktree_failed',
+    message: gitFailureMessage(failure),
+  };
+
+  return {
+    status: 'failed',
+    result:
+      failure.type === 'copy_failed' || failure.type === 'timed_out'
+        ? { ...result, leftDirectory: directory }
+        : result,
+  };
+}
 
 export function executorFailure(
   error: unknown,
