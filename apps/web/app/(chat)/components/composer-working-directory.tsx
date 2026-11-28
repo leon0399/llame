@@ -1,19 +1,14 @@
 "use client";
 
 import { useId, useState } from "react";
-import { FolderOpenIcon } from "lucide-react";
 
 import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
@@ -40,7 +35,7 @@ import type {
 
 /*
  * The working directory of a chat that does not exist yet: a registered
- * checkout, chosen from the `+` menu or the location row, or a folder typed by
+ * checkout, chosen from the row under the input, or a folder typed by
  * hand. A typed folder that is already registered is that checkout; any other
  * is registered first, under the `machine://<name>/…` locator of the Machine
  * the reader picked, so it gets the same repository, mode and branch options
@@ -131,36 +126,6 @@ export function WorkingDirectoryItems({
         Other folder…
       </DropdownMenuItem>
     </>
-  );
-}
-
-/** The `+` menu's "Add working directory" submenu. */
-export function ComposerWorkingDirectorySubmenu({
-  location,
-  onOtherFolder,
-}: {
-  location: ComposerLocation;
-  onOtherFolder: () => void;
-}) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <FolderOpenIcon />
-        <span>
-          {location.location.checkout === null
-            ? "Add working directory"
-            : "Change working directory"}
-        </span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuPortal>
-        <DropdownMenuSubContent className="max-h-96 w-72 overflow-y-auto">
-          <WorkingDirectoryItems
-            location={location}
-            onOtherFolder={onOtherFolder}
-          />
-        </DropdownMenuSubContent>
-      </DropdownMenuPortal>
-    </DropdownMenuSub>
   );
 }
 
