@@ -748,7 +748,9 @@ export const ProjectMenuFilter: Story = {
       await expect(
         await screen.findByRole("option", { name: /^Research/ }),
       ).toBeInTheDocument();
-      await expect(screen.queryByRole("option", { name: /^Work/ })).toBeNull();
+      await waitFor(() =>
+        expect(screen.queryByRole("option", { name: /^Work/ })).toBeNull(),
+      );
     });
 
     await step("a query matching nothing says so", async () => {
