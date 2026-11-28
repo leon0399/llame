@@ -47,16 +47,10 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   expect(baseline.ok()).toBe(true);
   const baselineStats = await readMcpStats(baseline);
 
+  // The new-chat page keeps its draft id out of the URL until the first
+  // send, so the history route below matches any chat.
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}\?draft=fresh$/, {
-    timeout: 15_000,
-  });
-
-  const chatId = new URL(page.url()).pathname.split("/").pop();
-
-  if (!chatId) {
-    throw new Error(`Could not extract chat id from URL: ${page.url()}`);
-  }
+  await expect(page).toHaveURL(/\/$/, { timeout: 15_000 });
 
   let releaseHistory: () => void = () => undefined;
 
@@ -80,7 +74,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await page.route(
     (url) =>
       url.origin === apiOrigin &&
-      url.pathname === `/api/v1/chats/${chatId}/messages` &&
+      /^\/api\/v1\/chats\/[0-9a-f-]{36}\/messages$/.test(url.pathname) &&
       url.searchParams.has("limit"),
     async (route) => {
       const response = await route.fetch();
@@ -138,7 +132,7 @@ test("operator MCP search settles and reconstructs from durable chat history", a
   await expect(linkSafetyModal).toBeVisible();
   await linkSafetyModal.getByRole("button", { name: "Close" }).click();
   await expect(linkSafetyModal).toBeHidden();
-  await expect(page).toHaveURL(new RegExp(`/chat/${chatId}$`), {
+  await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}$/, {
     timeout: 15_000,
   });
 
