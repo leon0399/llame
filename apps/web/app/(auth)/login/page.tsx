@@ -3,7 +3,7 @@ import Link from "next/link";
 
 export default function Login() {
   return (
-    <div className="w-full max-w-md space-y-4">
+    <div className="w-full max-w-sm space-y-4">
       <LoginForm />
       <div className="text-center text-sm">
         Don&apos;t have an account?{" "}

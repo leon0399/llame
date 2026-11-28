@@ -115,7 +115,7 @@ function EmailField({
         <FormItem>
           <FormLabel>Email</FormLabel>
           <FormControl>
-            <Input type="email" placeholder="johndoe@gmail.com" {...field} />
+            <Input type="email" placeholder="you@example.com" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -137,7 +137,7 @@ function PasswordField({
         <FormItem>
           <FormLabel>Password</FormLabel>
           <FormControl>
-            <Input type="password" placeholder="*****" {...field} />
+            <Input type="password" {...field} />
           </FormControl>
           <FormMessage />
         </FormItem>
@@ -168,7 +168,7 @@ function LoginFormFields({
           </div>
         )}
         <Button type="submit" className="w-full" disabled={isLoading}>
-          {isLoading ? "Signing in..." : "Sign In"}
+          {isLoading ? "Signing in…" : "Sign in"}
         </Button>
       </form>
     </Form>
@@ -189,10 +189,8 @@ export function LoginForm() {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle>Login</CardTitle>
-        <CardDescription>
-          Enter your email below to login to your account
-        </CardDescription>
+        <CardTitle>Sign in</CardTitle>
+        <CardDescription>Use your account on this instance.</CardDescription>
       </CardHeader>
       <CardContent>
         <LoginFormFields
