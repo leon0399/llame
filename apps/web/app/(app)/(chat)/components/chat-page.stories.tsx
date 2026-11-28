@@ -76,7 +76,7 @@ import { requestNewChat } from "@/lib/new-chat";
 import {
   setChatMarkdownLoadForTests,
   type ChatMarkdownRenderers,
-} from "./use-chat-markdown-ready";
+} from "./session/use-chat-markdown-ready";
 
 const useModelsQuery = mocked(modelQueries.useModelsQuery, {
   partial: true,

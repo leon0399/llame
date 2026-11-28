@@ -5,9 +5,9 @@ import * as React from "react";
 import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 
 import { ChatComposerBody } from "../../components/composer/chat-composer";
-import { useChatCreation } from "../../components/use-chat-creation";
+import { useChatCreation } from "../../components/session/use-chat-creation";
 import { useComposerAttachments } from "../../components/composer/use-composer-attachments";
-import { useDraftChatSelection } from "../../components/use-chat-displayed-selection";
+import { useDraftChatSelection } from "../../components/session/use-chat-displayed-selection";
 
 /**
  * The project page's prompt input: the new-chat page's own composer — input,
