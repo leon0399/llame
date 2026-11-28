@@ -123,7 +123,7 @@ catalog:
   # Patch-level on purpose: a caret would pick up the next minor on any
   # re-resolution, and llame adopts minors deliberately. 16.4 was adopted for
   # GHSA-2464, GHSA-673q, and GHSA-p3m5, which no 16.3.x release fixes.
-  next: ~16.4.1
+  next: ~16.4.5
   next-themes: ^0.4.4
   oxlint: 1.82.0
   oxlint-tsgolint: 7.0.2001
