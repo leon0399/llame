@@ -2,8 +2,8 @@
 
 import { Button } from "@workspace/ui/components/button";
 import { DialogFooter } from "@workspace/ui/components/dialog";
-import { Kbd } from "@workspace/ui/components/kbd";
-import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
+
+import { ModEnterKbd, useModEnterAria } from "@/components/mod-enter-submit";
 
 /**
  * DialogSubmitFooter is the Cancel + primary-action footer every form dialog
@@ -34,7 +34,7 @@ export function DialogSubmitFooter({
    *  then names. The dialog binds the keys itself. */
   submitShortcut?: boolean;
 }) {
-  const modifierKey = usePrimaryModifierKey();
+  const modEnterAria = useModEnterAria();
 
   return (
     <DialogFooter>
@@ -44,20 +44,10 @@ export function DialogSubmitFooter({
       <Button
         onClick={onSubmit}
         disabled={submitDisabled}
-        aria-keyshortcuts={
-          submitShortcut
-            ? `${modifierKey === "⌘" ? "Meta" : "Control"}+Enter`
-            : undefined
-        }
+        aria-keyshortcuts={submitShortcut ? modEnterAria : undefined}
       >
         {submitLabel}
-        {submitShortcut ? (
-          // Announced through `aria-keyshortcuts`, not the button's name.
-          <Kbd aria-hidden="true">
-            {modifierKey}
-            <span>↵</span>
-          </Kbd>
-        ) : null}
+        {submitShortcut ? <ModEnterKbd /> : null}
       </Button>
     </DialogFooter>
   );

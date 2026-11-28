@@ -87,7 +87,7 @@ function MachinesOverview() {
       ))}
       <Tooltip>
         <TooltipTrigger
-          render={<StatusBarItem render={<Link href="/settings" />} />}
+          render={<StatusBarItem render={<Link href="/settings/machines" />} />}
         >
           <ServerIcon aria-hidden="true" />
           {online}/{machines.length} Machines online

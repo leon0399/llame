@@ -101,7 +101,7 @@ export const Online: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
 
-    await expect(canvas.getByText("Machines")).toBeVisible();
+    // The page heading names the section; the list carries no title.
     await expect(canvas.getByText("devl")).toBeVisible();
     await expect(canvas.getByText("Online")).toBeVisible();
 

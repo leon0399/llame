@@ -2,22 +2,11 @@
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldLabel,
-} from "@workspace/ui/components/field";
+import { Card, CardContent } from "@workspace/ui/components/card";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { Switch } from "@workspace/ui/components/switch";
 
+import { SettingField } from "@/components/setting-field";
 import { useUpdateMemoryMutation } from "@/lib/services/memory/mutations";
 import { useMemoryQuery } from "@/lib/services/memory/queries";
 
@@ -39,6 +28,11 @@ function MemoryLoadErrorAlert({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+/** What is sent, where it goes, and the default: the facts needed to answer
+ *  the switch. The rest of the consent contract (enabling reaches chats you
+ *  already have, disabling does not unshare them, deleting a chat does not
+ *  erase it from prompts already sent) is in README.md, where it reads as
+ *  prose. */
 function ShareRecentChatsToggle({
   shareRecentChats,
   onToggle,
@@ -50,30 +44,24 @@ function ShareRecentChatsToggle({
 }) {
   return (
     <>
-      <Field orientation="horizontal">
-        <FieldContent>
-          <FieldLabel htmlFor="memory-share-recent-chats">
-            Share my recent chats
-          </FieldLabel>
-          {/* Two lines. What is sent, where it goes, and the default — the
-              facts needed to answer the switch in front of you. The rest of
-              the consent contract (enabling reaches chats you already have,
-              disabling does not unshare them, deleting a chat does not erase
-              it from prompts already sent) is in README.md, where it can be
-              read as prose instead of crowding a toggle nobody will read
-              past. */}
-          <FieldDescription>
+      <SettingField
+        id="memory-share-recent-chats"
+        label="Share my recent chats"
+        description={
+          <>
             Sends titles and opening excerpts from your other chats to this
             instance&apos;s model provider, which may be a third party. Off by
             default.
-          </FieldDescription>
-        </FieldContent>
-        <Switch
-          id="memory-share-recent-chats"
-          checked={shareRecentChats}
-          onCheckedChange={onToggle}
-        />
-      </Field>
+          </>
+        }
+        action={
+          <Switch
+            id="memory-share-recent-chats"
+            checked={shareRecentChats}
+            onCheckedChange={onToggle}
+          />
+        }
+      />
       {/* Same defect, same fix. A save failure appears asynchronously too, so
           it needs the alert role for the same reason — an owner who just
           toggled a privacy switch and heard nothing has no way to know the
@@ -106,19 +94,10 @@ export function MemorySection() {
   const { data, isPending, isError, refetch } = useMemoryQuery();
   const update = useUpdateMemoryMutation();
 
-  // Header first, outside the branch: it is identical in both states, so the
-  // loading card differs from the loaded one only in its body. The neighbouring
-  // personalization section duplicates its header because the two versions
-  // genuinely differ; here they do not, and two copies of the same prose is
-  // just something to keep in sync by hand.
+  // The page names and describes this section (`SectionPage`); the card is
+  // only the control group, the same in the loading and loaded states.
   return (
-    <Card className="lg:max-w-2xl">
-      <CardHeader>
-        <CardTitle>Memory</CardTitle>
-        <CardDescription>
-          Choose whether the assistant may use details from your recent chats.
-        </CardDescription>
-      </CardHeader>
+    <Card>
       <CardContent>
         <div className="space-y-4">
           {/* Error before loading, and both before the happy path. A failed query

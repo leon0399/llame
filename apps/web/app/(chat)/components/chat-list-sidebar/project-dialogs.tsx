@@ -6,6 +6,7 @@ import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import { Textarea } from "@workspace/ui/components/textarea";
 
+import { submitOnEnter, submitOnModEnter } from "@/components/mod-enter-submit";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { DialogFrame } from "@/components/dialog-frame";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
@@ -53,12 +54,7 @@ function ProjectNameField({
         id={id}
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
+        onKeyDown={submitOnEnter(onSubmit)}
         maxLength={NAME_MAX}
         placeholder="Project name"
         // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
@@ -90,15 +86,7 @@ function ProjectDescriptionField({
         id={id}
         value={description}
         onChange={(e) => onDescriptionChange(e.target.value)}
-        onKeyDown={(e) => {
-          // Enter that confirms an IME composition is not a submit.
-          if (e.nativeEvent.isComposing) return;
-
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
+        onKeyDown={submitOnModEnter(onSubmit)}
         maxLength={DESCRIPTION_MAX}
         placeholder="What this project is for"
         // A centered dialog grows both ways, so a dragged resize handle would

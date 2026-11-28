@@ -86,7 +86,7 @@ function DisabledAccountMenuItems() {
       </DropdownMenuGroup>
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
-        <DropdownMenuItem disabled>
+        <DropdownMenuItem render={<Link href="/settings/account" />}>
           <BadgeCheckIcon />
           Account
         </DropdownMenuItem>

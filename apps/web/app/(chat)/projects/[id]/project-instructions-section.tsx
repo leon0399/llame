@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type KeyboardEvent } from "react";
+import { useId, useState } from "react";
 import { PencilIcon, PlusIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
@@ -14,12 +14,16 @@ import {
   DialogTitle,
 } from "@workspace/ui/components/dialog";
 import { FieldError } from "@workspace/ui/components/field";
-import { Kbd } from "@workspace/ui/components/kbd";
-import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import { Spinner } from "@workspace/ui/components/spinner";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { UnsavedChangesGuard } from "@/components/unsaved-changes-guard";
+import {
+  ModEnterKbd,
+  submitOnModEnter,
+  useModEnterAria,
+} from "@/components/mod-enter-submit";
 import { useUpdateProject } from "@/lib/services/project/mutations";
 import type { ProjectResponse } from "@/lib/services/project/types";
 
@@ -170,16 +174,10 @@ function useEditorDraft(props: InstructionsEditorProps) {
     count,
     tooLong,
     canSave,
+    /** Typed text that saving would change. */
+    dirty: !props.archived && !unchanged,
     save,
-    onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Enter that confirms an IME composition is not a save.
-      if (event.nativeEvent.isComposing) return;
-
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        save();
-      }
-    },
+    onKeyDown: submitOnModEnter(save),
   };
 }
 
@@ -215,21 +213,15 @@ function SaveButton({
   disabled: boolean;
   onSave: () => void;
 }) {
-  const modifierKey = usePrimaryModifierKey();
-
   return (
     <Button
       onClick={onSave}
       disabled={disabled}
-      aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Enter`}
+      aria-keyshortcuts={useModEnterAria()}
     >
       {pending ? <Spinner data-icon="inline-start" /> : null}
       Save
-      {/* Announced through `aria-keyshortcuts`, not the button's name. */}
-      <Kbd aria-hidden="true">
-        {modifierKey}
-        <span>↵</span>
-      </Kbd>
+      <ModEnterKbd />
     </Button>
   );
 }
@@ -277,6 +269,17 @@ function EditorActions({
  * open, and is bounded to the viewport and scrollable so its footer stays
  * reachable on a short screen.
  */
+function EditorHeader({ archived }: { archived: boolean }) {
+  return (
+    <DialogHeader>
+      <DialogTitle>Project instructions</DialogTitle>
+      <DialogDescription>
+        {archived ? ARCHIVED_DESCRIPTION : EDITOR_DESCRIPTION}
+      </DialogDescription>
+    </DialogHeader>
+  );
+}
+
 export function InstructionsEditor(props: InstructionsEditorProps) {
   const { archived, pending } = props;
   const editor = useEditorDraft(props);
@@ -284,12 +287,8 @@ export function InstructionsEditor(props: InstructionsEditorProps) {
 
   return (
     <DialogContent className="max-h-11/12 overflow-y-auto sm:max-w-2xl">
-      <DialogHeader>
-        <DialogTitle>Project instructions</DialogTitle>
-        <DialogDescription>
-          {archived ? ARCHIVED_DESCRIPTION : EDITOR_DESCRIPTION}
-        </DialogDescription>
-      </DialogHeader>
+      <UnsavedChangesGuard dirty={editor.dirty} />
+      <EditorHeader archived={archived} />
       <Textarea
         aria-label="Project instructions"
         aria-invalid={editor.tooLong}

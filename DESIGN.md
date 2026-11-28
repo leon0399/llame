@@ -175,6 +175,14 @@ All values below are read from the real primitives in `packages/ui/src/component
 - **Type:** `text-base` (mobile) → `text-sm` at `md`; placeholders in Slate (`text-muted-foreground`).
 - **States:** focus → thick `ring-[3px]` + `border-ring`; `aria-invalid` → destructive ring + border; text selection uses `bg-primary`/`text-primary-foreground`.
 
+### Fields and settings (`setting-field.tsx` in `apps/web/components`)
+
+Every labelled setting and form field has the same anatomy, in the same order, at every screen width. The label comes first. A compact control, such as a switch, a small select or a single button, sits at the right end of the label's line. The description follows the label across the field's full width, so it never wraps early around a control. A wide control, such as an input, a textarea or a list, comes after the description, also across the full width. Feedback on the value, such as a character counter or a validation error, comes last, under the control it describes.
+
+Nothing moves into a side column on a wide screen. A text field beside its label leaves a narrow box for the thing the owner actually types, and the layout then changes between phone and desktop, which this rule exists to prevent. Use `SettingField` rather than composing `Field`, `FieldLabel` and `FieldDescription` by hand; it is the rule in code.
+
+A switch that turns a whole group on or off belongs in that group's card header as its `CardAction`, not as the first field. A form's Save goes at the right end of the card's `CardFooter`, with the save status at its left. A form saves from the keyboard by one rule (`mod-enter-submit.tsx`). Enter in a single-line field submits. Enter in a multi-line field adds a newline. Ctrl or ⌘ with Enter submits from anywhere in the form, and the primary action shows that shortcut. The composer has its own keys and is the one exception.
+
 ### Cards (`card.tsx`)
 
 - **Container:** `bg-card` surface, 1px border, `rounded-xl` (14px — the system's most generous curve), `shadow-sm`, vertical rhythm `py-6` + `gap-6`, horizontal padding `px-6`.

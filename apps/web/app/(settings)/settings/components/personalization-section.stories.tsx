@@ -1,8 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, userEvent, waitFor, within } from "storybook/test";
+import { getRouter } from "@storybook/nextjs-vite/navigation.mock";
+import Link from "next/link";
+import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 import { vi, type Mock } from "vitest";
 
 import type { PersonalizationResponse } from "@/lib/services/personalization/types";
+import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
+
 import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 import { PersonalizationSection } from "./personalization-section";
 
@@ -17,11 +21,8 @@ const ME_ROUTE = "GET /auth/v1/me";
 
 const NAME_LABEL = "What should the assistant call you?";
 
-const SKELETON_DESCRIPTION =
-  "What the assistant knows about you, and how you want it to answer.";
-
-const FORM_DESCRIPTION =
-  "What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write.";
+const PROFILE_DESCRIPTION =
+  "Sent with every message you write. Turn it off to send none of it, without deleting what you wrote.";
 
 let fetchMock: Mock<typeof fetch>;
 let stored: PersonalizationResponse;
@@ -154,9 +155,9 @@ async function formControls(canvasElement: HTMLElement) {
 }
 
 /**
- * While the settings load the card shows its shorter description over
- * placeholder rows; once they land, the full form takes over with the
- * description that says everything here is sent with every message.
+ * While the settings load, the profile card shows its title and description
+ * over placeholder rows, without the on/off switch (there is no setting to
+ * show yet); once they land, the switch and the fields take over.
  *
  * @summary the loading card, then the form once settings load
  */
@@ -169,16 +170,19 @@ export const LoadingThenForm: Story = {
     const canvas = within(canvasElement);
 
     await waitFor(() => expect(sentRoutes()).toEqual([LOAD_ROUTE, ME_ROUTE]));
-    await expect(canvas.getByText(SKELETON_DESCRIPTION)).toBeVisible();
+    await expect(canvas.getByText(PROFILE_DESCRIPTION)).toBeVisible();
     await expect(canvas.queryByLabelText(NAME_LABEL)).not.toBeInTheDocument();
+    await expect(
+      canvas.queryByRole("switch", { name: "Use my personalization" }),
+    ).not.toBeInTheDocument();
 
     releaseHeld();
 
     await expect(await canvas.findByLabelText(NAME_LABEL)).toBeVisible();
-    await expect(canvas.getByText(FORM_DESCRIPTION)).toBeVisible();
+    await expect(canvas.getByText(PROFILE_DESCRIPTION)).toBeVisible();
     await expect(
-      canvas.queryByText(SKELETON_DESCRIPTION),
-    ).not.toBeInTheDocument();
+      canvas.getByRole("switch", { name: "Use my personalization" }),
+    ).toBeVisible();
     await expect(sentRoutes()).toEqual([LOAD_ROUTE, ME_ROUTE]);
   },
 };
@@ -320,6 +324,31 @@ export const EditAndSave: Story = {
 };
 
 /**
+ * Ctrl/⌘+Enter saves from anywhere in the profile card, not only from inside
+ * a field: with focus moved to the on/off switch, it saves the edit and
+ * leaves the switch as it was.
+ *
+ * @summary saving from the keyboard outside a field
+ */
+export const SaveShortcutOutsideAField: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const { name, master } = await formControls(canvasElement);
+
+    await userEvent.type(name, "Leo");
+    master.focus();
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() => expect(sentRoutes()).toContain(SAVE_ROUTE));
+    // One PATCH, the edit: the switch was not toggled on the way.
+    await expect(savedBodies()).resolves.toEqual([
+      { preferredName: "Leo", about: null, responsePreferences: null },
+    ]);
+    await expect(master).toBeChecked();
+  },
+};
+
+/**
  * Near its cap a field counts down what is left; one character over, the
  * field is marked invalid, the counter reads how far over it is, and Save is
  * blocked with a message to trim the marked fields.
@@ -424,5 +453,60 @@ export const ShowAndHidePreview: Story = {
       canvas.queryByText("Preferred name: Leo"),
     ).not.toBeInTheDocument();
     await expect(sentRoutes()).toEqual([LOAD_ROUTE, ME_ROUTE]);
+  },
+};
+
+/** An in-app link beside the form, for leaving the page. */
+function WithLink() {
+  return (
+    <>
+      <Link href="/settings/memory">Memory settings</Link>
+      <PersonalizationSection />
+    </>
+  );
+}
+
+/**
+ * With unsaved edits, an in-app link asks before leaving: Stay keeps the page
+ * and the typed text, "Discard and leave" goes to the link. With nothing
+ * typed, the same link does not ask.
+ *
+ * @summary leaving with unsaved edits asks first
+ */
+export const LeavingWithUnsavedEditsAsks: Story = {
+  tags: ["ai-generated"],
+  // The destructive "Discard and leave" tint is one of #232's token pairings.
+  parameters: contrastKnownIssue232,
+  render: () => <WithLink />,
+  play: async ({ canvasElement }) => {
+    const { canvas, name } = await formControls(canvasElement);
+    const link = canvas.getByRole("link", { name: "Memory settings" });
+    const { push } = getRouter();
+
+    // A clean form lets the link through: no dialog.
+    await userEvent.click(link);
+    await expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    await userEvent.type(name, "Leo");
+    await userEvent.click(link);
+
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Discard unsaved changes?",
+    });
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
+    // The dialog fades out before it leaves the document.
+    await waitFor(
+      () => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+      { timeout: 5000 },
+    );
+    await expect(name).toHaveValue("Leo");
+    await expect(push).not.toHaveBeenCalled();
+
+    await userEvent.click(link);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Discard and leave" }),
+    );
+    await expect(push).toHaveBeenCalledWith("/settings/memory");
   },
 };
