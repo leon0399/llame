@@ -1,7 +1,8 @@
 "use client";
 
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps } from "react";
 
+import { SettingField } from "@/components/setting-field";
 import {
   useAppearance,
   fontStyleOptions,
@@ -67,7 +68,7 @@ function ThemeDropdown({
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
         {themeIcon(theme)}
         {themeLabel(theme)}
-        <ChevronDownIcon className="h-4 w-4 ml-2 opacity-50" />
+        <ChevronDownIcon className="ml-2 h-4 w-4 opacity-50" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
@@ -89,26 +90,6 @@ function ThemeDropdown({
   );
 }
 
-function SettingRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-      <div className="space-y-1">
-        <p className="text-sm font-medium leading-none">{label}</p>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function FontSettingRow({
   label,
   description,
@@ -122,13 +103,17 @@ function FontSettingRow({
   Switcher: typeof InterfaceFontSwitcher;
 } & ComponentProps<typeof InterfaceFontSwitcher>) {
   return (
-    <SettingRow label={label} description={description}>
-      <Switcher
-        options={options}
-        currentValue={currentValue}
-        onValueChange={onValueChange}
-      />
-    </SettingRow>
+    <SettingField
+      label={label}
+      description={description}
+      action={
+        <Switcher
+          options={options}
+          currentValue={currentValue}
+          onValueChange={onValueChange}
+        />
+      }
+    />
   );
 }
 
@@ -146,12 +131,11 @@ export function AppearanceSection() {
     <Card>
       <CardContent>
         <div className="space-y-6">
-          <SettingRow
+          <SettingField
             label="Theme"
             description="Light, dark, or follow the system."
-          >
-            <ThemeDropdown theme={theme} setTheme={setTheme} />
-          </SettingRow>
+            action={<ThemeDropdown theme={theme} setTheme={setTheme} />}
+          />
           <FontSettingRow
             label="Interface font"
             description="The face for text and controls."
