@@ -1,7 +1,7 @@
 "use client";
 
 import type { Dispatch, SetStateAction } from "react";
-import { CheckIcon, EyeIcon, EyeOffIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon } from "lucide-react";
 
 import { Button } from "@workspace/ui/components/button";
 import {
@@ -20,15 +20,16 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { Separator } from "@workspace/ui/components/separator";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { Spinner } from "@workspace/ui/components/spinner";
 import { Switch } from "@workspace/ui/components/switch";
 import { Textarea } from "@workspace/ui/components/textarea";
 import { cn } from "@workspace/ui/lib/utils";
 
+import { submitOnEnter, submitOnModEnter } from "@/components/mod-enter-submit";
 import { useUpdatePersonalizationMutation } from "@/lib/services/personalization/mutations";
 import { PERSONALIZATION_CAPS } from "@/lib/services/personalization/types";
 import type { PersonalizationTextField } from "@/lib/services/personalization/types";
 
+import { PersonalizationSaveRow } from "./personalization-save-row";
 import {
   usePersonalizationDraft,
   type Draft,
@@ -114,36 +115,36 @@ function PersonalizationFieldControl({
   enabled,
   invalid,
   onChange,
+  onSubmit,
 }: {
   field: TextFieldConfig;
   value: string;
   enabled: boolean;
   invalid: boolean;
   onChange: (value: string) => void;
+  onSubmit: () => void;
 }) {
-  if (field.control === "input") {
-    return (
-      <Input
-        id={field.id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={field.placeholder}
-        autoComplete="off"
-        disabled={!enabled}
-        aria-invalid={invalid}
-      />
-    );
-  }
+  const shared = {
+    id: field.id,
+    value,
+    placeholder: field.placeholder,
+    disabled: !enabled,
+    "aria-invalid": invalid,
+  };
 
-  return (
-    <Textarea
-      id={field.id}
-      value={value}
+  return field.control === "input" ? (
+    <Input
+      {...shared}
       onChange={(event) => onChange(event.target.value)}
-      placeholder={field.placeholder}
+      onKeyDown={submitOnEnter(onSubmit)}
+      autoComplete="off"
+    />
+  ) : (
+    <Textarea
+      {...shared}
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={submitOnModEnter(onSubmit)}
       rows={4}
-      disabled={!enabled}
-      aria-invalid={invalid}
     />
   );
 }
@@ -153,11 +154,13 @@ function PersonalizationTextFieldRow({
   value,
   enabled,
   onChange,
+  onSubmit,
 }: {
   field: TextFieldConfig;
   value: string;
   enabled: boolean;
   onChange: (value: string) => void;
+  onSubmit: () => void;
 }) {
   const cap = PERSONALIZATION_CAPS[field.key];
   const invalid = value.length > cap;
@@ -171,6 +174,7 @@ function PersonalizationTextFieldRow({
         enabled={enabled}
         invalid={invalid}
         onChange={onChange}
+        onSubmit={onSubmit}
       />
       <FieldDescription>
         <span className="flex min-w-0 justify-between gap-4">
@@ -210,73 +214,6 @@ function PersonalizationToggleField({
         onCheckedChange={onCheckedChange}
       />
     </Field>
-  );
-}
-
-/** The three save-outcome messages are independent, not mutually exclusive — an
- * over-cap draft and a stale save error can be true at once. */
-function PersonalizationSaveStatus({
-  dirty,
-  overCap,
-  isError,
-}: {
-  dirty: boolean;
-  overCap: boolean;
-  isError: boolean;
-}) {
-  return (
-    <>
-      {dirty && !overCap ? (
-        <span className="text-sm text-muted-foreground">Unsaved changes</span>
-      ) : null}
-      {overCap ? (
-        <span className="text-sm text-destructive">
-          Too long to save — trim the fields marked above.
-        </span>
-      ) : null}
-      {isError ? (
-        <span className="text-sm text-destructive">
-          Could not save. Try again.
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-function PersonalizationSaveRow({
-  enabled,
-  dirty,
-  overCap,
-  isSaving,
-  isError,
-  onSave,
-}: {
-  enabled: boolean;
-  dirty: boolean;
-  overCap: boolean;
-  isSaving: boolean;
-  isError: boolean;
-  onSave: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <Button
-        size="sm"
-        onClick={onSave}
-        disabled={!enabled || !dirty || overCap || isSaving}
-      >
-        {/* The label never changes. Swapping "Save"→"Saving…" reflows the
-            button mid-click; only the icon morphs, and both glyphs are
-            size-4, so nothing moves. */}
-        {isSaving ? <Spinner /> : <CheckIcon className="size-4" aria-hidden />}
-        Save
-      </Button>
-      <PersonalizationSaveStatus
-        dirty={dirty}
-        overCap={overCap}
-        isError={isError}
-      />
-    </div>
   );
 }
 
@@ -389,12 +326,32 @@ type PersonalizationFormState = Omit<
   "data" | "draft" | "isPending"
 >;
 
+/** Keyboard saves (see `mod-enter-submit`) obey the Save button's rules. */
+function usePersonalizationSubmit(
+  enabled: boolean,
+  state: Pick<
+    PersonalizationFormState,
+    "dirty" | "overCap" | "isSaving" | "save"
+  >,
+) {
+  const canSave = enabled && state.dirty && !state.overCap && !state.isSaving;
+
+  return {
+    canSave,
+    submit: () => {
+      if (canSave) state.save();
+    },
+  };
+}
+
 function PersonalizationFieldsSection({
   enabled,
   draft,
   setField,
   ...state
 }: { enabled: boolean; draft: Draft } & PersonalizationFormState) {
+  const { canSave, submit } = usePersonalizationSubmit(enabled, state);
+
   return (
     <>
       {/* The master switch sits directly on the fields it gates, with no rule
@@ -416,16 +373,17 @@ function PersonalizationFieldsSection({
           value={draft[field.key] ?? ""}
           enabled={enabled}
           onChange={(value) => setField(field.key, value)}
+          onSubmit={submit}
         />
       ))}
 
       <PersonalizationSaveRow
-        enabled={enabled}
+        canSave={canSave}
         dirty={state.dirty}
         overCap={state.overCap}
         isSaving={state.isSaving}
         isError={state.update.isError}
-        onSave={state.save}
+        onSave={submit}
       />
     </>
   );

@@ -24,6 +24,7 @@ import {
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 
+import { submitOnEnter } from "@/components/mod-enter-submit";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import {
   useCreateChildOrg,
@@ -58,12 +59,7 @@ function CreateOrgUnitNameField({
         id="org-unit-name"
         value={name}
         onChange={(e) => onNameChange(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onSubmit();
-          }
-        }}
+        onKeyDown={submitOnEnter(onSubmit)}
         // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
         // open; this is the dialog's primary field.
         // oxlint-disable-next-line jsx-a11y/no-autofocus
@@ -192,12 +188,7 @@ function RenameOrgUnitField({
     <Input
       value={name}
       onChange={(e) => onNameChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          onSubmit();
-        }
-      }}
+      onKeyDown={submitOnEnter(onSubmit)}
       aria-label="Name"
       // Deliberate: WAI-ARIA dialog pattern moves focus into the modal on
       // open; this is the dialog's primary field.
