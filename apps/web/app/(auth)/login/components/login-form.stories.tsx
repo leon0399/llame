@@ -133,7 +133,7 @@ async function signIn(canvasElement: HTMLElement, password: string) {
 }
 
 /**
- * Signing in sends the typed credentials, shows Signing in... until the server
+ * Signing in sends the typed credentials, shows Signing in… until the server
  * answers, then opens the home page already signed in as the returned user,
  * before the home page's own session request comes back.
  *
@@ -146,7 +146,7 @@ export const SignIn: Story = {
     await signIn(canvasElement, "hunter2");
 
     await expect(
-      canvas.getByRole("button", { name: "Signing in..." }),
+      canvas.getByRole("button", { name: "Signing in…" }),
     ).toBeDisabled();
     await expect(requestFromCall(fetchMock).clone().json()).resolves.toEqual({
       email: "leo@example.com",
