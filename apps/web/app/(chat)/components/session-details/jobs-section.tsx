@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   ChevronRightIcon,
+  CircleAlertIcon,
   CircleDashedIcon,
   CircleStopIcon,
   HistoryIcon,
@@ -102,6 +103,7 @@ export function useJobsSection(
           jobs={jobs}
           loading={jobsQuery.isPending}
           error={jobsQuery.error?.message}
+          onRetry={() => void jobsQuery.refetch()}
           stopError={stopJobs.error?.message}
           stoppingIds={
             stopJobs.isPending ? (stopJobs.variables?.jobIds ?? []) : []
@@ -125,6 +127,7 @@ interface JobsSectionViewProps {
   jobs: ReadonlyArray<ChatJobResponse>;
   loading?: boolean;
   error?: string;
+  onRetry?: () => void;
   stopError?: string;
   stoppingIds?: ReadonlyArray<string>;
   stopping?: boolean;
@@ -144,6 +147,7 @@ export function JobsSectionView({
   jobs,
   loading = false,
   error,
+  onRetry,
   stopError,
   stoppingIds = [],
   stopping = false,
@@ -152,7 +156,7 @@ export function JobsSectionView({
 }: JobsSectionViewProps) {
   if (loading) return <JobsLoading />;
 
-  if (error) return <JobsLoadError error={error} />;
+  if (error) return <JobsLoadError error={error} onRetry={onRetry} />;
 
   const liveJobs = jobs.filter(isLiveChatJob);
   const finishedCount = jobs.length - liveJobs.length;
@@ -289,11 +293,28 @@ function JobsLoading() {
   );
 }
 
-function JobsLoadError({ error }: { error: string }) {
+/** A quiet row in the empty state's place: the section is a side panel, so
+ *  a failed read is a state to retry, not an alert. The transport's own
+ *  sentence stays in the tooltip for whoever needs it. */
+function JobsLoadError({
+  error,
+  onRetry,
+}: {
+  error: string;
+  onRetry?: () => void;
+}) {
   return (
-    <Alert variant="default" className="mx-2 mb-2">
-      <AlertDescription>Couldn't load jobs. {error}</AlertDescription>
-    </Alert>
+    <div className="flex h-8 min-w-0 items-center gap-2 px-4 text-sm text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0">
+      <CircleAlertIcon aria-hidden="true" />
+      <span className="truncate" title={error}>
+        Jobs could not be loaded
+      </span>
+      {onRetry && (
+        <Button variant="ghost" size="xs" className="ml-auto" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
   );
 }
 

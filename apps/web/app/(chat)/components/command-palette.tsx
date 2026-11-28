@@ -38,6 +38,7 @@ import {
 } from "@/lib/services/chat/search";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
 import { isPaletteToggle } from "@/lib/command-palette";
+import { requestNewChat } from "@/lib/new-chat";
 
 // Placeholder for untitled chats (title === null, generation pending or a
 // content-only match) — matches the label used by the chat list itself.
@@ -448,7 +449,12 @@ function CommandPaletteDialog(
         searching={searching}
         resultsStale={resultsStale}
         onSelectChat={(chatId) => run(() => router.push(`/chat/${chatId}`))}
-        onNewChat={() => run(() => router.push("/"))}
+        onNewChat={() =>
+          run(() => {
+            requestNewChat();
+            router.push("/");
+          })
+        }
         onSettings={() => run(() => router.push("/settings"))}
       />
     </CommandDialog>

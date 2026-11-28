@@ -1,5 +1,6 @@
 import { EventType } from "@ag-ui/core";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { getRouter } from "@storybook/nextjs-vite/navigation.mock";
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
@@ -35,6 +36,8 @@ import type {
   ChatListItemResponse,
   ChatModelSelectionResponse,
   GitStateOkResponse,
+  PersonalizationResponse,
+  PublicUserResponse,
 } from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
@@ -67,6 +70,8 @@ import { SessionDetailsProvider } from "./session-details/details-state";
 import { SessionDetails } from "./session-details";
 import { parseSessionDetailsLayout } from "./session-details/details-cookie";
 import { ChatPage } from "./chat-page";
+import { NewChatHome } from "./new-chat-home";
+import { requestNewChat } from "@/lib/new-chat";
 import {
   setChatMarkdownLoadForTests,
   type ChatMarkdownRenderers,
@@ -215,6 +220,35 @@ const DRAFT_CATALOG_ROUTES = [
   "GET /api/v1/repositories",
 ];
 
+// A draft's greeting reads the owner's name: their personalization, then
+// their account. They answer here, and `sentRoutes` leaves them out like the
+// catalog.
+const GREETING_READS = new Map<
+  string,
+  PersonalizationResponse | PublicUserResponse
+>([
+  [
+    "GET /api/v1/me/personalization",
+    {
+      preferredName: null,
+      about: null,
+      responsePreferences: null,
+      enabled: true,
+      shareAccountIdentity: false,
+    },
+  ],
+  [
+    "GET /auth/v1/me",
+    {
+      id: "user-1",
+      name: "Leo",
+      email: "leo@example.com",
+      emailVerified: null,
+      image: null,
+    },
+  ],
+]);
+
 function routeOpenChat(
   history: Array<ChatMessageResponse>,
   latestRun: ChatLatestRunResponse | null,
@@ -247,6 +281,12 @@ function routeOpenChat(
       return Promise.resolve(jsonResponse([]));
     }
 
+    const greetingRead = GREETING_READS.get(key);
+
+    if (greetingRead !== undefined) {
+      return Promise.resolve(jsonResponse(greetingRead));
+    }
+
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
@@ -276,12 +316,13 @@ function everyRoute() {
 }
 
 /** "METHOD /path" of every request the chat sent so far, in order. The
- *  pending-item and jobs reads are left out like the catalog: these stories
- *  are about chat behavior, not background activity polling. */
+ *  pending-item, jobs and greeting reads are left out like the catalog: these
+ *  stories are about chat behavior, not background reads. */
 function sentRoutes() {
   return everyRoute().filter(
     (route) =>
       !DRAFT_CATALOG_ROUTES.includes(route) &&
+      !GREETING_READS.has(route) &&
       route !== JOBS_ROUTE &&
       !route.endsWith("/deliveries"),
   );
@@ -498,9 +539,10 @@ export const MarkdownUnavailable: Story = {
 };
 
 /**
- * A fresh draft has no history to wait for, yet still holds the composer
- * behind the spinner until the chunks load, so its first message never lands
- * in an empty bubble. Nothing is requested from the api.
+ * A fresh draft has no history to wait for and no transcript to hold a
+ * spinner: the start screen shows the composer at once but keeps it disabled
+ * until the chunks load, so its first message never lands in an empty
+ * bubble. Nothing but the greeting's reads is requested from the api.
  *
  * @summary a fresh draft's composer unlocks only once markdown is ready
  */
@@ -509,17 +551,37 @@ export const DraftMarkdownLoading: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(
-      await canvas.findByRole("status", { name: "Loading" }),
-    ).toBeVisible();
-    await expect(composer(canvasElement)).toBeDisabled();
+    await waitFor(() => expect(composer(canvasElement)).toBeDisabled());
+    await expect(canvas.queryByRole("log")).toBeNull();
 
     (await chunkLoad(1)).resolve(RENDERERS);
 
-    await waitFor(() =>
-      expect(canvas.queryByRole("status", { name: "Loading" })).toBeNull(),
-    );
-    await expect(composer(canvasElement)).toBeEnabled();
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await expect(sentRoutes()).toEqual([]);
+  },
+};
+
+/**
+ * A fresh draft whose chunk import fails shows the same "Messages
+ * unavailable" alert as a stored chat, above the start screen's disabled
+ * composer; Try again loads the chunks and unlocks the composer.
+ *
+ * @summary a new chat recovers from a failed markdown load
+ */
+export const DraftMarkdownUnavailable: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    (await chunkLoad(1)).reject(new Error("chunk failed"));
+
+    await expect(await canvas.findByText("Messages unavailable")).toBeVisible();
+    await expect(composer(canvasElement)).toBeDisabled();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+    await expect(canvas.queryByText("Messages unavailable")).toBeNull();
+
+    (await chunkLoad(2)).resolve(RENDERERS);
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
     await expect(sentRoutes()).toEqual([]);
   },
 };
@@ -592,6 +654,108 @@ export const SendsWithDefaultModel: Story = {
       selector: GPT_5_4_MINI.id,
       message: { parts: [{ type: "text", text: "Hello" }] },
     });
+  },
+};
+
+/**
+ * The first send moves the composer from the centred start column to its
+ * dock under the transcript without rebuilding it: the same input keeps the
+ * focus, so the owner can type the next message at once.
+ *
+ * @summary the first send keeps the composer and its focus
+ */
+export const FirstSendKeepsComposerFocus: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+
+    await userEvent.type(input, "Hello");
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Send message" }),
+      ).toBeEnabled(),
+    );
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
+    await canvas.findByRole("log");
+    await expect(composer(canvasElement)).toBe(input);
+    await expect(input).toHaveFocus();
+  },
+};
+
+/**
+ * `/` is the new-chat page: a draft whose id stays in the browser, shown as
+ * the greeting over a composer that unlocks once markdown is ready, without
+ * a request about the chat itself.
+ *
+ * @summary the home page opens a fresh draft under the greeting
+ */
+export const NewChatHomeOpensDraft: Story = {
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/" } } },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await readyComposer(canvasElement);
+
+    await expect(
+      await canvas.findByRole("heading", {
+        name: /^Good (morning|afternoon|evening), Leo$/,
+      }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("log")).toBeNull();
+    await expect(sentRoutes()).toEqual([]);
+    await expect(getRouter().replace).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * New chat while already on `/` starts a clean draft: the address does not
+ * change, so the request itself discards the unsent text.
+ *
+ * @summary New chat on the home page clears the unsent draft
+ */
+export const NewChatHomeNewChatStartsClean: Story = {
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/" } } },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    const input = await readyComposer(canvasElement);
+
+    await userEvent.type(input, "an unsent draft");
+    await expect(input).toHaveValue("an unsent draft");
+
+    requestNewChat();
+
+    await waitFor(() => expect(composer(canvasElement)).toHaveValue(""));
+  },
+};
+
+/**
+ * History can land the home page on another chat's address (Back or Forward
+ * to an entry a home send rewrote). The page renders nothing there and routes
+ * the address again, so that chat's own page renders.
+ *
+ * @summary another chat's address is routed again instead of drafted over
+ */
+export const NewChatHomeReroutesOtherChat: Story = {
+  parameters: {
+    nextjs: {
+      appDirectory: true,
+      // Not this story's chat: the page itself sits on `/chat/${CHAT_ID}`.
+      navigation: { pathname: "/chat/c3a1f1e2-5d6b-4f7a-8c9d-0e1f2a3b4c5d" },
+    },
+  },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    await waitFor(() =>
+      expect(getRouter().replace).toHaveBeenCalledWith(`/chat/${CHAT_ID}`),
+    );
+    await expect(
+      within(canvasElement).queryByPlaceholderText(
+        "Describe a task or ask a question",
+      ),
+    ).toBeNull();
   },
 };
 
@@ -838,6 +1002,8 @@ export const RefusedSendRestoresTextAndImage: Story = {
     await expect(
       within(canvas.getByRole("log")).queryByText("Inspect this draft"),
     ).not.toBeInTheDocument();
+    // The refusal's reason stays on screen beside the restored draft.
+    await expect(canvas.getByText(/Send was refused/)).toBeVisible();
   },
 };
 

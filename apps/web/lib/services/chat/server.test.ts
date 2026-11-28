@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { draftChatPath, type DraftPhase } from "./draft-route";
+import { draftChatPath } from "./draft-route";
 import { rawChatMessage } from "./message-fixtures";
 import { fetchDraftChatMessages, fetchInitialChatMessages } from "./server";
 
@@ -150,7 +150,7 @@ describe("fetchDraftChatMessages", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      fetchDraftChatMessages("chat-1", "fresh", fakeDeps()),
+      fetchDraftChatMessages("chat-1", "sent", fakeDeps()),
     ).resolves.toBe(null);
   });
 
@@ -179,33 +179,30 @@ describe("fetchDraftChatMessages", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const page = await fetchDraftChatMessages("chat-1", "fresh", fakeDeps());
+    const page = await fetchDraftChatMessages("chat-1", "sent", fakeDeps());
 
     expect(page?.messages).toHaveLength(100);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["fresh", "sent"] satisfies Array<DraftPhase>)(
-    "preserves the %s draft route in the login callback on 401",
-    async (phase) => {
-      const fetchMock = vi.fn<typeof fetch>(() =>
-        Promise.resolve(new Response(null, { status: 401 })),
-      );
+  it("preserves the sent draft route in the login callback on 401", async () => {
+    const fetchMock = vi.fn<typeof fetch>(() =>
+      Promise.resolve(new Response(null, { status: 401 })),
+    );
 
-      vi.stubGlobal("fetch", fetchMock);
-      const deps = fakeDeps();
+    vi.stubGlobal("fetch", fetchMock);
+    const deps = fakeDeps();
 
-      const callbackPath = draftChatPath("chat-1", phase);
-      await expect(
-        fetchDraftChatMessages("chat-1", phase, deps),
-      ).rejects.toThrow(
-        `redirect:/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
-      );
-      expect(deps.redirect).toHaveBeenCalledWith(
-        `/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
-      );
-    },
-  );
+    const callbackPath = draftChatPath("chat-1", "sent");
+    await expect(
+      fetchDraftChatMessages("chat-1", "sent", deps),
+    ).rejects.toThrow(
+      `redirect:/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
+    );
+    expect(deps.redirect).toHaveBeenCalledWith(
+      `/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
+    );
+  });
 
   it("returns an empty history when the draft exists without messages", async () => {
     const fetchMock = vi.fn<typeof fetch>(() =>
@@ -223,7 +220,7 @@ describe("fetchDraftChatMessages", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      fetchDraftChatMessages("chat-1", "fresh", fakeDeps()),
+      fetchDraftChatMessages("chat-1", "sent", fakeDeps()),
     ).resolves.toEqual({
       messages: [],
       compaction: null,
@@ -236,9 +233,9 @@ describe("fetchDraftChatMessages", () => {
     vi.stubGlobal("fetch", fetchMock);
     const deps = fakeDeps({ hasSessionCookie: false });
 
-    const callbackPath = draftChatPath("chat-1", "fresh");
+    const callbackPath = draftChatPath("chat-1", "sent");
     await expect(
-      fetchDraftChatMessages("chat-1", "fresh", deps),
+      fetchDraftChatMessages("chat-1", "sent", deps),
     ).rejects.toThrow(
       `redirect:/login?callbackUrl=${encodeURIComponent(callbackPath)}`,
     );

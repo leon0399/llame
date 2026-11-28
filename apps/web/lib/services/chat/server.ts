@@ -98,7 +98,7 @@ function fetchChatHistory(
 ): Promise<ChatMessagesResponse>;
 function fetchChatHistory(
   chatId: string,
-  phase: DraftPhase,
+  phase: "sent",
   allowMissing: true,
   deps?: ServerHistoryDeps,
 ): Promise<ChatMessagesResponse | null>;
@@ -153,7 +153,7 @@ export function fetchInitialChatMessages(
 
 export function fetchDraftChatMessages(
   chatId: string,
-  phase: DraftPhase,
+  phase: "sent",
   deps?: ServerHistoryDeps,
 ): Promise<ChatMessagesResponse | null> {
   return fetchChatHistory(chatId, phase, true, deps);

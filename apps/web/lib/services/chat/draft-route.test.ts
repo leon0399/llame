@@ -1,18 +1,19 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   draftChatPath,
   draftChatPathWithHash,
   draftPhaseFromSearchParam,
-  type DraftPhase,
+  replaceDraftUrl,
 } from "./draft-route";
 
 const CHAT_ID = "chat-123";
 
 const draftPhaseCases: Array<
-  [string | Array<string> | undefined, DraftPhase | null]
+  [string | Array<string> | undefined, "sent" | null]
 > = [
-  ["fresh", "fresh"],
+  ["fresh", null],
   ["sent", "sent"],
   [undefined, null],
   ["unknown", null],
@@ -26,10 +27,8 @@ describe("draftPhaseFromSearchParam", () => {
 });
 
 describe("draftChatPath", () => {
-  it("adds the fresh draft phase as a query parameter", () => {
-    expect(draftChatPath(CHAT_ID, "fresh")).toBe(
-      `/chat/${CHAT_ID}?draft=fresh`,
-    );
+  it("keeps a fresh draft on the new-chat page", () => {
+    expect(draftChatPath(CHAT_ID, "fresh")).toBe("/");
   });
 
   it("adds the sent draft phase as a query parameter", () => {
@@ -50,5 +49,24 @@ describe("draftChatPath", () => {
     expect(draftChatPathWithHash(CHAT_ID, null, "#not-a-target")).toBe(
       `/chat/${CHAT_ID}#not-a-target`,
     );
+  });
+});
+
+describe("replaceDraftUrl", () => {
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+  });
+
+  it.each([
+    ["a query change", `/chat/${CHAT_ID}`, `/chat/${CHAT_ID}?draft=sent`],
+    ["a path change", "/", `/chat/${CHAT_ID}?draft=sent`],
+  ])("passes no state on %s, so the router adopts the URL", (_, from, to) => {
+    window.history.replaceState({ __NA: true }, "", from);
+    const replace = vi.spyOn(window.history, "replaceState");
+
+    replaceDraftUrl(to);
+
+    expect(replace).toHaveBeenCalledWith(null, "", to);
+    expect(window.location.pathname + window.location.search).toBe(to);
   });
 });

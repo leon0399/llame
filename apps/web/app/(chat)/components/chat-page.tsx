@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ComponentProps, useEffect, useState } from "react";
 
 import type { UIMessage } from "ai";
 
@@ -33,7 +33,7 @@ import {
   useChatMarkdownReady,
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
-import { ChatComposer } from "./chat-composer";
+import { type ChatComposer, ChatComposerBody } from "./chat-composer";
 import { PendingDeliveries } from "./pending-deliveries";
 import { QuotaWaitNotice } from "./quota-wait-notice";
 import { useChatPageProject } from "./composer-project";
@@ -43,6 +43,7 @@ import {
   useOpenChatArchived,
 } from "./archived-chat-banner";
 import { EffectiveContextInspector } from "./effective-context-inspector";
+import { NewChatGreeting } from "./new-chat-greeting";
 
 // Module-level so a draft's empty history keeps a stable identity across
 // renders — it is a dependency of the history-adoption effect inside
@@ -345,6 +346,9 @@ type ChatSessionComposerProps = {
   composer: ReturnType<typeof useChatConversation>["composer"];
   pending: ReturnType<typeof useChatConversation>["pending"];
   disabled: boolean;
+  /** Nothing is sent yet: the composer sits centred under the greeting
+   *  instead of docked under a transcript. */
+  start: boolean;
 };
 
 function useSessionCreation(
@@ -419,6 +423,7 @@ function ChatSessionComposer({
   composer,
   pending,
   disabled,
+  start,
 }: ChatSessionComposerProps) {
   const { project, creation, creates } = useSessionCreation(
     chatId,
@@ -429,7 +434,8 @@ function ChatSessionComposer({
   const feedback = composerFeedback(creates, creation.failure, composer);
 
   return (
-    <ChatComposer
+    <ComposerPlacement
+      start={start}
       chatId={chatId}
       input={composer.input}
       onInputChange={composer.setInput}
@@ -452,6 +458,40 @@ function ChatSessionComposer({
   );
 }
 
+/** Where the composer sits: on a page with nothing sent yet, a centred
+ *  column with the greeting above it, held a little above the middle where
+ *  the eye lands; otherwise docked under the transcript. Both are one element
+ *  tree with different classes, so the first send (start to docked) and a
+ *  refused one (back again) never remount the composer: the input keeps its
+ *  focus and its state. */
+function ComposerPlacement({
+  start,
+  pending,
+  ...props
+}: ComponentProps<typeof ChatComposer> & { start: boolean }) {
+  return (
+    <div
+      className={
+        start
+          ? "flex flex-1 flex-col items-center justify-center overflow-y-auto px-3 pb-24 md:px-5"
+          : "bg-background z-10 shrink-0 px-3 pb-1.5 md:px-5"
+      }
+    >
+      <div
+        className={
+          start ? "flex w-full max-w-3xl flex-col gap-6" : "mx-auto max-w-3xl"
+        }
+      >
+        {start ? <NewChatGreeting /> : null}
+        <div>
+          {pending}
+          <ChatComposerBody {...props} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Transcript-or-spinner + composer + inspector for one ready session. */
 function ChatSessionBody({
   markdown,
@@ -461,25 +501,32 @@ function ChatSessionBody({
   const { status, composer, pending, transcript, dialog } = conversation;
   const archived = useOpenChatArchived(session.chatId);
 
+  const exists =
+    session.initialChatExists || transcript.displayMessages.length > 0;
+
   return (
     <>
-      <ChatSessionMain
-        {...session}
-        markdown={markdown}
-        transcript={transcript}
-        status={status}
-        onInspectContext={dialog.setInspectedRunId}
-      />
+      {/* A new chat's start screen has no transcript, but a failed markdown
+          load still needs its alert and Try again: the composer stays
+          disabled until markdown is ready. */}
+      {(exists || markdown.failed) && (
+        <ChatSessionMain
+          {...session}
+          markdown={markdown}
+          transcript={transcript}
+          status={status}
+          onInspectContext={dialog.setInspectedRunId}
+        />
+      )}
       {archived && <ArchivedChatBanner chatId={session.chatId} />}
       <ChatSessionComposer
         chatId={session.chatId}
-        exists={
-          session.initialChatExists || transcript.displayMessages.length > 0
-        }
+        exists={exists}
         status={status}
         composer={composer}
         pending={pending}
         disabled={markdown.renderers === null || archived}
+        start={!exists}
       />
       <ChatSessionDialog dialog={dialog} />
     </>
