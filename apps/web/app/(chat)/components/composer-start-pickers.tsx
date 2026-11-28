@@ -64,7 +64,7 @@ function StartPickerTrigger({
               variant="ghost"
               size="xs"
               aria-label={ariaLabel}
-              className="min-w-16 shrink @md:min-w-24"
+              className="min-w-9 shrink @xs:min-w-16 @md:min-w-24"
             />
           }
         />
@@ -74,7 +74,7 @@ function StartPickerTrigger({
       <span className="min-w-0 overflow-x-clip font-normal text-ellipsis whitespace-nowrap text-trim-cap">
         {label}
       </span>
-      <ChevronDownIcon aria-hidden className="opacity-60" />
+      <ChevronDownIcon aria-hidden className="opacity-60 @max-xs:hidden" />
     </ComposerTooltip>
   );
 }

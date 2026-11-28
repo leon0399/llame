@@ -138,7 +138,7 @@ function StartRowMenu(props: StartRowMenuProps) {
         <span className={LABEL_FIT[props.narrow ?? "shrink"]}>
           {props.label}
         </span>
-        <ChevronDownIcon aria-hidden className="opacity-60" />
+        <ChevronDownIcon aria-hidden className="opacity-60 @max-xs:hidden" />
       </ComposerTooltip>
       <DropdownMenuContent align="start" className="max-h-96 w-64">
         {props.children}
