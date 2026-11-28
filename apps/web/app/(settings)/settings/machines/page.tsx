@@ -20,7 +20,7 @@ export default function MachinesSettingsPage() {
           <h2 className="text-base font-semibold">Shared Machines</h2>
           <p className="text-sm text-muted-foreground">
             Configured by the operator for everyone on this instance, including
-            its own host. Read-only.
+            its own host. Turning one off for yourself is coming soon.
           </p>
         </div>
         <MachinesSection />
