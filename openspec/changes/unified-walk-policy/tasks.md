@@ -56,10 +56,10 @@ this policy, which closes #1654 and #1655.
 
 ## 2. listing
 
-- [ ] 2.1 Make `list_directory` (`crates/machine-files/src/read.rs`) collect ignore files from the registered root down to the listed directory and omit each entry an ignore rule excludes, unless the fixed set names it; the total counts only kept entries, and the listed directory is never filtered (design D4). Verify in `apps/machine/tests/files.rs`: an ignored `dist` is absent and uncounted, a gitignored `node_modules` is listed, an ancestor `.ignore` applies, and listing an ignored directory itself returns its entries.
-- [ ] 2.2 Make `readChildDirs` in `packages/native-file-tools/src/directory-listing.ts` skip the child read for a fixed-set name, so the entry renders with no block. Verify `directory-listing.test.ts`: `.git` and `node_modules` render without children, a requested `.git` directory lists its entries, and the existing determinism tests pass.
-- [ ] 2.3 Update `docs/product/reference/tools/read.md` and the locator pages that describe directory listings, and amend `.changeset/unified-walk-policy.md`. Verify `pnpm lint:markdown`.
-- [ ] 2.4 Verify the layer: `pnpm --filter machine test`, `pnpm --filter machine lint`, `pnpm --filter @workspace/native-file-tools test`, its `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1894`.
+- [x] 2.1 Make `list_directory` (`crates/machine-files/src/read.rs`) collect ignore files from the registered root down to the listed directory and omit each entry an ignore rule excludes, unless the fixed set names it; the total counts only kept entries, and the listed directory is never filtered (design D4). Verify in `apps/machine/tests/files.rs`: an ignored `dist` is absent and uncounted, a gitignored `node_modules` is listed, an ancestor `.ignore` applies, and listing an ignored directory itself returns its entries.
+- [x] 2.2 Make `readChildDirs` in `packages/native-file-tools/src/directory-listing.ts` skip the child read for a fixed-set name, so the entry renders with no block. Verify `directory-listing.test.ts`: `.git` and `node_modules` render without children, a requested `.git` directory lists its entries, and the existing determinism tests pass.
+- [x] 2.3 Update `docs/product/reference/tools/read.md` and the locator pages that describe directory listings, and amend `.changeset/unified-walk-policy.md`. Verify `pnpm lint:markdown`.
+- [x] 2.4 Verify the layer: `pnpm --filter machine test`, `pnpm --filter machine lint`, `pnpm --filter @workspace/native-file-tools test`, its `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1894`.
 - [ ] 2.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 2.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
