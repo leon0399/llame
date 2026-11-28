@@ -77,7 +77,7 @@ An owner MUST be able to archive and unarchive an owned Knowledge Space. Archive
 
 #### Scenario: Rename of an archived Space is refused
 
-- **WHEN** an owner renames an archived Knowledge Space
+- **WHEN** an owner renames an archived Knowledge Space and does not unarchive it
 - **THEN** the API returns `409`
 - **AND** the name and the child directory stay unchanged
 

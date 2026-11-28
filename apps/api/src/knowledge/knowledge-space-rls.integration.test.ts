@@ -164,7 +164,7 @@ d('Knowledge Space RLS and tenant repository', () => {
             knowledgeSpaceId: archivedId,
             ownerUserId,
             name: 'Stored',
-            createdAt,
+            createdAt: new Date('2026-08-23T11:00:00.123Z'),
             updatedAt: createdAt,
             archivedAt: createdAt,
           },

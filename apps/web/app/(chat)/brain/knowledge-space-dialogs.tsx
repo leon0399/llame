@@ -225,7 +225,7 @@ function ArchiveKnowledgeSpaceDialog({
     <AlertDialog
       open={space !== undefined}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !archive.isPending) onClose();
       }}
     >
       <AlertDialogContent>
@@ -270,7 +270,7 @@ function ArchiveKnowledgeSpaceConfirm({
 }) {
   return (
     <AlertDialogFooter>
-      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
       <AlertDialogAction
         onClick={(event) => {
           event.preventDefault();

@@ -58,6 +58,12 @@ async function answerKnowledgeSpaces(input: RequestInfo | URL) {
   }
 
   if (request.method === "POST") {
+    const raw = await request.text();
+
+    if (raw !== '{"name":"Notes"}') {
+      return jsonResponse({ message: "unexpected name" }, 400);
+    }
+
     const created = space(NOTES_ID, "Notes");
     spaces = [...spaces, created];
 
