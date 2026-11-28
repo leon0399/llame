@@ -17,6 +17,7 @@ export const SHORTCUT_IDS = [
   "rail.toggle",
   "run.stop",
   "composer.attach",
+  "composer.expand",
   "composer.send",
   "composer.newline",
   "composer.queue",
@@ -58,6 +59,13 @@ export const SHORTCUTS: ReadonlyArray<ShortcutDefinition> = [
     label: "Attach photos & files",
     group: "Composer",
     defaultChord: { key: "u", mod: true },
+    rebindable: true,
+  },
+  {
+    id: "composer.expand",
+    label: "Expand or collapse the composer",
+    group: "Composer",
+    defaultChord: { key: "e", mod: true, shift: true },
     rebindable: true,
   },
   {
