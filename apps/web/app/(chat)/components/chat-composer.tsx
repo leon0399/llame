@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import type { ChatStatus } from "ai";
 import { LoaderCircleIcon, SendIcon, StopCircleIcon } from "lucide-react";
@@ -311,10 +311,11 @@ function ChatComposerForm({
   chatId,
   project,
   location,
+  onDeliver,
   ...toolbar
 }: ChatComposerFormProps) {
-  const fieldArea = useRef<HTMLFormElement>(null);
-  const expand = useComposerExpand(!disabled, fieldArea);
+  const [expand, fieldArea] = useComposerExpand(!disabled);
+  const sends = { ...toolbar, onDeliver: expand.collapseAfter(onDeliver) };
 
   return (
     <fieldset disabled={disabled} className="m-0 min-w-0 border-0 p-0">
@@ -328,12 +329,12 @@ function ChatComposerForm({
           input={input}
           onInputChange={onInputChange}
           attachments={attachments}
-          onModEnter={queueOnModEnter(toolbar)}
+          onModEnter={queueOnModEnter(sends)}
           disabled={disabled}
           expand={expand}
         />
         <ChatComposerToolbar
-          {...toolbar}
+          {...sends}
           attachments={attachments}
           locked={disabled}
         />

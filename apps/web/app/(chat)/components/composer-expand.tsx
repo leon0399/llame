@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type RefObject,
-} from "react";
+import { useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Maximize2Icon, Minimize2Icon } from "lucide-react";
 
 import {
@@ -46,10 +40,11 @@ export type ComposerExpand = {
   /** The fixed textarea height while expanded; undefined at rest. */
   height: number | undefined;
   toggle: () => void;
-  /** Wraps the form's submit: a sent message returns to the resting size. */
-  collapseAfter: (
-    onSubmit: (event: FormEvent<HTMLFormElement>) => void,
-  ) => (event: FormEvent<HTMLFormElement>) => void;
+  /** Wraps a send (the form's submit, a queue or interrupt delivery,
+   *  Mod+Enter): a sent message returns the field to its resting size. */
+  collapseAfter: <Args extends Array<unknown>>(
+    send: (...args: Args) => void,
+  ) => (...args: Args) => void;
 };
 
 /** Plays a height change the auto-resize hook already applied, from the
@@ -70,12 +65,13 @@ function playHeightChange(field: HTMLTextAreaElement, from: number) {
   );
 }
 
-/** The expand state, and its shortcut while the composer is usable. `area`
- *  holds the message field, whose height change is animated. */
+/** The expand state, and its shortcut while the composer is usable, with the
+ *  ref for the form that holds the message field, whose height change is
+ *  animated. */
 export function useComposerExpand(
   enabled: boolean,
-  area: RefObject<HTMLElement | null>,
-): ComposerExpand {
+): [ComposerExpand, RefObject<HTMLFormElement | null>] {
+  const area = useRef<HTMLFormElement>(null);
   const [height, setHeight] = useState<number | undefined>(undefined);
   // The field's height before a change, played once the change lands.
   const fromRef = useRef<number | null>(null);
@@ -106,16 +102,20 @@ export function useComposerExpand(
 
   useShortcut("composer.expand", toggle, enabled);
 
-  return {
+  const expand: ComposerExpand = {
     height,
     toggle,
-    collapseAfter: (onSubmit) => (event) => {
-      // Only an expanded field collapses: recording a start height with no
-      // change to follow would animate the next unrelated resize.
-      if (height !== undefined) change(() => undefined);
-      onSubmit(event);
-    },
+    collapseAfter:
+      (send) =>
+      (...args) => {
+        // Only an expanded field collapses: recording a start height with
+        // no change to follow would animate the next unrelated resize.
+        if (height !== undefined) change(() => undefined);
+        send(...args);
+      },
   };
+
+  return [expand, area];
 }
 
 /** The toggle in the input's top-right corner: shown once the message is

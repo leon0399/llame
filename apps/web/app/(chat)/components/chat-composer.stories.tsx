@@ -1328,6 +1328,32 @@ export const ExpandGrowsAndSendCollapses: Story = {
 };
 
 /**
+ * Queueing with Mod+Enter during a Run is a send too: the expanded field
+ * returns to its resting size, as Send does.
+ *
+ * @summary a queued send collapses the expanded composer
+ */
+export const ExpandQueueCollapses: Story = {
+  tags: ["ai-generated"],
+  args: { status: "streaming", onSubmit: preventSubmit },
+  render: (args) => <TypingComposer {...args} initialInput={LONG_PROMPT} />,
+  play: async ({ args, canvas, userEvent }) => {
+    const textarea = canvas.getByRole<HTMLTextAreaElement>("textbox");
+
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand the composer" }),
+    );
+    await canvas.findByRole("button", { name: "Collapse the composer" });
+
+    await userEvent.click(textarea);
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+
+    await expect(args.onDeliver).toHaveBeenCalledWith("queue");
+    await canvas.findByRole("button", { name: "Expand the composer" });
+  },
+};
+
+/**
  * Sending from the resting size animates nothing: the next line typed grows
  * the input at once, as typing always does.
  *
