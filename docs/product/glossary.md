@@ -371,8 +371,8 @@ _Avoid_: runner, node
 
 **Current Machine**:
 The Machine that a bare or relative path and a `file:` locator refer to: the
-Machine of the Chat's Workspace, or the installation's default Machine when no
-Workspace is bound.
+Machine of the Workspace's primary root, or the installation's default Machine
+when no Workspace is bound.
 
 **Default Machine**:
 The Machine that serves a Chat with no Workspace, named by `machines.default`.
@@ -432,13 +432,19 @@ tool has the full authority of the executor's OS user.
 _Avoid_: jail, container (for the boundary itself)
 
 **Workspace**:
-The binding of a Chat to one directory tree on one Machine, where relative
-paths resolve and file and shell tools work by default. It is not confinement.
+The binding of a Chat to a primary root and zero or more other roots, where
+file and shell tools work by default. It is not confinement.
 _Avoid_: project, folder
+
+**Workspace root**:
+One directory tree in a Workspace, on one Machine, with a name shown to the
+model. The primary root is where relative paths and a `bash` call without a
+`cwd` resolve.
+_Avoid_: added directory, folder
 
 **Workspace generation**:
 The counter that changes each time a Chat enters, switches, or leaves a
-Workspace.
+Workspace, or changes its roots.
 
 **Repository**:
 An owner's record of one git repository, identified by its canonical remote
