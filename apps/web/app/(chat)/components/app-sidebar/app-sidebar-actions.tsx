@@ -7,41 +7,24 @@ import {
 } from "@workspace/ui/components/sidebar";
 import { Kbd } from "@workspace/ui/components/kbd";
 import { cn } from "@workspace/ui/lib/utils";
-import {
-  detectPrimaryModifier,
-  usePrimaryModifierKey,
-} from "@workspace/ui/hooks/use-modifier-key";
 import { SearchIcon, SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
 import {
-  isNewChatShortcut,
-  SHORTCUT_KEY_NEW_CHAT,
-} from "@/lib/command-palette";
+  useShortcut,
+  useShortcutHint,
+} from "@/lib/shortcuts/shortcuts-context";
 import { useCommandPalette } from "../command-palette";
 import { requestNewChat } from "@/lib/new-chat";
 
-const SHORTCUT_KEY_SEARCH = "k";
-
-/** Opens a new chat from anywhere in the chat shell. A held chord's
- *  auto-repeat is ignored, so holding the keys navigates once. */
+/** Opens a new chat from anywhere the shell is mounted. */
 function useNewChatShortcut() {
   const router = useRouter();
-  useEffect(() => {
-    const isMac = detectPrimaryModifier() === "⌘";
 
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat || !isNewChatShortcut(e, isMac)) return;
-      e.preventDefault();
-      requestNewChat();
-      router.push("/");
-    };
-
-    document.addEventListener("keydown", onKey);
-
-    return () => document.removeEventListener("keydown", onKey);
-  }, [router]);
+  useShortcut("chat.new", () => {
+    requestNewChat();
+    router.push("/");
+  });
 }
 
 function ShortcutKeyLabel({ children }: { children: React.ReactNode }) {
@@ -70,12 +53,11 @@ function shortcutTooltip(label: string, shortcut: string) {
 
 export function AppSidebarActions() {
   const pathname = usePathname();
-  const modifierKey = usePrimaryModifierKey();
   const palette = useCommandPalette();
   useNewChatShortcut();
 
-  const newChatShortcut = `${modifierKey}+Shift+${SHORTCUT_KEY_NEW_CHAT.toUpperCase()}`;
-  const searchShortcut = `${modifierKey}+${SHORTCUT_KEY_SEARCH.toUpperCase()}`;
+  const newChatShortcut = useShortcutHint("chat.new").label;
+  const searchShortcut = useShortcutHint("palette.toggle").label;
 
   return (
     <SidebarMenu>

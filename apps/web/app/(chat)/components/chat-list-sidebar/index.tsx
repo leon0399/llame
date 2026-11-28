@@ -2,7 +2,6 @@
 
 import { buttonVariants } from "@workspace/ui/components/button";
 import { Kbd } from "@workspace/ui/components/kbd";
-import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import {
   Sidebar,
   SidebarContent,
@@ -18,16 +17,15 @@ import { SquarePenIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { topBarClasses } from "@/app/shell/top-bar";
-import { SHORTCUT_KEY_NEW_CHAT } from "@/lib/command-palette";
+import { useShortcutHint } from "@/lib/shortcuts/shortcuts-context";
 import { ListViewMenu, useChatListShow } from "../chat-list-view";
 import { ChatList } from "./chat-list";
 import { requestNewChat } from "@/lib/new-chat";
 
-/** The rail's new-chat button. Its tooltip names the same Ctrl/⌘+Shift+O
- *  chord as the main rail's New Chat, which the main rail binds. */
+/** The rail's new-chat button. Its tooltip names the owner's New chat
+ *  chord, which the main rail binds. */
 function NewChatButton() {
-  const modifierKey = usePrimaryModifierKey();
-  const key = SHORTCUT_KEY_NEW_CHAT.toUpperCase();
+  const hint = useShortcutHint("chat.new");
 
   return (
     <Tooltip>
@@ -37,7 +35,7 @@ function NewChatButton() {
             href="/"
             onNavigate={requestNewChat}
             prefetch={false}
-            aria-keyshortcuts={`${modifierKey === "⌘" ? "Meta" : "Control"}+Shift+${key}`}
+            aria-keyshortcuts={hint.aria}
             className={cn(
               buttonVariants({ variant: "ghost", size: "icon" }),
               "size-8",
@@ -51,7 +49,7 @@ function NewChatButton() {
       <TooltipContent side="bottom" align="end">
         <span className="flex items-center gap-1.5">
           New chat
-          <Kbd>{`${modifierKey}+Shift+${key}`}</Kbd>
+          <Kbd>{hint.label}</Kbd>
         </span>
       </TooltipContent>
     </Tooltip>

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { createContext, useCallback, useContext, useState } from "react";
 
 import { useRouter } from "next/navigation";
 import {
@@ -37,8 +31,8 @@ import {
   type ChatSearchResult,
 } from "@/lib/services/chat/search";
 import { useDebouncedValue } from "@/lib/hooks/use-debounced-value";
-import { isPaletteToggle } from "@/lib/command-palette";
 import { requestNewChat } from "@/lib/new-chat";
+import { useShortcut } from "@/lib/shortcuts/shortcuts-context";
 
 // Placeholder for untitled chats (title === null, generation pending or a
 // content-only match) — matches the label used by the chat list itself.
@@ -87,30 +81,11 @@ export function useCommandPalette() {
   return ctx;
 }
 
-/** The ⌘K listener that toggles the palette — split out from
- *  `useCommandPaletteState` since it's a self-contained effect with no other
- *  dependency on that hook's state. */
+/** The palette's chord toggles it from anywhere the shell is mounted. */
 function usePaletteToggleShortcut(
   setOpen: React.Dispatch<React.SetStateAction<boolean>>,
 ) {
-  useEffect(() => {
-    const isMac = /Mac|iPod|iPhone|iPad/.test(
-      navigator.platform || navigator.userAgent || "",
-    );
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return; // a held chord must not flicker open/close
-
-      if (isPaletteToggle(e, isMac)) {
-        e.preventDefault();
-        setOpen((o) => !o);
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-
-    return () => document.removeEventListener("keydown", onKey);
-  }, [setOpen]);
+  useShortcut("palette.toggle", () => setOpen((open) => !open));
 }
 
 /**
