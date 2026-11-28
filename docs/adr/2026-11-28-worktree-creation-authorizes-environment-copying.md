@@ -35,7 +35,7 @@ together with the worktree, and no inventory of copied files exists.
 The owner accepted this trade-off in the
 [decision record](https://github.com/leon0399/llame/issues/1910#issuecomment-7111200259).
 The OpenSpec change
-[worktreeinclude](../../openspec/changes/worktreeinclude/proposal.md) specifies
-the behavior, and its [design](../../openspec/changes/worktreeinclude/design.md)
+[worktreeinclude](../../openspec/changes/archive/2026-11-28-worktreeinclude/proposal.md) specifies
+the behavior, and its [design](../../openspec/changes/archive/2026-11-28-worktreeinclude/design.md)
 records the other decisions. [SPEC.md](../../SPEC.md) describes the shipped
 architecture.

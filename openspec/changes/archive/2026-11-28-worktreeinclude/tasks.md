@@ -35,7 +35,7 @@ split required safety tests away from their behavior to meet the review target.
 - [x] 1.2 Run at least two independent reviewers per round, verify findings against code or executable probes, and commit each revision separately until convergence. Three rounds ran and converged.
 - [x] 1.3 Prove the proposal with `pnpm exec openspec validate worktreeinclude --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
 - [x] 1.4 Obtain publication permission, publish the draft with `$gh-stack`, and complete SR of the actual parent-relative diff before ready.
-- [ ] 1.5 Complete GR and current-head CI with the CONTRIBUTING.md monitoring loop, verify Project state when access permits, and obtain Leo's approval of the published revision before implementation.
+- [x] 1.5 Complete GR and current-head CI with the CONTRIBUTING.md monitoring loop, verify Project state when access permits, and obtain Leo's approval of the published revision before implementation. (approved 2026-11-28, PR #1913 comment)
 
 ## 2. Implementation layer: `worktreeinclude/copy`
 
@@ -87,7 +87,7 @@ quality evaluation is required for this deterministic contract.
 
 - [x] 3.1 Verify proposal and implementation gates, then enter this branch with `$gh-stack` before `$openspec-sync-specs` writes canonical specs. Confirm the branch parent and keep application changes out.
 - [x] 3.2 Run `$openspec-sync-specs` and inspect all five affected capabilities. Verify the new capability purpose, aggregate authorization, source distinction, failure semantics, and unchanged existing scenarios.
-- [ ] 3.3 Prove archive readiness with `openspec status`, complete task records, strict spec/change validation, Markdown checks, formatting, and `git diff --check`. Stop if any tracked pre-archive task remains incomplete.
+- [x] 3.3 Prove archive readiness with `openspec status`, complete task records, strict spec/change validation, Markdown checks, formatting, and `git diff --check`. Stop if any tracked pre-archive task remains incomplete.
 
 After readiness, run `$openspec-archive-change`. Archive movement precedes draft
 publication. The finalize layer's SR and GR are post-archive gates, not unchecked
