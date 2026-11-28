@@ -29,7 +29,8 @@ The existing Worktree native attempt MUST precede git checkout and environment
 copy. The operation MUST preserve existing fence checks and durable results.
 Recovery MUST NOT repeat checkout or copy after an uncertain recorded attempt.
 A lost Machine connection MUST preserve `outcome_unknown` and the known
-`leftDirectory`.
+`leftDirectory`. The durable result of a known failure MUST preserve
+`leftDirectory`, so a redelivered Run keeps it.
 
 #### Scenario: A crash during copy does not replay its effects
 
@@ -42,6 +43,12 @@ A lost Machine connection MUST preserve `outcome_unknown` and the known
 - **WHEN** the Machine connection ends after checkout but before the copy result arrives
 - **THEN** entry returns `outcome_unknown` with the known `leftDirectory`
 - **AND** it commits no successful binding or Checkout
+
+#### Scenario: The durable result keeps the leftover locator
+
+- **WHEN** a known failure returns a `leftDirectory` and the attempt settles
+- **THEN** the durable `native.result` holds that `leftDirectory`
+- **AND** a redelivered Run returns it
 
 #### Scenario: Plain entry does not copy files
 
@@ -58,7 +65,9 @@ repository MUST fail as `worktree_failed`. A git failure or timeout MUST fail as
 `worktree_failed` with the redacted git standard error. A failed environment copy
 MUST fail as `worktree_failed` with a `message` that is a fixed reason phrase plus
 at most one bounded relative path, never standard error, OS error text, manifest
-lines, or file bytes. `path_not_registered` MUST be its only separate code. An offline Machine MUST fail as
+lines, or file bytes. A `worktreeAdd` timeout MUST name the plan directory as a
+possible `leftDirectory`, because the API cannot tell an add timeout from a copy
+timeout. `path_not_registered` MUST be its only separate code. An offline Machine MUST fail as
 `machine_unavailable`, and a daemon that reports another protocol version or
 answers a git method with UNIMPLEMENTED MUST fail as
 `machine_update_required`.
@@ -114,7 +123,7 @@ answers a git method with UNIMPLEMENTED MUST fail as
 #### Scenario: A timeout fails
 
 - **WHEN** the worktree operation exceeds its timeout
-- **THEN** the call returns `worktree_failed`
+- **THEN** the call returns `worktree_failed` with the plan directory as a possible `leftDirectory`
 - **AND** the bound root and its generation are unchanged
 
 #### Scenario: A retry after a fixed failure succeeds

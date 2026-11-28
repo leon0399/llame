@@ -31,14 +31,15 @@ MUST remain unchanged.
 #### Scenario: An empty copy source is refused
 
 - **WHEN** a creation request carries an empty `copy_source`
-- **THEN** the daemon fails with `INVALID_INPUT`
+- **THEN** the daemon fails with the typed `INVALID_INPUT` failure before the root guard resolves it
 - **AND** it does not default the source to `repository`
 - **AND** a `copy_source` that starts with `-` fails the same way
 
 #### Scenario: A copy source in another repository is refused
 
 - **WHEN** the resolved `copy_source` has a canonical common directory that differs from that of `repository`
-- **THEN** creation fails before any manifest read and before Worktree add
+- **THEN** creation fails with typed `INVALID_INPUT` before any manifest read and before Worktree add
+- **AND** every `copy_failed` therefore occurs after the Worktree exists
 
 #### Scenario: A copy source whose gitfile leaves the roots is refused
 
@@ -186,7 +187,8 @@ system MUST NOT add a weaker invocation path.
 
 ### Requirement: Copy inputs stay inside the source Checkout
 
-The system MUST reject a selected symlink or special file. It MUST NOT traverse
+The system MUST reject a selected symlink or special file, including one
+inside a selected directory, with `copy_failed`. It MUST NOT traverse
 a symlink directory. The manifest MUST be a regular file, not a symlink. Every
 source and destination operation MUST be relative to a directory handle that is
 opened component by component without following links, and the copy MUST fail
@@ -200,6 +202,12 @@ is not a Sandbox against the same OS user.
 - **WHEN** Git ignores `.env`, the manifest selects it, and `.env` links to an external secret
 - **THEN** creation fails without a read of the target's contents
 - **AND** the error contains no target contents
+
+#### Scenario: A link inside a selected directory fails the copy
+
+- **WHEN** the manifest selects `node_modules/` and an ignored file `node_modules/.bin/tool` is a symlink
+- **THEN** creation fails with `copy_failed` naming a bounded relative path
+- **AND** copies completed before the failure remain
 
 #### Scenario: A symlink directory is not traversed
 
@@ -253,17 +261,16 @@ modify other paths through a pre-existing hard link.
 ### Requirement: The destination root is bound before any copy
 
 After Worktree add and before any copy, the daemon MUST open the new Worktree
-root without following links and confirm that its real path equals the requested
-canonical path. On a mismatch the daemon MUST copy nothing and return the
-Worktree as created, so the existing removal of a Worktree whose real path differs
-from the decided one runs on an unseeded, clean tree. That removal rule MUST stay
-unchanged.
+root without following links and confirm that its real path equals the literal
+request `path` field, which is the hub's decided canonical path, not the daemon's
+re-resolved directory. On a mismatch the daemon MUST copy nothing, and the
+existing mismatch handling MUST stay unchanged.
 
 #### Scenario: A real-path mismatch copies nothing
 
 - **WHEN** the new Worktree root resolves to a path other than the requested canonical path
 - **THEN** the daemon copies no file
-- **AND** the existing realpath-mismatch removal of tool entry removes the clean Worktree
+- **AND** the existing mismatch handling applies unchanged
 
 ### Requirement: A failed copy preserves the partial Worktree without a binding
 
@@ -272,9 +279,11 @@ MUST fail creation. A copy, manifest, or entry failure MUST use the typed reason
 `copy_failed`, and a timeout MUST use `TIMED_OUT`. The failure `message` MUST be a
 fixed reason phrase plus at most one bounded relative path. It MUST NOT contain
 standard error, OS error text, manifest lines, or file bytes. The system MUST
-retain any new Worktree and partial files, except for the existing removal of a
-Worktree whose real path differs from the decided one. It MUST report the
-leftover directory when known. It MUST NOT bind the destination, record a
+retain any new Worktree and partial files, except where the existing mismatch
+handling removes a Worktree that received no copy. It MUST report the leftover
+directory when known. Because the API cannot tell an add timeout from a copy
+timeout, every `worktreeAdd` `timed_out` MUST carry the plan directory as a
+possible leftover. It MUST NOT bind the destination, record a
 successful Checkout or lease, or automatically remove the new branch. It MUST
 remove its temporary file on every failure, including the deadline.
 
@@ -294,6 +303,11 @@ remove its temporary file on every failure, including the deadline.
 - **WHEN** a copy fails because an OS error occurs on `config/secret.env`
 - **THEN** the `copy_failed` message is a fixed phrase plus `config/secret.env`
 - **AND** it contains no OS error text, standard error, manifest line, or file bytes
+
+#### Scenario: A timeout names the plan directory
+
+- **WHEN** `worktreeAdd` times out
+- **THEN** the failure carries the plan directory as a possible `leftDirectory`
 
 #### Scenario: The deadline leaves no temporary file
 

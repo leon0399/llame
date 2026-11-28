@@ -54,6 +54,16 @@ both plans until dispatch.
 Proto3 has no required fields. An empty `copy_source` is `INVALID_INPUT`, never
 a default to `repository`. It joins the leading-`-` check in `option_like`.
 
+**Daemon order.** The handler validates input first. An empty or option-like
+`copy_source` is the typed `INVALID_INPUT` failure, checked before the root
+guard resolves it (`guard.resolve` would otherwise return an RPC
+`invalid_argument`). A `copy_source` whose canonical common directory differs
+from that of `repository` is also typed `INVALID_INPUT`. Only then does the
+handler run `git worktree add`, bind the new root, read and screen the
+manifest, enumerate, and copy. Every `copy_failed` therefore occurs after the
+Worktree exists, so the hub's unconditional `leftDirectory` from its plan is
+correct for it.
+
 Admit the selected Checkout root before manifest access or Worktree creation.
 When inspection reports a root whose locator differs from both the canonical
 decision and the `main_clone` decision already recorded, record a derived
@@ -164,17 +174,23 @@ component by component without following links: `openat` and `renameat` with
 `O_NOFOLLOW` semantics, or `openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS`
 on Linux. Where the platform cannot provide this, fail with `copy_failed`
 rather than fall back to path-based access. Reject a selected special file
-instead of opening a FIFO or device. Reject a symlink manifest. Git metadata is
+instead of opening a FIFO or device. A selected candidate that is a symlink
+fails the copy with `copy_failed`, and earlier copies remain. A selected
+directory such as `node_modules/` therefore fails when it contains a link such
+as `.bin/*`. Reject a symlink manifest. Git metadata is
 never an environment input.
 
 After `git worktree add` and before any copy, the daemon opens the new Worktree
 root without following links and confirms that its real path equals the
-requested canonical path. On a mismatch the daemon copies nothing and returns
-the Worktree as created. The hub's existing real-path check in the tool entry
-path (`refuseElsewhere` in `apps/api/src/tools/workspace-worktree-entry.ts`)
-then removes it, on an unseeded and clean tree, so the canonical removal rule
-stays unchanged. The daemon's existing `verify_unchanged` stays the final check
-after the operation.
+literal request `path` field, which is the hub's decided canonical path, not
+the daemon's re-resolved directory. On a mismatch the daemon copies nothing and
+the existing handling is unchanged. Today `guard.verify_unchanged`
+(`crates/machine-core/src/guard.rs`) fails the call as `path_not_registered`
+with the Worktree retained (`dispatch-failure.ts`,
+`workspace-worktree-failure.ts`). The tool path's `refuseElsewhere` in
+`apps/api/src/tools/workspace-worktree-entry.ts` removes the Worktree only when
+the daemon's own resolve already saw the moved path. Chat creation has no
+removal path. This change adds no new mismatch handling.
 
 Replacing a regular destination must not truncate its existing inode through a
 hard link. Write a destination-local temporary file and rename it into place
@@ -230,13 +246,17 @@ one bounded relative path, never stderr, OS error text, manifest lines, or
 bytes. Manifest refusals (invalid pattern, symlink manifest) use the same
 reason. The API reads and maps it to the existing `worktree_failed` tool result
 and Chat workspace status, and adds the known `leftDirectory` from its own
-plan, in the plan's existing locator form. The model-facing renderer keeps
+plan, in the plan's existing locator form. The API cannot tell an add timeout
+from a copy timeout, so every `worktreeAdd` `timed_out` result also carries the
+plan directory as a possible `leftDirectory`. `settledFailure` in
+`apps/api/src/tools/workspace-worktree-entry.ts` writes only `type` and
+`message` into `native.result` today; it must preserve `leftDirectory` so a
+redelivered Run keeps the locator. The model-facing renderer keeps
 stripping that field. The internal result readers must preserve that locator
 and the `message`. No public success field is needed.
 
-On any partial failure retain the new directory and branch. The one exception
-is the existing real-path-mismatch removal of D3, which acts on a Worktree that
-received no copy. Tool entry keeps its previous binding. Chat creation keeps
+On any partial failure retain the new directory and branch, except where the
+existing mismatch handling of D3 removes a Worktree that received no copy. Tool entry keeps its previous binding. Chat creation keeps
 its filed Chat but stores no initial message or Run. Both leave new catalog and
 lease rows uncommitted. A lost link still yields `outcome_unknown`, not a claim
 that no effect occurred.
@@ -343,6 +363,9 @@ support.
 ## Review status
 
 Round 1 ran two independent reviewers, one of them adversarial. Their findings
-were verified against code and probes, and the revision that adds this section
-encodes them. Leo directed implementation of the proposal in the implementation
-session. A further review round follows.
+were verified against code and probes and encoded. Round 2 ran one adversarial
+reviewer. Its findings are encoded here: the input-validation order, the
+corrected real-path mismatch handling, the timeout leftover, the durable
+`leftDirectory`, the `remote-machines` delta, the symlink-in-directory rule, and
+the fingerprint step. Leo directed implementation of the proposal in the
+implementation session. A further review round follows.

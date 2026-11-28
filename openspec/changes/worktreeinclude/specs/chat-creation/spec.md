@@ -62,8 +62,9 @@ The `workspace` object MUST carry `status`. It can also carry `root`,
 and `leftDirectory`. `status` MUST be one of `bound`, `unbound`, `bind_failed`,
 `worktree_failed`, `machine_unavailable`, `machine_update_required`, or
 `outcome_unknown`. `code` MUST appear only with `bind_failed` or
-`worktree_failed`. For `outcome_unknown` or a known copy failure,
-`leftDirectory` MUST name the potential leftover directory when known.
+`worktree_failed`. For `outcome_unknown`, a known copy failure, or a timed-out
+Worktree add, `leftDirectory` MUST name the potential leftover directory when
+known.
 
 #### Scenario: A bound start names its location
 
@@ -108,6 +109,13 @@ protocol version or answers a git method with UNIMPLEMENTED MUST answer
 - **THEN** the response is 201 with `workspace.status` `worktree_failed`, no
   `code`, and `message` set to the bounded, redacted git standard error that the
   `repositories` change returns
+
+#### Scenario: A timeout names its possible leftover
+
+- **WHEN** the Worktree add times out
+- **THEN** the response is 201 with `workspace.status` `worktree_failed` and no `code`
+- **AND** `leftDirectory` names the plan directory as a possible leftover
+- **AND** the chat stays filed and unbound and the message is not stored
 
 #### Scenario: A lost Machine link leaves an unknown outcome
 

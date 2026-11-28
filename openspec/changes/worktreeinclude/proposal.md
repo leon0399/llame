@@ -20,14 +20,18 @@ that copying is part of Worktree creation rather than a file-read operation.
   permission groups. A read-rejected `.env` still copies. Later reads have their
   own permission decisions at their destination paths.
 - Overwrite regular destination files, including tracked files. Refuse selected
-  symlinks, destination symlinks, file/directory conflicts, and path escapes.
+  symlinks (including a link inside a selected directory), destination symlinks, file/directory conflicts, and path escapes.
 - Run the copy on the same Machine as the Checkouts. Return no copied contents.
   Keep the existing operation deadline without new byte or file-count caps.
   Enumerate Git's ignored paths as a stream with no volume cap.
 - Retain a partial Worktree on failure, report its location, and preserve the
   previous binding. Never replay a recorded uncertain creation. Report a copy
   failure as the new typed reason `copy_failed`, with a fixed phrase and at
-  most one bounded relative path.
+  most one bounded relative path. A `worktreeAdd` timeout cannot be told from a
+  copy timeout, so it also names the plan directory as a possible leftover, and
+  the durable tool result keeps that locator.
+- Validate input first: an empty, option-like, or foreign-repository
+  `copy_source` fails as typed `INVALID_INPUT` before any mutation.
 - Keep one-time copy semantics and ordinary owner-initiated removal. Ignored
   copies have no inventory or change protection.
 
@@ -45,10 +49,13 @@ that copying is part of Worktree creation rather than a file-read operation.
   from a submitted subdirectory, including its bypass record.
 - `workspace-entry`: Require the copy before a Worktree entry commits, with
   selected-source identity distinct from the main Checkout used by git, and
-  define the message of a copy failure.
+  define the message of a copy failure and the possible leftover of a timeout.
 - `chat-creation`: Require complete copying before the first binding and message,
   with the existing recorded-directory recovery behavior on a partial copy, and
-  define the message of a copy failure.
+  define the message of a copy failure and the possible leftover of a timeout.
+- `remote-machines`: Replace the git-failure rule so a `COPY_FAILED` failure
+  carries a fixed reason phrase and at most one bounded relative path instead
+  of standard error.
 
 ## Impact
 
