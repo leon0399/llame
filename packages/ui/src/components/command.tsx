@@ -1,7 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Command as CommandPrimitive, defaultFilter } from "cmdk";
+import {
+  Command as CommandPrimitive,
+  defaultFilter,
+  useCommandState,
+} from "cmdk";
 import { SearchIcon } from "lucide-react";
 
 import { cn } from "@workspace/ui/lib/utils";
@@ -243,4 +247,7 @@ export {
   // server-authoritative items through untouched) while falling back to
   // cmdk's own fuzzy scoring for everything else.
   defaultFilter,
+  // Re-exported so a list can react to its own search, e.g. hide a divider
+  // while a query is typed, as `CommandSeparator` does.
+  useCommandState,
 };
