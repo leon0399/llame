@@ -4,6 +4,7 @@ import {
   ariaKeyShortcut,
   chordFromEvent,
   chordId,
+  chordKeys,
   formatChord,
   isBindableChord,
   matchChord,
@@ -98,6 +99,20 @@ describe("formatting", () => {
     );
     expect(formatChord(MOD_K, "Ctrl")).toBe("Ctrl+K");
     expect(formatChord({ key: "Escape" }, "Ctrl")).toBe("Esc");
+  });
+
+  it("splits a chord into its key caps, in pressing order", () => {
+    expect(chordKeys({ key: "o", mod: true, shift: true }, "Ctrl")).toEqual([
+      "Ctrl",
+      "Shift",
+      "O",
+    ]);
+    expect(chordKeys({ key: "k", mod: true, alt: true }, "⌘")).toEqual([
+      "⌘",
+      "⌥",
+      "K",
+    ]);
+    expect(chordKeys({ key: "ArrowUp" }, "Ctrl")).toEqual(["↑"]);
   });
 
   it("names modifiers for aria-keyshortcuts", () => {
