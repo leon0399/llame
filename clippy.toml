@@ -5,8 +5,8 @@ allow-panic-in-tests = true
 allow-print-in-tests = true
 # Keep side effects visible in loops.
 disallowed-methods = [
-    { path = "std::iter::Iterator::for_each", reason = "Use a for loop for side effects" },
-    { path = "std::iter::Iterator::try_for_each", reason = "Use a for loop for side effects and early returns" },
+  { path = "std::iter::Iterator::for_each", reason = "Use a for loop for side effects" },
+  { path = "std::iter::Iterator::try_for_each", reason = "Use a for loop for side effects and early returns" },
 ]
 too-many-lines-threshold = 80
 too-many-arguments-threshold = 5
