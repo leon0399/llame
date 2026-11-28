@@ -26,15 +26,13 @@ export function draftChatPathWithHash(
 }
 
 /**
- * Rewrites the address bar for the draft's phase without a navigation. A
- * change of query or hash keeps Next's own history state, so the router does
- * not re-sync a URL it already routes. A change of path (leaving the new-chat
- * page, or returning to it) passes no state, which makes Next adopt the URL:
- * `usePathname` then names the chat, so the header and the rails follow it.
+ * Rewrites the address bar for the draft's phase without a navigation. It
+ * passes no history state, which makes Next adopt the URL: `usePathname`
+ * then names the chat, so the header and rails follow it, and Next's own
+ * idea of the current URL never lags behind the address bar. A lagging one
+ * is written back by Next's next history update, which reverted a finished
+ * home-page chat to `?draft=sent`.
  */
 export function replaceDraftUrl(url: string): void {
-  const movesPath =
-    new URL(url, window.location.href).pathname !== window.location.pathname;
-
-  window.history.replaceState(movesPath ? null : window.history.state, "", url);
+  window.history.replaceState(null, "", url);
 }

@@ -57,29 +57,16 @@ describe("replaceDraftUrl", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("keeps the router's history state when only the query changes", () => {
-    window.history.replaceState({ __NA: true }, "", `/chat/${CHAT_ID}`);
+  it.each([
+    ["a query change", `/chat/${CHAT_ID}`, `/chat/${CHAT_ID}?draft=sent`],
+    ["a path change", "/", `/chat/${CHAT_ID}?draft=sent`],
+  ])("passes no state on %s, so the router adopts the URL", (_, from, to) => {
+    window.history.replaceState({ __NA: true }, "", from);
     const replace = vi.spyOn(window.history, "replaceState");
 
-    replaceDraftUrl(`/chat/${CHAT_ID}?draft=sent`);
+    replaceDraftUrl(to);
 
-    expect(replace).toHaveBeenCalledWith(
-      { __NA: true },
-      "",
-      `/chat/${CHAT_ID}?draft=sent`,
-    );
-  });
-
-  it("passes no state when the path changes, so the router adopts it", () => {
-    window.history.replaceState({ __NA: true }, "", "/");
-    const replace = vi.spyOn(window.history, "replaceState");
-
-    replaceDraftUrl(`/chat/${CHAT_ID}?draft=sent`);
-
-    expect(replace).toHaveBeenCalledWith(
-      null,
-      "",
-      `/chat/${CHAT_ID}?draft=sent`,
-    );
+    expect(replace).toHaveBeenCalledWith(null, "", to);
+    expect(window.location.pathname + window.location.search).toBe(to);
   });
 });
