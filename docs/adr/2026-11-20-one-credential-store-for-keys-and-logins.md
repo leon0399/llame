@@ -34,10 +34,21 @@ tests the store before row-level security and encryption are designed around it.
   around this store instead of introducing its own table.
 - A Credential kind must also fit a non-model service, such as a GitHub token,
   although delivering GitHub access is outside this effort.
-- Provider entries hold a Credential reference, not the secret.
+- Provider entries hold a Credential reference, not the secret, when they use
+  the store. An operator's static key may instead stay in configuration through
+  `{env:...}` or `{path:...}`. Logins, MCP grants, and owner keys always live
+  in the store.
+- The store is one Postgres table from the first cut, not a directory of files.
+  A single-use refresh token must be spent once across API and worker processes
+  that may run on different hosts, and Postgres is the one shared, locking store
+  they all reach. Installation Credentials have no owner and are readable only
+  under a system marker, never under an owner's identity. Secret fields sit in
+  one encrypted payload beside plain metadata, so a new kind needs no migration.
 
 This was decided while charting
-[the way to llame-managed credentials](https://github.com/leon0399/llame/issues/1845#issuecomment-7052477684),
+[the way to llame-managed credentials](https://github.com/leon0399/llame/issues/1845#issuecomment-7052477684)
+and in
+[Where credentials are stored](https://github.com/leon0399/llame/issues/1846#issuecomment-7233226214),
 for
 [llame-managed credentials: login, storage, and refresh](https://github.com/leon0399/llame/issues/1825)
 and
