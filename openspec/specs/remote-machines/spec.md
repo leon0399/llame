@@ -451,7 +451,9 @@ typed `invalid_input` failure in the response, as the `GitService` response
 defines it. Other
 caller values MUST follow `--end-of-options` or `--` where the subcommand
 accepts one. A path MUST be absolute. A failed command MUST return a typed
-failure with the git standard error.
+failure with the git standard error, except that a `COPY_FAILED` failure MUST
+carry a fixed reason phrase and at most one bounded relative path instead of
+standard error.
 
 #### Scenario: Repository is inspected
 
@@ -482,6 +484,12 @@ failure with the git standard error.
 - **WHEN** `git.worktreeAdd` names a branch that another checkout already uses
 - **THEN** the daemon returns a typed failure with the git standard error text
 - **AND** no worktree directory appears
+
+#### Scenario: Copy failure carries no standard error
+
+- **WHEN** `git.worktreeAdd` fails because the environment copy cannot write `config/secret.env`
+- **THEN** the daemon returns a typed `COPY_FAILED` failure whose message is a fixed reason phrase plus `config/secret.env`
+- **AND** the message holds no git standard error, OS error text, manifest line, or file bytes
 
 #### Scenario: Locate starts no git process
 

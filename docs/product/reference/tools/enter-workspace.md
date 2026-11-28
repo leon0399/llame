@@ -4,7 +4,9 @@ read_when:
   - you need to know what entering a Workspace changes for later paths
   - you need to know when a binding is refused or detached
   - you need to know what a Workspace on a Machine binds and discloses
-spec: workspace-entry
+spec:
+  - workspace-entry
+  - worktree-includes
 configured_by:
   - ../../operator/native-files.md
 ---
