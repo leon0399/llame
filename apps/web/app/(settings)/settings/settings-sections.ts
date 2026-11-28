@@ -37,7 +37,12 @@ export const SETTINGS_AREA: SectionArea = {
           icon: PaletteIcon,
           href: "/settings/appearance",
         },
-        { key: "shortcuts", label: "Keyboard shortcuts", icon: KeyboardIcon },
+        {
+          key: "shortcuts",
+          label: "Keyboard shortcuts",
+          icon: KeyboardIcon,
+          href: "/settings/shortcuts",
+        },
       ],
     },
     {

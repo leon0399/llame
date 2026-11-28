@@ -42,7 +42,7 @@ import {
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { invalidateRenamedChat } from "@/lib/services/chat/management";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
-import { useLatestRef } from "@/lib/hooks/use-latest-ref";
+import { useShortcut } from "@/lib/shortcuts/shortcuts-context";
 import { safeRandomUUID } from "@/lib/uuid";
 import { useComposerSelection } from "./use-composer-selection";
 import {
@@ -375,24 +375,17 @@ function popupIsOpen() {
   return document.querySelector(`${popup}, [role="listbox"]`) !== null;
 }
 
-/** Runs `stop` on Esc while a Run is active, unless Esc belongs to a popup or
- *  an input method. */
+/** Runs `stop` on Esc while a Run is active, unless Esc belongs to a popup
+ *  (input-method composition is filtered by the shortcuts provider). */
 function useEscapeToStop(runActive: boolean, stop: () => void) {
-  const stopRef = useLatestRef(stop);
-  useEffect(() => {
-    if (!runActive) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-
-      if (event.isComposing || popupIsOpen()) return;
-      stopRef.current();
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [runActive, stopRef]);
+  useShortcut(
+    "run.stop",
+    () => {
+      if (popupIsOpen()) return false;
+      stop();
+    },
+    runActive,
+  );
 }
 
 type StopInput = {
