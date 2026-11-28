@@ -120,7 +120,7 @@ async function createAccount(
   await userEvent.type(canvas.getByLabelText("Email"), "leo@example.com");
   await userEvent.type(canvas.getByLabelText("Password"), "hunter2pass");
   await userEvent.type(
-    canvas.getByLabelText("Confirm Password"),
+    canvas.getByLabelText("Confirm password"),
     confirmPassword,
   );
   await userEvent.click(canvas.getByRole("button", { name: "Create account" }));
