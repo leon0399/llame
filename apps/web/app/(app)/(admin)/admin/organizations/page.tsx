@@ -21,7 +21,7 @@ export default function OrganizationsPage() {
   const { data: units, isLoading } = useOrgUnitsQuery();
 
   return (
-    <div className="flex h-full w-full flex-col gap-5.5 overflow-y-auto px-7 py-6.5">
+    <div className="flex h-full w-full flex-col gap-5.5 overflow-y-auto px-3 py-6 md:px-5">
       <div className="mx-auto w-full max-w-195 space-y-1.5">
         <h1 className="text-2xl font-semibold tracking-tight">Organizations</h1>
         <p className="max-w-prose text-sm leading-normal text-muted-foreground">

@@ -1,12 +1,14 @@
 import type { CSSProperties, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 
 import type { ChatJobResponse } from "@/lib/api/generated/models";
 import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 
 import { FinishedJobsPanel } from "./finished-jobs-panel";
+import { MobileViewport } from "@/lib/test-support/mobile-viewport";
+import { wideViewport } from "@/lib/test-support/wide-viewport";
 
 // SAFETY: `--finished-jobs-width` is a CSS custom property, a valid inline
 // style key that CSSProperties does not model; the app's provider sets it too.
@@ -136,14 +138,20 @@ const meta = {
   // whose provider sets its width; this frame sets the same width and gives
   // it the screen's height.
   decorators: [
-    (Story) => (
-      <SeededOutputs>
-        <div className="ml-auto flex h-144" style={PANEL_WIDTH}>
-          <Story />
-        </div>
-      </SeededOutputs>
+    (Story, context) => (
+      <MobileViewport active={context.parameters.mobileViewport === true}>
+        <SeededOutputs>
+          <div className="ml-auto flex h-144" style={PANEL_WIDTH}>
+            <Story />
+          </div>
+        </SeededOutputs>
+      </MobileViewport>
     ),
   ],
+  // Docked beside the details, as from 80rem; a phone story opens it in a
+  // drawer instead.
+  beforeEach: ({ parameters }) =>
+    parameters.mobileViewport === true ? undefined : wideViewport(),
 } satisfies Meta<typeof FinishedJobsPanel>;
 
 export default meta;
@@ -258,5 +266,29 @@ export const LostJobWithoutOutput: Story = {
     await expect(
       await canvas.findByText("Output was not stored"),
     ).toBeVisible();
+  },
+};
+
+/**
+ * On a phone the panel is a full-width drawer from the bottom edge, named
+ * Finished jobs, and Esc closes it.
+ *
+ * @summary finished jobs in a bottom drawer on a phone
+ */
+export const OnAPhone: Story = {
+  tags: ["ai-generated"],
+  parameters: { mobileViewport: true },
+  play: async ({ args }) => {
+    const drawer = await screen.findByRole("dialog", {
+      name: "Finished jobs",
+    });
+
+    await expect(drawer).toHaveAttribute("data-slot", "drawer-content");
+    await expect(
+      within(drawer).getByRole("button", { name: /job:\/\/bash-3/ }),
+    ).toBeVisible();
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(args.onClose).toHaveBeenCalledOnce());
   },
 };

@@ -74,28 +74,20 @@ export const ActiveOnAdminRoute: Story = {
 };
 
 /**
- * Mobile: the /admin area is desktop-only, so the entry keeps its row but
- * swaps the link for the shared disabled-not-hidden affordance instead of
- * offering a dead end (AppShell.dc.html).
+ * Mobile: Administration opens on a phone too, where its pages carry the
+ * section picker and the main-rail trigger, so the entry is a plain link.
  *
- * @summary disabled, non-navigable Administration entry on a phone
+ * @summary the Administration entry links to /admin on a phone
  */
 export const Mobile: Story = {
   tags: ["ai-generated"],
   parameters: { mobileViewport: true },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const link = within(canvasElement).getByRole("link", {
+      name: /Administration/i,
+    });
 
-    // Nothing to follow: `/admin` is unreachable from a phone.
-    await expect(
-      canvas.queryByRole("link", { name: /Administration/i }),
-    ).toBeNull();
-
-    // The row stays visible and reads as disabled rather than disappearing.
-    const entry = canvas.getByRole("button", { name: /Administration/i });
-    await expect(entry).toHaveAttribute("aria-disabled", "true");
-
-    // Disabled ⇒ out of the tab order, like a natively disabled control.
-    await expect(entry).toHaveAttribute("tabindex", "-1");
+    await expect(link).toHaveAttribute("href", "/admin/organizations");
+    await expect(link).not.toHaveAttribute("aria-disabled");
   },
 };

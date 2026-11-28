@@ -1,13 +1,99 @@
 "use client";
 
-import { FolderIcon } from "lucide-react";
+import { useState } from "react";
+import Link from "next/link";
+import { FolderIcon, FolderPlusIcon } from "lucide-react";
 
+import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
+import { Button } from "@workspace/ui/components/button";
+import { Skeleton } from "@workspace/ui/components/skeleton";
+import { useIsMobile } from "@workspace/ui/hooks/use-mobile";
+
+import { useProjectsQuery } from "@/lib/services/project/queries";
+
+import { NewProjectDialog } from "../components/chat-list-sidebar/project-dialogs";
 import { PageHeader } from "../components/page-header";
 
-// /projects index: the rail (ProjectListSidebar) carries the list; this pane
-// just asks the user to pick or create one. Mirrors how "/" is the chats
-// section's neutral landing.
+/** The projects, or what stands in for them while they load or failed to. */
+function PhoneProjectRows() {
+  const { data, isPending, isError, refetch } = useProjectsQuery();
+
+  if (isPending) return <Skeleton className="h-24" />;
+
+  // Without this a failed read would say "No projects yet".
+  if (isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Could not load your projects.</AlertTitle>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            Try again
+          </Button>
+        </AlertAction>
+      </Alert>
+    );
+  }
+
+  if (data.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-muted-foreground">
+        No projects yet.
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y rounded-xl border">
+      {data.map((project) => (
+        <li key={project.id}>
+          <Link
+            href={`/projects/${project.id}`}
+            className="flex min-h-11 items-center gap-3 px-4 text-sm [&>svg]:size-4 [&>svg]:shrink-0 [&>svg]:text-muted-foreground"
+          >
+            <FolderIcon aria-hidden />
+            <span className="truncate">{project.name}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The phone's project list. The projects rail is desktop-only, so without
+ *  this a phone could reach a project only through a pin or a deep link. */
+function PhoneProjectList() {
+  const [creating, setCreating] = useState(false);
+
+  return (
+    // Its own scroll: the inset above it is a fixed-height, clipped column.
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+      <Button variant="outline" onClick={() => setCreating(true)}>
+        <FolderPlusIcon aria-hidden />
+        New project
+      </Button>
+      <PhoneProjectRows />
+      <NewProjectDialog open={creating} onOpenChange={setCreating} />
+    </div>
+  );
+}
+
+// /projects index: on desktop the rail (ProjectListSidebar) carries the list
+// and this pane asks the user to pick or create one; on a phone it is the
+// list.
 export default function ProjectsPage() {
+  // Rendered, not CSS-hidden, per width: a hidden copy would duplicate the
+  // rail's rows for assistive tech and fetch for nothing.
+  const isMobile = useIsMobile();
+
+  if (isMobile) {
+    return (
+      <>
+        <PageHeader title="Projects" />
+        <PhoneProjectList />
+      </>
+    );
+  }
+
   return (
     <>
       <PageHeader title="Projects" />

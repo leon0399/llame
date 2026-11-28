@@ -7,6 +7,11 @@ import {
   SidebarContent,
   useSidebar,
 } from "@workspace/ui/components/sidebar";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+} from "@workspace/ui/components/sheet";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { topBarClasses } from "@/app/shell/top-bar";
@@ -28,7 +33,7 @@ import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 import { demoChangesView, demoContextView } from "./demo-sections";
 import { useJobsSection } from "./jobs-section";
 import type { SessionDetailsLayout } from "./details-cookie";
-import { useOpenChatId } from "./details-state";
+import { useOpenChatId, useWideViewport } from "./details-state";
 import {
   EnvironmentSection,
   environmentSummary,
@@ -198,19 +203,14 @@ function SessionDetailsBody({
 }) {
   const environment = useEnvironment(chatId);
   const jobs = useJobsSection(chatId, panelOpen);
-  const { isMobile } = useSidebar();
 
   return (
     // Both columns keep fixed widths: the details column the sidebar's own
     // 16rem, the finished-jobs panel its `--finished-jobs-width`. While the
     // sidebar's width animates, the row is clipped rather than squeezed, so
     // the panel is revealed from the outer edge and no text rewraps.
-    <div className="relative flex size-full min-h-0 overflow-hidden">
-      {/* On mobile the panel covers this column, so it leaves the tab order. */}
-      <div
-        inert={isMobile && jobs.finishedPanel !== null}
-        className="flex min-w-0 flex-col max-md:w-full md:w-64 md:shrink-0"
-      >
+    <div className="@container relative flex size-full min-h-0 overflow-hidden">
+      <div className="flex min-w-0 flex-col @max-md:w-full @md:w-64 @md:shrink-0">
         <DetailsHeader />
         <SidebarContent>
           <SectionList
@@ -240,10 +240,28 @@ function SessionDetailsBody({
  */
 export function SessionDetails({ layout }: { layout: SessionDetailsLayout }) {
   const chatId = useOpenChatId();
-  const { isMobile, open, openMobile } = useSidebar();
+  const { isMobile, open, openMobile, setOpen } = useSidebar();
+  const wideViewport = useWideViewport();
   const panelOpen = isMobile ? openMobile : open;
 
   if (chatId === undefined) return null;
+
+  // Between the phone sheet and 80rem, pushing the transcript aside would
+  // leave it a column, so the details slide over it instead.
+  if (!isMobile && !wideViewport) {
+    return (
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="right" showCloseButton={false}>
+          <SheetTitle className="sr-only">{DETAILS_TITLE}</SheetTitle>
+          <SessionDetailsBody
+            chatId={chatId}
+            layout={layout}
+            panelOpen={panelOpen}
+          />
+        </SheetContent>
+      </Sheet>
+    );
+  }
 
   return (
     <Sidebar side="right" collapsible="offcanvas" aria-label={DETAILS_TITLE}>

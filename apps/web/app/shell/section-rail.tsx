@@ -252,7 +252,7 @@ export function SectionPage({
   children: ReactNode;
 }) {
   return (
-    <div className="h-full w-full overflow-y-auto px-4 py-6 md:px-7">
+    <div className="h-full w-full overflow-y-auto px-3 py-6 md:px-5">
       <div className="mx-auto flex w-full max-w-195 flex-col gap-6">
         <div className="space-y-1.5">
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>

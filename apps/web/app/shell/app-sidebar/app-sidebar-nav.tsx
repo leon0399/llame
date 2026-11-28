@@ -6,7 +6,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@workspace/ui/components/sidebar";
 import {
   BrainIcon,
@@ -33,33 +32,20 @@ type NavItem = {
   // parity").
   href?: Route;
   comingSoon?: boolean;
-  // Sections whose UI is desktop-only for now render as disabled placeholders
-  // on mobile instead of a dead-end link (same disabled-not-hidden convention).
-  desktopOnly?: boolean;
 };
 
 const NAV_ITEMS: Array<NavItem> = [
   { label: "Dashboard", icon: LayoutDashboardIcon, comingSoon: true },
   { label: "Chats", icon: MessagesSquareIcon, href: "/" },
-  // desktopOnly: the /projects list/create UI lives in the desktop-only
-  // second rail; the mobile surface is deferred to the redesign.
-  { label: "Projects", icon: FolderIcon, href: "/projects", desktopOnly: true },
+  { label: "Projects", icon: FolderIcon, href: "/projects" },
   { label: "Gallery", icon: ImageIcon, href: "/gallery" },
   { label: "Calendar", icon: CalendarIcon, comingSoon: true },
   { label: "Email", icon: MailIcon, comingSoon: true },
   { label: "Brain", icon: BrainIcon, comingSoon: true },
 ];
 
-function NavMenuRow({
-  item,
-  isActive,
-  isMobile,
-}: {
-  item: NavItem;
-  isActive: boolean;
-  isMobile: boolean;
-}) {
-  if (item.href && !(item.desktopOnly && isMobile)) {
+function NavMenuRow({ item, isActive }: { item: NavItem; isActive: boolean }) {
+  if (item.href) {
     return (
       <SidebarMenuButton
         render={<Link href={item.href} />}
@@ -73,13 +59,7 @@ function NavMenuRow({
   }
 
   return (
-    <DisabledMenuButton
-      tooltip={
-        item.desktopOnly
-          ? `${item.label} — on desktop for now`
-          : `${item.label} — coming soon`
-      }
-    >
+    <DisabledMenuButton tooltip={`${item.label} — coming soon`}>
       <item.icon />
       <span className="flex flex-1 items-center truncate">{item.label}</span>
       {item.comingSoon && <SoonChip />}
@@ -89,7 +69,6 @@ function NavMenuRow({
 
 export function AppSidebarNav() {
   const pathname = usePathname();
-  const { isMobile } = useSidebar();
 
   // Chats owns "/" and the /chat/* routes; any future section matches its own prefix.
   const isItemActive = (href: string) =>
@@ -106,7 +85,6 @@ export function AppSidebarNav() {
               <NavMenuRow
                 item={item}
                 isActive={!!item.href && isItemActive(item.href)}
-                isMobile={isMobile}
               />
             </SidebarMenuItem>
           ))}
