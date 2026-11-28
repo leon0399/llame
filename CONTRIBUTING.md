@@ -145,6 +145,9 @@ stacks. The policy it implements:
 - **GitHub review (GR)** after ready: the expected review bots and current-head
   CI. A local reviewer never substitutes for an expected bot, and draft state
   is never toggled to retrigger reviews.
+- Track SR and GR in the PR body checklist, never as `tasks.md` boxes: a commit
+  that ticks one after CI is green restarts CI. Editing a PR body triggers no
+  workflow.
 
 ## Ready-PR monitoring
 

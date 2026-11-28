@@ -102,12 +102,11 @@ rules:
       Keep tasks bounded; link scenarios rather than copying the spec.
       Separate focused local checks from full published-head CI evidence.
     - >-
-      Give every layer separate self-review-before-ready and GitHub-bot-review
-      checkpoints. Review the actual parent-relative draft PR diff, optionally
-      using independent subagents for nontrivial or high-risk concerns; resolve
-      findings before draft -> ready. GitHub bots and current-head CI then run
-      the external review loop. For finalize, both checkpoints follow archive
-      movement as post-archive gates, not pre-archive checklist prerequisites.
+      Add no self-review or GitHub-review checkbox to any layer: the PR
+      checklist tracks them, because a commit that ticks one restarts CI. For
+      finalize, write archive movement and the gates after it (publication,
+      self-review, review loop) as prose, never checkboxes. Record readiness
+      evidence read from GitHub once, as prose, in the finalize commit.
     - >-
       Put Closes #N on the PR whose merge satisfies that issue's acceptance,
       even when later implementation or finalize layers remain. Earlier partial

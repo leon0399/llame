@@ -2,7 +2,8 @@
 Before opening this PR (CONTRIBUTING.md, "PR contract"):
   • Fill every section from the actual diff against the PR's own base.
   • Delete sections and checklist items that do not apply.
-  • Verify each remaining checklist item, then tick it.
+  • Verify each remaining checklist item, then tick it. Leave the
+    monitoring item unticked until Ready-PR monitoring exits.
   • No "Test plan" section; do not mention agent tooling.
   • Delete this comment block.
 -->
@@ -64,12 +65,13 @@ Before opening this PR (CONTRIBUTING.md, "PR contract"):
 
 ### Product contract
 
-- [ ] OpenSpec proposal approved; this layer's `tasks.md` boxes ticked
+- [ ] OpenSpec proposal approved; this layer's tasks ticked
 - [ ] Operator docs, `.changeset/` entry, and `ROADMAP.md` removals included
 
 ### General
 
 - [ ] Self-reviewed the parent-relative diff against `REVIEW_GUIDE.md`
 - [ ] CI green on the current head (or only `master`-red checks, named in a comment) before marking ready
+- [ ] Ready-PR monitoring exit met on the current head (`CONTRIBUTING.md`, "Ready-PR monitoring"); tick after ready
 - [ ] No debug, scratch, or unrelated code in the diff
 - [ ] Delivery Project item added and its Status / Next action set
