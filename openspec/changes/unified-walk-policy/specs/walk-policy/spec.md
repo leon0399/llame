@@ -90,21 +90,25 @@ renders either file as an entry.
 ### Requirement: A gitignore above the requested root applies only in its repository
 
 The repository directory is the nearest directory at or above the requested
-root that holds a `.git` entry, a directory or a file. A `.gitignore` above the
-requested root MUST apply only in the repository directory or below it.
-Without a repository directory, the walk MUST NOT apply a `.gitignore` above
-the requested root. On a Machine, the walk looks for it only up to the
-registered root. Without one there, the registered root is the repository
-directory.
+root that holds a `.git` entry, a directory or a file. The walk looks for it
+only up to the registered root that holds the requested root. Without one
+there, the registered root is the repository directory. A `.gitignore` above
+the requested root MUST apply only in the repository directory or below it.
+The walk MUST NOT apply a `.gitignore` above the registered root.
 
 #### Scenario: A gitignore above the repository does not apply
 
-- **WHEN** `/home/u/.gitignore` names `*.md`, `/home/u/repo/.git` exists, and a scope is `/home/u/repo`
+- **WHEN** `/home/u` is the registered root, `/home/u/.gitignore` names `*.md`, `/home/u/repo/.git` exists, and a scope is `/home/u/repo`
 - **THEN** the walk searches `/home/u/repo/README.md`
 
-#### Scenario: A gitignore outside a repository does not apply above the scope
+#### Scenario: A gitignore at the registered root applies without a repository
 
-- **WHEN** `/mnt/d/Projects/.gitignore` names `*.md`, no `.git` exists at or above `/mnt/d/Projects/Arduino`, and that directory is the scope
+- **WHEN** `/mnt/d/Projects` is the registered root, `/mnt/d/Projects/.gitignore` names `*.md`, no `.git` exists at or above `/mnt/d/Projects/Arduino`, and that directory is the scope
+- **THEN** the walk examines no `/mnt/d/Projects/Arduino/README.md`
+
+#### Scenario: A gitignore above the registered root does not apply
+
+- **WHEN** `/mnt/d/Projects/Arduino` is the registered root, `/mnt/d/Projects/.gitignore` names `*.md`, and that root is the scope
 - **THEN** the walk searches `/mnt/d/Projects/Arduino/README.md`
 
 #### Scenario: A Machine repository above the registered root
