@@ -144,9 +144,12 @@ async function openProjectSubmenu(
   await userEvent.hover(await screen.findByRole("menuitem", { name: trigger }));
 }
 
-/** Picks a project in the open submenu; returns the one request it sent. */
+/** Picks an option of the open project list; returns the one request it
+ *  sent. */
 async function pickProject(name: string) {
-  await userEvent.click(await screen.findByRole("menuitemradio", { name }));
+  await userEvent.click(
+    await screen.findByRole("option", { name: new RegExp(`^${name}`) }),
+  );
   const request = await waitFor(() => requestFromCall(fetchMock));
   // One pick, one request: the chat's own PATCH and nothing else.
   await expect(sentRoutes()).toEqual(["PATCH /api/v1/chats/chat-1"]);
@@ -725,61 +728,67 @@ export const Fork: Story = {
 };
 
 /**
- * The move-to-project submenu is a searchable radio list: typing narrows the
- * projects (client-side filter over the caller's project list), a query that
- * matches nothing says so instead of emptying the list, and the field's clear
- * affordance brings the full list back.
+ * The move-to-project submenu is a search list: typing narrows the projects
+ * (client-side over the caller's project list), "No project" and "New
+ * project" stay through any search, a query matching nothing says so between
+ * them, and clearing the field brings the full list back.
  *
  * @summary filtering the move-to-project submenu: narrowing, empty, clear
  */
 export const ProjectMenuFilter: Story = {
-  args: { projects },
+  args: { projects, onNewProject: fn() },
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
   play: async ({ canvasElement, step }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
-    await userEvent.hover(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
-    );
+    await openProjectSubmenu(canvasElement, "Add to project");
     const filter = await screen.findByPlaceholderText("Search projects…");
 
     await step("typing narrows the list to matching projects", async () => {
       await userEvent.type(filter, "res");
       await expect(
-        await screen.findByRole("menuitemradio", { name: "Research" }),
+        await screen.findByRole("option", { name: /^Research/ }),
       ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.queryByRole("option", { name: /^Work/ })).toBeNull(),
+      );
+      // cmdk sorts matching groups to the end of their parent: the match
+      // must stay between the kept entries, not drop below "New project".
       await expect(
-        screen.queryByRole("menuitemradio", { name: "Work" }),
-      ).toBeNull();
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["No project", "Research", "New project"]);
     });
+
+    await step(
+      "ArrowLeft moves the cursor, not out of the submenu",
+      async () => {
+        await userEvent.keyboard("{ArrowLeft}");
+        await expect(filter).toBeInTheDocument();
+        await expect(filter).toHaveFocus();
+        await userEvent.keyboard("{End}");
+      },
+    );
 
     await step("a query matching nothing says so", async () => {
       await userEvent.type(filter, "zzz");
+      await expect(await screen.findByText("No matches.")).toBeInTheDocument();
       await expect(
-        await screen.findByText("No projects found"),
-      ).toBeInTheDocument();
-      await expect(screen.queryByRole("menuitemradio")).toBeNull();
+        screen.getAllByRole("option").map((option) => option.textContent),
+      ).toEqual(["No project", "New project"]);
     });
 
     await step("clearing the field brings the full list back", async () => {
-      await userEvent.click(
-        screen.getByRole("button", { name: "Clear search" }),
-      );
+      await userEvent.clear(filter);
       await expect(
-        await screen.findByRole("menuitemradio", { name: "Work" }),
+        await screen.findByRole("option", { name: /^Work/ }),
       ).toBeInTheDocument();
-      await expect(
-        screen.queryByRole("button", { name: "Clear search" }),
-      ).toBeNull();
     });
   },
 };
 
 /**
  * A chat already in a project: the submenu trigger reads "Change project" and
- * the current project carries the radio check, so the submenu also shows where
- * the chat is now, not just where it could go.
+ * the current project is the checked option, so the list also shows where the
+ * chat is now, not just where it could go.
  *
  * @summary the move-to-project submenu of a filed chat
  */
@@ -788,23 +797,17 @@ export const ProjectMenuFiled: Story = {
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
-    await userEvent.hover(
-      await screen.findByRole("menuitem", { name: "Change project" }),
-    );
+    await openProjectSubmenu(canvasElement, "Change project");
 
     await expect(
-      await screen.findByRole("menuitemradio", { name: "Work" }),
+      await screen.findByRole("option", { name: /^Work/ }),
     ).toHaveAttribute("aria-checked", "true");
     await expect(
-      screen.getByRole("menuitemradio", { name: "Research" }),
+      screen.getByRole("option", { name: /^Research/ }),
     ).toHaveAttribute("aria-checked", "false");
-    // Unfiling is re-picking the checked project (the radio group's toggle-off),
-    // so there is deliberately no separate "Remove from project" item.
     await expect(
-      screen.queryByRole("menuitem", { name: /remove from project/i }),
-    ).toBeNull();
+      screen.getByRole("option", { name: /^No project/ }),
+    ).toHaveAttribute("aria-checked", "false");
   },
 };
 
@@ -851,10 +854,10 @@ export const ProjectMenuRefile: Story = {
 };
 
 /**
- * Re-picking the checked project is how a chat leaves its project: the update
- * clears the project rather than re-sending the current one.
+ * "No project" is how a chat leaves its project: the update clears the
+ * project rather than re-sending the current one.
  *
- * @summary re-picking the checked project unfiles the chat
+ * @summary "No project" unfiles the chat
  */
 export const ProjectMenuUnfile: Story = {
   args: { chat: { ...baseChat, projectId: "p1" }, projects },
@@ -864,7 +867,7 @@ export const ProjectMenuUnfile: Story = {
   play: async ({ canvasElement }) => {
     await openProjectSubmenu(canvasElement, "Change project");
 
-    const request = await pickProject("Work");
+    const request = await pickProject("No project");
     await expect(request.clone().json()).resolves.toEqual({
       projectId: null,
     });
@@ -884,13 +887,9 @@ export const ProjectMenuNewProject: Story = {
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
   play: async ({ args, canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
-    await userEvent.hover(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
-    );
+    await openProjectSubmenu(canvasElement, "Add to project");
     await userEvent.click(
-      await screen.findByRole("menuitem", { name: "New project" }),
+      await screen.findByRole("option", { name: /^New project/ }),
     );
 
     await waitFor(() => expect(args.onNewProject).toHaveBeenCalledTimes(1));
@@ -908,14 +907,10 @@ export const ProjectMenuNewProjectDisabled: Story = {
   parameters: { ...menuPortalA11y },
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
-    await userEvent.hover(
-      await screen.findByRole("menuitem", { name: "Add to project" }),
-    );
+    await openProjectSubmenu(canvasElement, "Add to project");
 
     await expect(
-      await screen.findByRole("menuitem", { name: "New project" }),
+      await screen.findByRole("option", { name: /^New project/ }),
     ).toHaveAttribute("aria-disabled", "true");
   },
 };

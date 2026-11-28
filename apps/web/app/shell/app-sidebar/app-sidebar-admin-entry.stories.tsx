@@ -1,65 +1,10 @@
-import * as React from "react";
-
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
 import { expect, within } from "storybook/test";
 
+import { MobileViewport } from "@/lib/test-support/mobile-viewport";
+
 import { AppSidebarAdminEntry } from "./app-sidebar-admin-entry";
-
-/** `useIsMobile` breaks at 768px (packages/ui/src/hooks/use-mobile.ts); 500 is a phone. */
-const PHONE_WIDTH = 500;
-
-/**
- * Gives the stories below a phone-sized viewport to render in. `useIsMobile`
- * measures `window.innerWidth`, and this workspace runs one fixed browser
- * viewport (no viewport addon is installed), so a story that opts in through
- * `parameters.mobileViewport` shadows that single measurement — before the
- * `SidebarProvider` rendered here reads it — and puts the real one back when
- * the story unmounts. Restoring means reinstating the original property
- * descriptor: deleting the override instead would leave `innerWidth`
- * undefined for every later story in this file, which reads as a desktop
- * viewport and hides a real regression.
- */
-function MobileViewport({
-  active,
-  children,
-}: {
-  active: boolean;
-  children: React.ReactNode;
-}) {
-  const originalWidth = React.useRef<PropertyDescriptor | undefined>(undefined);
-
-  if (active) {
-    originalWidth.current ??= Object.getOwnPropertyDescriptor(
-      window,
-      "innerWidth",
-    );
-    Object.defineProperty(window, "innerWidth", {
-      value: PHONE_WIDTH,
-      configurable: true,
-    });
-  }
-
-  React.useEffect(() => {
-    if (!active) {
-      return;
-    }
-
-    return () => {
-      const original = originalWidth.current;
-
-      if (original) {
-        Object.defineProperty(window, "innerWidth", original);
-
-        return;
-      }
-
-      Reflect.deleteProperty(window, "innerWidth");
-    };
-  }, [active]);
-
-  return <>{children}</>;
-}
 
 const meta = {
   component: AppSidebarAdminEntry,

@@ -50,8 +50,7 @@ function closeIfLeft(
 }
 
 /**
- * SearchFilterInput is the ONE embedded filter row (the chat menu's project
- * submenu, the projects rail, …) — a shared `InputGroup` with a leading
+ * SearchFilterInput is the ONE embedded filter row (the projects rail, …) — a shared `InputGroup` with a leading
  * magnifier and a trailing clear button, so the focus ring belongs to the whole
  * field instead of hugging a bare input inside a menu.
  *

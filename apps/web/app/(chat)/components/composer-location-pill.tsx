@@ -1,13 +1,14 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
   AlertTriangleIcon,
-  FolderGit2Icon,
+  ChevronDownIcon,
   GitBranchIcon,
   MonitorIcon,
 } from "lucide-react";
 
-import { ButtonGroup } from "@workspace/ui/components/button-group";
+import { Button } from "@workspace/ui/components/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,23 +19,16 @@ import {
   DropdownMenuTrigger,
 } from "@workspace/ui/components/dropdown-menu";
 
-import { machinePathFromRoot } from "@/lib/services/machines/locator";
-
-import { ChipRemoveButton } from "./composer-project";
 import { ComposerTooltip } from "./composer-tooltip";
-import {
-  folderName,
-  WorkingDirectoryItems,
-} from "./composer-working-directory";
-import { PromptInputButton } from "./prompt-input";
 import type { ComposerLocation } from "./use-composer-location";
 
 /*
- * The working directory of a chat that does not exist yet, as one filled pill
- * beside the project chip (design D10): Machine, folder, and where in it the
- * chat works, each opening its own menu, then a joined × that alone removes
- * it. A chat without a working directory shows no pill; it is an ordinary
- * unbound start, never a warning.
+ * The working directory's own controls in the row under the input (design
+ * D10), after the folder: the Machine when there is a choice of one (or when
+ * it cannot serve), the mode (the checkout or a new worktree), and Retry when
+ * the location could not be resolved. A warning sits on the control it is
+ * about, never as a separate icon: an unusable Machine is named on the
+ * Machine control and explained at the top of its menu.
  */
 
 type Choice = {
@@ -70,7 +64,7 @@ function ChoiceItem({ choice }: { choice: Choice }) {
   );
 }
 
-/** One labelled radio group of a cell's menu. */
+/** One labelled radio group of a control's menu. */
 function ChoiceGroup({
   title,
   choices,
@@ -94,16 +88,30 @@ function ChoiceGroup({
   );
 }
 
-type PillMenuCellProps = {
+type StartRowMenuProps = {
   tooltip: string;
   ariaLabel: string;
-  icon: React.ReactNode;
-  label: string;
-  children: React.ReactNode;
+  icon: ReactNode;
+  label: ReactNode;
+  children: ReactNode;
+  /** How it gives way on a narrow row: `shrink` (the default) cuts its
+   *  name, `icon` keeps its size and shows only its icon, `none` keeps its
+   *  whole label (a short word whose loss would make the control
+   *  ambiguous). */
+  narrow?: "shrink" | "icon" | "none";
 };
 
-/** One filled cell: icon and capped name, opening a menu. */
-function PillMenuCell(props: PillMenuCellProps) {
+const LABEL_FIT = {
+  shrink:
+    "min-w-0 overflow-x-clip font-normal text-ellipsis whitespace-nowrap text-trim-cap",
+  icon: "font-normal text-trim-cap @max-md:sr-only",
+  none: "font-normal whitespace-nowrap text-trim-cap",
+} as const;
+
+/** One control of the row under the input: icon, name and a chevron,
+ *  opening a menu. The name is trimmed to its cap height so the icon lines
+ *  up with the letters, and clipped only sideways so descenders survive. */
+function StartRowMenu(props: StartRowMenuProps) {
   return (
     <DropdownMenu>
       <ComposerTooltip
@@ -111,22 +119,28 @@ function PillMenuCell(props: PillMenuCellProps) {
         render={
           <DropdownMenuTrigger
             render={
-              <PromptInputButton
-                variant="secondary"
-                size="default"
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
                 aria-label={props.ariaLabel}
+                className={
+                  (props.narrow ?? "shrink") === "shrink"
+                    ? "min-w-0 shrink"
+                    : "shrink-0"
+                }
               />
             }
           />
         }
       >
         {props.icon}
-        <span className="max-w-28 truncate font-normal">{props.label}</span>
+        <span className={LABEL_FIT[props.narrow ?? "shrink"]}>
+          {props.label}
+        </span>
+        <ChevronDownIcon aria-hidden className="opacity-60 @max-xs:hidden" />
       </ComposerTooltip>
-      <DropdownMenuContent
-        align="start"
-        className="max-h-96 w-72 overflow-y-auto"
-      >
+      <DropdownMenuContent align="start" className="max-h-96 w-64">
         {props.children}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -135,8 +149,8 @@ function PillMenuCell(props: PillMenuCellProps) {
 
 /**
  * A Machine choice selects a `main` checkout of the repository on it at once —
- * the first by path when it holds several — so the pill never passes through
- * an unresolved state. The folder cell then changes the checkout.
+ * the first by path when it holds several — so the row never passes through
+ * an unresolved state. The folder control then changes the checkout.
  */
 function selectMachine(location: ComposerLocation, executorId: string) {
   const [first] = location.checkouts
@@ -151,21 +165,65 @@ function selectMachine(location: ComposerLocation, executorId: string) {
   if (first !== undefined) location.selectWorkingDirectory(first);
 }
 
-/** The Machine cell: the Machines holding a `main` checkout of the repository,
- *  an unusable one disabled with its reason. */
-function PillMachineCell({ location }: { location: ComposerLocation }) {
-  const machine = location.location.executor?.label ?? "No checkout";
+/** The short state an unusable Machine shows beside its name: "offline" for
+ *  a Machine that does not answer, "unavailable" for any other reason (an
+ *  identity change, a daemon too old, a name not configured). */
+function machineState(reason: string): string {
+  return reason.startsWith("Offline") || reason.endsWith("offline.")
+    ? "offline"
+    : "unavailable";
+}
+
+/** The Machine's name, and its state when it cannot serve the chat. The
+ *  state keeps the label's own color: destructive text this small on the
+ *  control's hover fill falls below AA contrast, so the red is the icon's. */
+function machineLabel(name: string, reason: string | null): string {
+  return reason === null ? name : `${name} · ${machineState(reason)}`;
+}
+
+/** Why the chosen Machine cannot serve, at the top of its menu. */
+function MachineWarning({ reason }: { reason: string | null }) {
+  if (reason === null) return null;
 
   return (
-    <PillMenuCell
-      tooltip="Machine"
-      ariaLabel={`Machine, ${machine}`}
-      icon={<MonitorIcon aria-hidden className="size-4" />}
-      label={machine}
+    <p className="flex gap-1.5 px-1.5 py-1 text-xs text-destructive [&>svg]:mt-px [&>svg]:size-3.5 [&>svg]:shrink-0">
+      <AlertTriangleIcon aria-hidden />
+      {reason}
+    </p>
+  );
+}
+
+/** The Machine control: when the repository is on more than one Machine,
+ *  since a single choice is no choice, or when the one chosen cannot serve,
+ *  which it then says. An unusable Machine is listed disabled with its
+ *  reason. */
+function MachineControl({ location }: { location: ComposerLocation }) {
+  const executor = location.location.executor;
+  const reason = executor?.reason ?? null;
+
+  if (location.machineOptions.length < 2 && reason === null) return null;
+
+  const name = executor?.label ?? "No checkout";
+
+  return (
+    <StartRowMenu
+      tooltip={reason === null ? "Machine" : `${name}: ${reason}`}
+      ariaLabel={
+        reason === null ? `Machine, ${name}` : `Machine, ${name}, ${reason}`
+      }
+      icon={
+        <MonitorIcon
+          aria-hidden
+          className={reason === null ? undefined : "text-destructive"}
+        />
+      }
+      label={machineLabel(name, reason)}
+      narrow="icon"
     >
+      <MachineWarning reason={reason} />
       <ChoiceGroup
         title="Machine"
-        value={location.location.executor?.executorId ?? null}
+        value={executor?.executorId ?? null}
         onValueChange={(executorId) => selectMachine(location, executorId)}
         choices={location.machineOptions.map((option) => ({
           id: option.executorId,
@@ -174,128 +232,91 @@ function PillMachineCell({ location }: { location: ComposerLocation }) {
           disabled: option.reason !== null,
         }))}
       />
-    </PillMenuCell>
-  );
-}
-
-/** The folder cell; the project chip owns the plain folder icon, so a
- *  checkout shows a git folder, and its tooltip prints the path. */
-function PillFolderCell({
-  location,
-  path,
-  onOtherFolder,
-}: {
-  location: ComposerLocation;
-  path: string;
-  onOtherFolder: () => void;
-}) {
-  const folder = folderName(path);
-  const shown = machinePathFromRoot(path) ?? path;
-
-  return (
-    <PillMenuCell
-      tooltip={shown}
-      ariaLabel={`Folder, ${folder}`}
-      icon={<FolderGit2Icon aria-hidden className="size-4" />}
-      label={folder}
-    >
-      <WorkingDirectoryItems
-        location={location}
-        onOtherFolder={onOtherFolder}
-      />
-    </PillMenuCell>
+    </StartRowMenu>
   );
 }
 
 /**
- * The mode cell: its label is the state — the checkout's branch while the chat
- * works in it, `Worktree` once it starts in a new worktree cut from that
- * branch (named by the server).
+ * Where in the checkout the chat works, named by its current mode so the
+ * control reads the same at every width: "Checkout" works in the checkout on
+ * its branch, "Worktree" starts a new worktree cut from that branch (named by
+ * the server).
  */
-function PillModeCell({ location }: { location: ComposerLocation }) {
+function ModeControl({ location }: { location: ComposerLocation }) {
   const branch = location.location.checkout?.branch ?? "detached HEAD";
   const worktree = location.isolation === "worktree";
-  const label = worktree ? "Worktree" : branch;
 
   return (
-    <PillMenuCell
+    <StartRowMenu
       tooltip={
-        worktree ? `New worktree from ${branch}` : `Checkout on ${branch}`
+        worktree
+          ? `New worktree from ${branch}`
+          : `Work in the checkout on ${branch}`
       }
-      // The visible label leads the name, so it can be spoken to reach it.
-      ariaLabel={`Work in, ${label}`}
-      icon={<GitBranchIcon aria-hidden className="size-4" />}
-      label={label}
+      ariaLabel={`Mode, ${worktree ? "new worktree" : "checkout"}`}
+      icon={<GitBranchIcon aria-hidden />}
+      label={worktree ? "Worktree" : "Checkout"}
+      narrow="none"
     >
       <ChoiceGroup
         title="Work in"
-        value={location.isolation}
-        onValueChange={(value) => {
-          if (value === "reuse" || value === "worktree") {
-            location.selectIsolation(value);
-          }
-        }}
+        value={worktree ? "worktree" : "reuse"}
+        onValueChange={(mode) =>
+          location.selectIsolation(mode === "worktree" ? "worktree" : "reuse")
+        }
         choices={[
-          { id: "reuse", label: "This checkout", detail: branch },
-          { id: "worktree", label: "A new worktree", detail: `from ${branch}` },
+          { id: "reuse", label: "The checkout", detail: `On ${branch}` },
+          {
+            id: "worktree",
+            label: "A new worktree",
+            detail: `Cut from ${branch}`,
+          },
         ]}
       />
-    </PillMenuCell>
+    </StartRowMenu>
   );
 }
 
-/** A start that would fail, named under the pointer; nothing otherwise. A
- *  failed preview retries from here. */
-function PillWarningCell({ location }: { location: ComposerLocation }) {
+/** The location could not be resolved: the one warning with something to
+ *  do, so a button, with the message in its tooltip. */
+function RetryControl({ location }: { location: ComposerLocation }) {
   const warning = location.location.warning;
 
-  if (warning === null) return null;
+  if (warning?.step !== "preview") return null;
 
   return (
     <ComposerTooltip
       label={warning.message}
       render={
-        <PromptInputButton
-          variant="secondary"
-          size="icon"
-          aria-label={`Location warning: ${warning.message}`}
-          onClick={
-            location.preview.failed ? location.preview.refetch : undefined
-          }
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={location.preview.refetch}
         />
       }
     >
-      <AlertTriangleIcon aria-hidden className="text-destructive size-4" />
+      <AlertTriangleIcon aria-hidden className="text-destructive" />
+      <span className="font-normal text-trim-cap">Retry</span>
     </ComposerTooltip>
   );
 }
 
-/** The pill; renders nothing while no working directory resolves. */
+/** The working directory's own controls; nothing while none resolves. */
 export function ComposerLocationPill({
   location,
-  onOtherFolder,
 }: {
   location: ComposerLocation;
-  onOtherFolder: () => void;
 }) {
-  const checkout = location.location.checkout;
-
-  if (checkout === null) return null;
+  if (location.location.checkout === null) {
+    return <RetryControl location={location} />;
+  }
 
   return (
-    <ButtonGroup>
-      <PillMachineCell location={location} />
-      <PillFolderCell
-        location={location}
-        path={checkout.path}
-        onOtherFolder={onOtherFolder}
-      />
-      <PillModeCell location={location} />
-      <PillWarningCell location={location} />
-      <ChipRemoveButton
-        label="Remove working directory"
-        onRemove={location.clearWorkingDirectory}
-      />
-    </ButtonGroup>
+    <>
+      <MachineControl location={location} />
+      <ModeControl location={location} />
+      <RetryControl location={location} />
+    </>
   );
 }

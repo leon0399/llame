@@ -1,20 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { FolderOpenIcon } from "lucide-react";
 
-import {
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-} from "@workspace/ui/components/dropdown-menu";
 import { Input } from "@workspace/ui/components/input";
 import { Label } from "@workspace/ui/components/label";
 import {
@@ -29,18 +16,14 @@ import { DialogFrame } from "@/components/dialog-frame";
 import { DialogSubmitFooter } from "@/components/dialog-submit-footer";
 import type { CheckoutResponse } from "@/lib/api/generated/models";
 import { useRegisterCheckout } from "@/lib/services/checkouts/mutations";
-import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 import { repositoryFailureMessage } from "@/lib/services/repositories/failure";
 
-import type {
-  ComposerLocation,
-  WorkingDirectoryOption,
-} from "./use-composer-location";
+import type { ComposerLocation } from "./use-composer-location";
 
 /*
  * The working directory of a chat that does not exist yet: a registered
- * checkout, chosen from the `+` menu or the location row, or a folder typed by
+ * checkout, chosen from the row under the input, or a folder typed by
  * hand. A typed folder that is already registered is that checkout; any other
  * is registered first, under the `machine://<name>/…` locator of the Machine
  * the reader picked, so it gets the same repository, mode and branch options
@@ -53,115 +36,6 @@ export function folderName(path: string): string {
   const trimmed = path.replace(/\/+$/u, "");
 
   return trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
-}
-
-function DirectoryItem({ option }: { option: WorkingDirectoryOption }) {
-  return (
-    <DropdownMenuRadioItem
-      value={option.checkoutId}
-      closeOnClick
-      aria-label={`${option.machine}: ${option.path}`}
-    >
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate">{folderName(option.path)}</span>
-        <span className="text-muted-foreground truncate text-xs">
-          {option.machine} · {machinePathFromRoot(option.path) ?? option.path}
-        </span>
-      </span>
-    </DropdownMenuRadioItem>
-  );
-}
-
-function DirectoryGroup({
-  title,
-  options,
-}: {
-  title: string;
-  options: Array<WorkingDirectoryOption>;
-}) {
-  if (options.length === 0) return null;
-
-  return (
-    <DropdownMenuGroup>
-      <DropdownMenuLabel>{title}</DropdownMenuLabel>
-      {options.map((option) => (
-        <DirectoryItem key={option.checkoutId} option={option} />
-      ))}
-    </DropdownMenuGroup>
-  );
-}
-
-/**
- * The registered checkouts as one radio list: the project's own repositories
- * first, then every other one, with "Other folder…" last.
- */
-export function WorkingDirectoryItems({
-  location,
-  onOtherFolder,
-}: {
-  location: ComposerLocation;
-  onOtherFolder: () => void;
-}) {
-  const options = location.workingDirectories;
-
-  const select = (checkoutId: string) => {
-    const row = location.checkouts.find((item) => item.id === checkoutId);
-
-    if (row !== undefined) location.selectWorkingDirectory(row);
-  };
-
-  return (
-    <>
-      <DropdownMenuRadioGroup
-        value={location.location.checkout?.id ?? ""}
-        onValueChange={select}
-      >
-        <DirectoryGroup
-          title="This project"
-          options={options.filter((row) => row.linked)}
-        />
-        <DirectoryGroup
-          title="Checkouts"
-          options={options.filter((row) => !row.linked)}
-        />
-      </DropdownMenuRadioGroup>
-      {options.length === 0 ? null : <DropdownMenuSeparator />}
-      {/* Deferred so the menu closes before the dialog takes focus. */}
-      <DropdownMenuItem onSelect={() => setTimeout(onOtherFolder, 0)}>
-        Other folder…
-      </DropdownMenuItem>
-    </>
-  );
-}
-
-/** The `+` menu's "Add working directory" submenu. */
-export function ComposerWorkingDirectorySubmenu({
-  location,
-  onOtherFolder,
-}: {
-  location: ComposerLocation;
-  onOtherFolder: () => void;
-}) {
-  return (
-    <DropdownMenuSub>
-      <DropdownMenuSubTrigger>
-        <FolderOpenIcon />
-        <span>
-          {location.location.checkout === null
-            ? "Add working directory"
-            : "Change working directory"}
-        </span>
-      </DropdownMenuSubTrigger>
-      <DropdownMenuPortal>
-        <DropdownMenuSubContent className="max-h-96 w-72 overflow-y-auto">
-          <WorkingDirectoryItems
-            location={location}
-            onOtherFolder={onOtherFolder}
-          />
-        </DropdownMenuSubContent>
-      </DropdownMenuPortal>
-    </DropdownMenuSub>
-  );
 }
 
 /**

@@ -2,7 +2,10 @@
 
 import { useEffect } from "react";
 
+import { buttonVariants } from "@workspace/ui/components/button";
 import { cn } from "@workspace/ui/lib/utils";
+import { SquarePenIcon } from "lucide-react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { MainRailTrigger } from "@/app/shell/main-rail";
@@ -99,13 +102,25 @@ export function ChatHeader({ className }: ChatHeaderProps) {
       <MainRailTrigger />
 
       {chatId && resolvedChat ? (
-        <>
-          <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
-          <span className="ml-auto">
-            <SessionDetailsTrigger />
-          </span>
-        </>
+        <ChatHeaderTitle key={chatId} title={resolvedChat.title} />
       ) : null}
+      <span className="ml-auto flex items-center gap-1">
+        {/* Mobile-only: a new chat without opening the rail's sheet. */}
+        {pathname !== "/" && (
+          <Link
+            href="/"
+            prefetch={false}
+            aria-label="New chat"
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "icon-sm" }),
+              "md:hidden",
+            )}
+          >
+            <SquarePenIcon aria-hidden="true" />
+          </Link>
+        )}
+        {chatId && resolvedChat ? <SessionDetailsTrigger /> : null}
+      </span>
     </header>
   );
 }

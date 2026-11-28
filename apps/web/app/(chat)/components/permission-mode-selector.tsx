@@ -21,6 +21,7 @@ import {
   type PermissionModesResponse,
 } from "@/lib/services/permission-modes/queries";
 
+import { useComposerControlSize } from "./composer-control-size";
 import { ComposerTooltip } from "./composer-tooltip";
 
 type PermissionModeDetails = {
@@ -83,7 +84,7 @@ function PermissionModeTrigger({
               // skips tool-permission checks, so it must not read as a quiet
               // label.
               variant={selectedMode === "bypass" ? "destructive" : "ghost"}
-              size="xs"
+              size={useComposerControlSize()}
               aria-label={`Permission mode, ${title}`}
               aria-expanded={open}
             />
@@ -92,7 +93,7 @@ function PermissionModeTrigger({
       }
     >
       {/* Regular weight: a quiet setting under the input, not an action. */}
-      <span className="font-normal">{title}</span>
+      <span className="font-normal text-trim-cap">{title}</span>
     </ComposerTooltip>
   );
 }

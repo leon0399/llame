@@ -13,6 +13,7 @@ import { cn } from "@workspace/ui/lib/utils";
 
 import { useChatContext } from "@/contexts/chat-context";
 import type { EffortLevelResponse } from "@/lib/api/generated/models";
+import { useComposerControlSize } from "./composer-control-size";
 import { useComposerSelection } from "./use-composer-selection";
 import { ComposerTooltip } from "./composer-tooltip";
 
@@ -108,7 +109,7 @@ function EffortSelectorTrigger({
               type="button"
               variant="ghost"
               // `xs` (h-6, text-xs), like the model trigger it sits beside.
-              size="xs"
+              size={useComposerControlSize()}
               aria-label={`Reasoning effort, ${activeDisplay}`}
               aria-expanded={open}
               className={className}

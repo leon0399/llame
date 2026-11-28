@@ -1,11 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
+import { SidebarTrigger } from "@workspace/ui/components/sidebar";
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test";
 
 import type { ChatListItemResponse } from "@/lib/api/generated/models";
 import type { PublicUserResponse } from "@/lib/services/auth/queries";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { jsonResponse } from "@/lib/test-support/fetch-responses";
+import { MobileViewport } from "@/lib/test-support/mobile-viewport";
 import { AppSidebar, SidebarProvider } from "./index";
 
 const ME: PublicUserResponse = {
@@ -188,5 +190,39 @@ export const UserMenuWithoutAdministration: Story = {
     await expect(
       within(menu).queryByRole("menuitem", { name: /Administration/ }),
     ).toBeNull();
+  },
+};
+
+/**
+ * On a phone the rail is a sheet over the page, and following a link in it
+ * puts the page back in view: the sheet closes, even for a link to the page
+ * already open, which changes no pathname to close it otherwise.
+ *
+ * @summary following a link closes the phone's rail sheet
+ */
+export const PhoneSheetClosesOnLink: Story = {
+  tags: ["ai-generated"],
+  render: (args) => (
+    <MobileViewport active>
+      <SidebarProvider>
+        <SidebarTrigger />
+        <AppSidebar {...args} />
+      </SidebarProvider>
+    </MobileViewport>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      within(canvasElement).getByRole("button", { name: "Toggle Sidebar" }),
+    );
+
+    // The sheet portals into document.body, outside the story canvas.
+    const sheet = await screen.findByRole("dialog");
+
+    const link = await within(sheet).findByRole("link", {
+      name: "Pinned chat 1",
+    });
+
+    await userEvent.click(link);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   },
 };

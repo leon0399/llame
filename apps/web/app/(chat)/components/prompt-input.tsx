@@ -54,6 +54,7 @@ export const PromptInputTextarea = ({
   const textareaRef = useAutoResizeTextarea({
     minHeight,
     maxHeight,
+    value: props.value,
   });
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
