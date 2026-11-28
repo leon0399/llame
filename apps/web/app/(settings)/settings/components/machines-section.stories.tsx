@@ -135,9 +135,11 @@ export const Rows: Story = {
     await expect(
       within(devl).queryByRole("button", { name: /Update/ }),
     ).toBeNull();
+    // Base UI's switch is a span: it reports disabled through ARIA, not the
+    // `disabled` attribute.
     await expect(
       within(devl).getByRole("switch", { name: "Use devl (coming soon)" }),
-    ).toBeDisabled();
+    ).toHaveAttribute("aria-disabled", "true");
   },
 };
 

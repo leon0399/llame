@@ -113,7 +113,8 @@ export const MachinePreview: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const trigger = within(canvasElement).getByRole("link", {
-      name: /^services,/,
+      // The name, then the hidden state: "services , online".
+      name: /^services\s*, online$/,
     });
 
     await userEvent.hover(trigger);
