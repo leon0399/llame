@@ -28,6 +28,9 @@ export const knowledgeSpaces = pgTable(
     updatedAt: timestamptz('updated_at', { precision: 3 })
       .notNull()
       .defaultNow(),
+    // Archive (knowledge-spaces): null means the Space is current. Archive
+    // never removes the stable-ID child under knowledge.root.
+    archivedAt: timestamptz('archived_at', { precision: 3 }),
   },
   (table) => [
     index('knowledge_spaces_owner_created_id_idx').on(

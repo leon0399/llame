@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import { type KnowledgeSpace } from '../db/schema/knowledge-spaces';
@@ -17,12 +17,16 @@ import {
   toKnowledgeSpaceApiProjection,
   toKnowledgeSpaceBindingProjection,
   type KnowledgeSpaceApiProjection,
+  type KnowledgeSpaceArchiveScope,
   type KnowledgeSpaceBindingProjection,
 } from './knowledge-space.repository';
 import { normalizeKnowledgeSpaceName } from './knowledge-space-name';
 
 export const KNOWLEDGE_SPACE_DEFAULT_LIMIT = 50;
 export const KNOWLEDGE_SPACE_MAX_LIMIT = 100;
+
+export const ARCHIVED_KNOWLEDGE_SPACE_RENAME =
+  'This Knowledge Space is archived. Unarchive it before you rename it.';
 
 function validateKnowledgeSpaceListLimit(limit: number | undefined): number {
   const resolved = limit ?? KNOWLEDGE_SPACE_DEFAULT_LIMIT;
@@ -60,7 +64,7 @@ function nextKnowledgeSpaceCursor(
 /** The HTTP and owner-scoped management capability exposed by this service. */
 export type KnowledgeSpaceManagement = Pick<
   KnowledgeSpaceService,
-  'provisionForOwner' | 'listForOwner' | 'getForOwner' | 'renameForOwner'
+  'provisionForOwner' | 'listForOwner' | 'getForOwner' | 'updateForOwner'
 >;
 
 /** Trusted worker-side binding resolution, never an HTTP response shape. */
@@ -126,6 +130,7 @@ export class KnowledgeSpaceService {
     options: {
       limit?: number;
       after?: string;
+      archived?: 'only' | 'with';
     } = {},
   ): Promise<{
     items: Array<KnowledgeSpaceApiProjection>;
@@ -143,6 +148,7 @@ export class KnowledgeSpaceService {
         ownerUserId,
         limit,
         after,
+        archiveScope(options.archived),
       ),
     );
 
@@ -177,11 +183,87 @@ export class KnowledgeSpaceService {
   ): Promise<KnowledgeSpaceApiProjection | undefined> {
     const name = normalizeKnowledgeSpaceName(input.name);
 
-    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
-      new KnowledgeSpaceRepository(tx).updateName(
+    const space = await this.tenantDb.runAs(ownerUserId, async (tx) => {
+      const repository = new KnowledgeSpaceRepository(tx);
+
+      const current = await repository.findByIdForOwnerForUpdate(
+        knowledgeSpaceId,
+        ownerUserId,
+      );
+
+      if (current === undefined) return undefined;
+
+      if (current.archivedAt !== null) {
+        throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+      }
+
+      const updated = await repository.updateName(
         knowledgeSpaceId,
         ownerUserId,
         name,
+      );
+
+      if (updated === undefined) {
+        throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+      }
+
+      return updated;
+    });
+
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
+  }
+
+  /**
+   * Apply a name, an archive flag, both, or neither. An empty patch returns
+   * the current row. A name and an archive flag share one transaction: a
+   * failed rename rolls the archive flag back. The row is locked before its
+   * state is checked. A missing or other-owner id returns undefined. A rename
+   * of a Space that stays archived throws 409.
+   */
+  async updateForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+    input: { name?: string; archived?: boolean },
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    if (input.name === undefined && input.archived === undefined) {
+      return this.getForOwner(ownerUserId, knowledgeSpaceId);
+    }
+
+    const name =
+      input.name === undefined
+        ? undefined
+        : normalizeKnowledgeSpaceName(input.name);
+
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      applyOwnerKnowledgeSpacePatch(
+        new KnowledgeSpaceRepository(tx),
+        ownerUserId,
+        knowledgeSpaceId,
+        { name, archived: input.archived },
+      ),
+    );
+
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
+  }
+
+  /**
+   * Archive or unarchive one owned Space. The stable-ID child stays on disk.
+   * A missing or other-owner id returns undefined, the same as rename.
+   */
+  async setArchiveForOwner(
+    ownerUserId: string,
+    knowledgeSpaceId: string,
+    archived: boolean,
+  ): Promise<KnowledgeSpaceApiProjection | undefined> {
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      new KnowledgeSpaceRepository(tx).setArchived(
+        knowledgeSpaceId,
+        ownerUserId,
+        archived,
       ),
     );
 
@@ -225,7 +307,7 @@ export class KnowledgeSpaceService {
       ),
     );
 
-    if (space === undefined) return undefined;
+    if (space === undefined || space.archivedAt !== null) return undefined;
 
     const canonicalRoot = this.localResolver.resolveRoot();
 
@@ -248,7 +330,64 @@ export class KnowledgeSpaceService {
         ownerUserId,
         limit,
         after,
+        'active',
       ),
     );
   }
+}
+
+async function applyOwnerKnowledgeSpacePatch(
+  repository: KnowledgeSpaceRepository,
+  ownerUserId: string,
+  knowledgeSpaceId: string,
+  input: { name?: string; archived?: boolean },
+): Promise<KnowledgeSpace | undefined> {
+  const current = await repository.findByIdForOwnerForUpdate(
+    knowledgeSpaceId,
+    ownerUserId,
+  );
+
+  if (current === undefined) return undefined;
+
+  let row = current;
+
+  if (input.archived === false) {
+    const restored = await repository.setArchived(
+      knowledgeSpaceId,
+      ownerUserId,
+      false,
+    );
+
+    if (restored === undefined) return undefined;
+
+    row = restored;
+  }
+
+  if (input.name !== undefined) {
+    if (row.archivedAt !== null) {
+      throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+    }
+
+    const renamed = await repository.updateName(
+      knowledgeSpaceId,
+      ownerUserId,
+      input.name,
+    );
+
+    if (renamed === undefined) {
+      throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+    }
+
+    row = renamed;
+  }
+
+  if (input.archived !== true) return row;
+
+  return repository.setArchived(knowledgeSpaceId, ownerUserId, true);
+}
+
+function archiveScope(
+  archived: 'only' | 'with' | undefined,
+): KnowledgeSpaceArchiveScope {
+  return archived ?? 'active';
 }

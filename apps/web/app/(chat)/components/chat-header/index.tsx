@@ -88,9 +88,13 @@ export function ChatHeader({ className }: ChatHeaderProps) {
 
   useDocumentTitleSync(settledTitle);
 
-  // The /projects and /gallery pages render their own header (title +
+  // The /projects, /gallery, and /brain pages render their own header (title +
   // trigger); stacking this bar above it would double the chrome.
-  if (pathname.startsWith("/projects") || pathname.startsWith("/gallery")) {
+  if (
+    pathname.startsWith("/projects") ||
+    pathname.startsWith("/gallery") ||
+    pathname.startsWith("/brain")
+  ) {
     return null;
   }
 

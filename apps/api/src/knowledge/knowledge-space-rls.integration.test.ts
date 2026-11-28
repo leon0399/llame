@@ -135,6 +135,82 @@ d('Knowledge Space RLS and tenant repository', () => {
     expect(secondPage.map((row) => row.knowledgeSpaceId)).toEqual([secondId]);
   });
 
+  it('keeps archived spaces out of the current page and the binding lookup', async () => {
+    const ownerUserId = crypto.randomUUID();
+    const activeId = '30000000-0000-4000-8000-000000000001';
+    const archivedId = '30000000-0000-4000-8000-000000000002';
+    const createdAt = new Date('2026-08-23T12:00:00.123Z');
+
+    await sql`
+      INSERT INTO users (id, name, email)
+      VALUES (
+        ${ownerUserId},
+        'Knowledge Archive',
+        ${`knowledge-archive-${ownerUserId}@test.com`}
+      )
+    `;
+
+    try {
+      await tenantDb.runAs(ownerUserId, (tx) =>
+        tx.insert(knowledgeSpaces).values([
+          {
+            knowledgeSpaceId: activeId,
+            ownerUserId,
+            name: 'Current',
+            createdAt,
+            updatedAt: createdAt,
+          },
+          {
+            knowledgeSpaceId: archivedId,
+            ownerUserId,
+            name: 'Stored',
+            createdAt: new Date('2026-08-23T11:00:00.123Z'),
+            updatedAt: createdAt,
+            archivedAt: createdAt,
+          },
+        ]),
+      );
+
+      const activePage = await tenantDb.runAs(ownerUserId, (tx) =>
+        new KnowledgeSpaceRepository(tx).listForOwnerPage(ownerUserId, 10),
+      );
+
+      expect(activePage.map((row) => row.knowledgeSpaceId)).toEqual([activeId]);
+
+      const archivedPage = await tenantDb.runAs(ownerUserId, (tx) =>
+        new KnowledgeSpaceRepository(tx).listForOwnerPage(
+          ownerUserId,
+          10,
+          undefined,
+          'only',
+        ),
+      );
+
+      expect(archivedPage.map((row) => row.knowledgeSpaceId)).toEqual([
+        archivedId,
+      ]);
+
+      const binding = await tenantDb.runAs(ownerUserId, (tx) =>
+        new KnowledgeSpaceRepository(tx).findForOwnerForBinding(ownerUserId),
+      );
+
+      expect(binding?.knowledgeSpaceId).toBe(activeId);
+
+      const restored = await tenantDb.runAs(ownerUserId, (tx) =>
+        new KnowledgeSpaceRepository(tx).setArchived(
+          archivedId,
+          ownerUserId,
+          false,
+        ),
+      );
+
+      expect(restored?.archivedAt).toBeNull();
+      expect(restored?.knowledgeSpaceId).toBe(archivedId);
+    } finally {
+      await sql`DELETE FROM users WHERE id = ${ownerUserId}`;
+    }
+  });
+
   it('makes missing and other-owner IDs indistinguishable through owner predicates', async () => {
     const created = await tenantDb.runAs(userAId, (tx) =>
       new KnowledgeSpaceRepository(tx).create({

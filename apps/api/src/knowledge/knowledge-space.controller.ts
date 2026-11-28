@@ -18,6 +18,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiCookieAuth,
   ApiCreatedResponse,
   ApiNotFoundResponse,
@@ -112,6 +113,7 @@ export class KnowledgeSpaceController {
         await this.knowledgeSpace.listForOwner(ownerUserId, {
           limit: query.limit,
           after: query.after,
+          archived: query.archived,
         }),
       );
     } catch (error) {
@@ -149,20 +151,25 @@ export class KnowledgeSpaceController {
 
   @Patch(':id')
   @ApiOperation({
-    operationId: 'renameKnowledgeSpace',
-    summary: 'Rename one current owner Knowledge Space',
+    operationId: 'updateKnowledgeSpace',
+    summary: 'Rename or archive one owner Knowledge Space',
   })
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({ type: KnowledgeSpaceResponse })
-  @ApiBadRequestResponse({ description: 'Malformed id or name' })
+  @ApiBadRequestResponse({
+    description: 'Malformed id or name',
+  })
+  @ApiConflictResponse({
+    description: 'The Knowledge Space is archived and the update renames it.',
+  })
   @ApiNotFoundResponse()
   @ApiUnauthorizedResponse()
-  async renameKnowledgeSpace(
+  async updateKnowledgeSpace(
     @CurrentUser() ownerUserId: string,
     @Param('id', ParseUUIDPipe) knowledgeSpaceId: string,
     @Body() input: UpdateKnowledgeSpaceDto,
   ): Promise<KnowledgeSpaceResponse> {
-    const space = await this.knowledgeSpace.renameForOwner(
+    const space = await this.knowledgeSpace.updateForOwner(
       ownerUserId,
       knowledgeSpaceId,
       input,

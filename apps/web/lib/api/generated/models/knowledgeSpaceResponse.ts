@@ -11,4 +11,6 @@ export interface KnowledgeSpaceResponse {
   name: string;
   createdAt: string;
   updatedAt: string;
+  /** @nullable */
+  archivedAt: string | null;
 }

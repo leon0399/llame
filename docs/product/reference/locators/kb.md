@@ -102,7 +102,7 @@ resolved bare path. A Space listing renders a `.git`, `.jj`, `.hg`, `.svn`, or
 
 ## Errors
 
-An absent, removed, malformed, or other-owner identifier returns
+An absent, archived, removed, malformed, or other-owner identifier returns
 `knowledge_space_not_found`; a currently owned Space whose root or stable-ID
 child cannot be resolved safely returns `knowledge_space_unavailable`. Neither
 result reveals whether another owner, row, or directory exists.

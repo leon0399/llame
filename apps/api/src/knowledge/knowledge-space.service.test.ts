@@ -13,6 +13,7 @@ const SPACE = {
   name: 'Personal',
   createdAt: new Date('2026-08-23T12:00:00.000Z'),
   updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+  archivedAt: null,
 };
 
 function fakeDb(): Db {
@@ -78,6 +79,7 @@ describe('KnowledgeSpaceService', () => {
       name: 'Personal',
       createdAt: SPACE.createdAt,
       updatedAt: SPACE.updatedAt,
+      archivedAt: null,
     });
     expect(localResolver.ensureChild).toHaveBeenCalledWith(
       '/srv/knowledge',
@@ -110,16 +112,19 @@ describe('KnowledgeSpaceService', () => {
       createdAt: new Date('2026-08-23T12:01:00.000Z'),
     };
 
-    vi.spyOn(
-      KnowledgeSpaceRepository.prototype,
-      'listForOwnerPage',
-    ).mockResolvedValue([SPACE, second]);
+    const list = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'listForOwnerPage')
+      .mockResolvedValue([SPACE, second]);
 
     const result = await service.listForOwner('owner-a', { limit: 1 });
     expect(result.items).toEqual([
       expect.objectContaining({ id: SPACE_ID, name: 'Personal' }),
     ]);
     expect(result.nextCursor).not.toBeNull();
+    expect(list).toHaveBeenCalledWith('owner-a', 1, undefined, 'active');
+
+    await service.listForOwner('owner-a', { limit: 1, archived: 'only' });
+    expect(list).toHaveBeenCalledWith('owner-a', 1, undefined, 'only');
   });
 
   it('resolves compatibility bindings from the earliest deterministic row', async () => {
@@ -154,6 +159,7 @@ describe('KnowledgeSpaceService', () => {
       name: 'Personal',
       createdAt: SPACE.createdAt,
       updatedAt: SPACE.updatedAt,
+      archivedAt: null,
     });
     expect(localResolver.ensureChild).toHaveBeenCalledWith(
       '/srv/knowledge',
@@ -161,5 +167,304 @@ describe('KnowledgeSpaceService', () => {
     );
     expect(create).not.toHaveBeenCalled();
     expect(events).toEqual(['root', 'db:owner-a', 'child']);
+  });
+
+  it('refuses to rename an archived space and does not touch the directory', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    const updateName = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    );
+
+    await expect(
+      service.renameForOwner('owner-a', SPACE_ID, { name: 'Renamed' }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
+    expect(updateName).not.toHaveBeenCalled();
+    expect(localResolver.ensureChild).not.toHaveBeenCalled();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
+  });
+
+  it('renames an active space after confirming it is not archived', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(SPACE);
+
+    const updateName = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'updateName')
+      .mockResolvedValue({ ...SPACE, name: 'Field notes' });
+
+    await expect(
+      service.renameForOwner('owner-a', SPACE_ID, { name: 'Field notes' }),
+    ).resolves.toMatchObject({
+      id: SPACE_ID,
+      name: 'Field notes',
+      archivedAt: null,
+    });
+    expect(updateName).toHaveBeenCalledWith(SPACE_ID, 'owner-a', 'Field notes');
+  });
+
+  it('refuses a rename when the row is archived before the write', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(SPACE);
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    ).mockResolvedValue(undefined);
+
+    await expect(
+      service.renameForOwner('owner-a', SPACE_ID, { name: 'Field notes' }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
+  });
+
+  it('applies a combined patch in one transaction', async () => {
+    const { service, events } = makeService('/srv/knowledge');
+    const order: Array<string> = [];
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'setArchived',
+    ).mockImplementation((_id, _owner, archived) => {
+      order.push(archived ? 'archive' : 'restore');
+
+      return Promise.resolve({
+        ...SPACE,
+        name: 'Field notes',
+        archivedAt: archived ? new Date('2026-08-24T00:00:00.000Z') : null,
+      });
+    });
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    ).mockImplementation(() => {
+      order.push('rename');
+
+      return Promise.resolve({ ...SPACE, name: 'Field notes' });
+    });
+
+    await service.updateForOwner('owner-a', SPACE_ID, {
+      name: 'Field notes',
+      archived: false,
+    });
+
+    expect(order).toEqual(['restore', 'rename']);
+    expect(events.filter((event) => event.startsWith('db:'))).toEqual([
+      'db:owner-a',
+    ]);
+  });
+
+  it('returns the current space for an empty patch without writing', async () => {
+    const { service } = makeService('/srv/knowledge');
+
+    const current = {
+      id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+      archivedAt: null,
+    };
+
+    const get = vi.spyOn(service, 'getForOwner').mockResolvedValue(current);
+
+    const lock = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {}),
+    ).resolves.toEqual(current);
+    expect(get).toHaveBeenCalledWith('owner-a', SPACE_ID);
+    expect(lock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a name when the locked row is still archived', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    const updateName = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, { name: 'Field notes' }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
+    expect(updateName).not.toHaveBeenCalled();
+  });
+
+  it('archives an active space through the combined patch', async () => {
+    const { service } = makeService('/srv/knowledge');
+    const archivedAt = new Date('2026-08-24T00:00:00.000Z');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(SPACE);
+
+    const setArchived = vi
+      .spyOn(KnowledgeSpaceRepository.prototype, 'setArchived')
+      .mockImplementation((_id, _owner, archived) =>
+        Promise.resolve({
+          ...SPACE,
+          archivedAt: archived ? archivedAt : null,
+        }),
+      );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, { archived: true }),
+    ).resolves.toMatchObject({ id: SPACE_ID, archivedAt });
+    expect(setArchived).toHaveBeenCalledWith(SPACE_ID, 'owner-a', true);
+  });
+
+  it('does not archive when the rename loses the active row', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(SPACE);
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    ).mockResolvedValue(undefined);
+
+    const setArchived = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'setArchived',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {
+        name: 'Field notes',
+        archived: true,
+      }),
+    ).rejects.toMatchObject({
+      response: {
+        message:
+          'This Knowledge Space is archived. Unarchive it before you rename it.',
+      },
+    });
+    expect(setArchived).not.toHaveBeenCalled();
+  });
+
+  it('stops when a rename finds no Space', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(undefined);
+
+    const setArchived = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'setArchived',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {
+        name: 'Field notes',
+        archived: true,
+      }),
+    ).resolves.toBeUndefined();
+    expect(setArchived).not.toHaveBeenCalled();
+  });
+
+  it('stops when the Space is missing before a later rename', async () => {
+    const { service } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwnerForUpdate',
+    ).mockResolvedValue(undefined);
+
+    const updateName = vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'updateName',
+    );
+
+    await expect(
+      service.updateForOwner('owner-a', SPACE_ID, {
+        name: 'Field notes',
+        archived: false,
+      }),
+    ).resolves.toBeUndefined();
+    expect(updateName).not.toHaveBeenCalled();
+  });
+
+  it('archives without resolving or creating a directory', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    const archivedAt = new Date('2026-08-24T00:00:00.000Z');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'setArchived',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt,
+    });
+
+    await expect(
+      service.setArchiveForOwner('owner-a', SPACE_ID, true),
+    ).resolves.toEqual({
+      id: SPACE_ID,
+      name: 'Personal',
+      createdAt: SPACE.createdAt,
+      updatedAt: SPACE.updatedAt,
+      archivedAt,
+    });
+    expect(localResolver.resolveRoot).not.toHaveBeenCalled();
+    expect(localResolver.ensureChild).not.toHaveBeenCalled();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
+  });
+
+  it('omits an archived space from explicit binding resolution', async () => {
+    const { service, localResolver } = makeService('/srv/knowledge');
+    vi.spyOn(
+      KnowledgeSpaceRepository.prototype,
+      'findByIdForOwner',
+    ).mockResolvedValue({
+      ...SPACE,
+      archivedAt: new Date('2026-08-24T00:00:00.000Z'),
+    });
+
+    await expect(
+      service.resolveBindingForOwnerById('owner-a', SPACE_ID),
+    ).resolves.toBeUndefined();
+    expect(localResolver.resolveChild).not.toHaveBeenCalled();
   });
 });

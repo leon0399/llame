@@ -47,7 +47,7 @@ const NAV_ITEMS: Array<NavItem> = [
   { label: "Gallery", icon: ImageIcon, href: "/gallery" },
   { label: "Calendar", icon: CalendarIcon, comingSoon: true },
   { label: "Email", icon: MailIcon, comingSoon: true },
-  { label: "Brain", icon: BrainIcon, comingSoon: true },
+  { label: "Brain", icon: BrainIcon, href: "/brain" },
 ];
 
 function NavMenuRow({

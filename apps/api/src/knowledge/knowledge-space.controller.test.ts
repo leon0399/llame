@@ -12,6 +12,7 @@ const SPACE = {
   name: 'Personal',
   createdAt: new Date('2026-08-23T12:00:00.000Z'),
   updatedAt: new Date('2026-08-23T12:00:00.000Z'),
+  archivedAt: null,
 };
 
 const noOp = vi.fn();
@@ -39,7 +40,7 @@ describe('KnowledgeSpaceController', () => {
       provisionForOwner,
       listForOwner: noOp,
       getForOwner: noOp,
-      renameForOwner: noOp,
+      updateForOwner: noOp,
     });
 
     const response = { setHeader: vi.fn() };
@@ -70,7 +71,7 @@ describe('KnowledgeSpaceController', () => {
       provisionForOwner: noOp,
       listForOwner,
       getForOwner: noOp,
-      renameForOwner: noOp,
+      updateForOwner: noOp,
     });
 
     await expect(
@@ -82,6 +83,7 @@ describe('KnowledgeSpaceController', () => {
     expect(listForOwner).toHaveBeenCalledWith('session-owner', {
       limit: 50,
       after: 'opaque-cursor',
+      archived: undefined,
     });
   });
 
@@ -92,7 +94,7 @@ describe('KnowledgeSpaceController', () => {
       provisionForOwner: noOp,
       listForOwner: noOp,
       getForOwner,
-      renameForOwner: noOp,
+      updateForOwner: noOp,
     });
 
     for (const owner of ['session-owner', 'other-owner']) {
@@ -105,6 +107,28 @@ describe('KnowledgeSpaceController', () => {
     }
   });
 
+  it('forwards a patch to the owner update', async () => {
+    const updateForOwner = vi.fn().mockResolvedValue(SPACE);
+
+    const controller = new KnowledgeSpaceController({
+      provisionForOwner: noOp,
+      listForOwner: noOp,
+      getForOwner: noOp,
+      updateForOwner,
+    });
+
+    await expect(
+      controller.updateKnowledgeSpace('session-owner', SPACE.id, {
+        name: 'Field notes',
+        archived: true,
+      }),
+    ).resolves.toEqual(SPACE);
+    expect(updateForOwner).toHaveBeenCalledWith('session-owner', SPACE.id, {
+      name: 'Field notes',
+      archived: true,
+    });
+  });
+
   it('maps local provisioning failures to the safe 503 response', async () => {
     const controller = new KnowledgeSpaceController({
       provisionForOwner: vi
@@ -112,7 +136,7 @@ describe('KnowledgeSpaceController', () => {
         .mockRejectedValue(new KnowledgeSpaceUnavailableError()),
       listForOwner: noOp,
       getForOwner: noOp,
-      renameForOwner: noOp,
+      updateForOwner: noOp,
     });
 
     try {

@@ -69,8 +69,9 @@ export function ChatListSidebar() {
   // subtree mounted would double the list render and query subscriptions.
   // The `hidden md:flex` classes below cover the SSR paint, where isMobile
   // is not yet known. The /projects section swaps in its own rail
-  // (ProjectListSidebar) instead of this one; /gallery and /settings have none.
-  if (isMobile || /^\/(projects|gallery|settings)(\/|$)/.test(pathname)) {
+  // (ProjectListSidebar) instead of this one; /gallery, /settings, and
+  // /brain have none.
+  if (isMobile || /^\/(projects|gallery|settings|brain)(\/|$)/.test(pathname)) {
     return null;
   }
 

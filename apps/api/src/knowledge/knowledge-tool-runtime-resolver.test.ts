@@ -75,6 +75,7 @@ describe('KnowledgeToolRuntimeResolver', () => {
       name: `Space ${index}`,
       createdAt,
       updatedAt: createdAt,
+      archivedAt: null,
     }));
 
     const listForOwnerPage = vi.fn(() => Promise.resolve(rows));

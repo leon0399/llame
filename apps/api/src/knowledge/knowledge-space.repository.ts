@@ -5,7 +5,7 @@
  * stable-ID child paths are local bindings and never enter these projections.
  */
 
-import { and, asc, eq, gt, or } from 'drizzle-orm';
+import { and, asc, eq, gt, isNotNull, isNull, or } from 'drizzle-orm';
 
 import { users } from '../db/schema/auth';
 import {
@@ -19,11 +19,15 @@ export type KnowledgeSpaceLogicalProjection = {
   id: string;
 };
 
+/** Which archive state a list includes. `active` is the default inventory. */
+export type KnowledgeSpaceArchiveScope = 'active' | 'only' | 'with';
+
 export type KnowledgeSpaceApiProjection = {
   id: string;
   name: string;
   createdAt: Date;
   updatedAt: Date;
+  archivedAt: Date | null;
 };
 
 export type KnowledgeSpaceBindingProjection = {
@@ -42,7 +46,7 @@ export function toKnowledgeSpaceLogicalProjection(
 export function toKnowledgeSpaceApiProjection(
   space: Pick<
     KnowledgeSpace,
-    'knowledgeSpaceId' | 'name' | 'createdAt' | 'updatedAt'
+    'knowledgeSpaceId' | 'name' | 'createdAt' | 'updatedAt' | 'archivedAt'
   >,
 ): KnowledgeSpaceApiProjection {
   return {
@@ -50,6 +54,7 @@ export function toKnowledgeSpaceApiProjection(
     name: space.name,
     createdAt: space.createdAt,
     updatedAt: space.updatedAt,
+    archivedAt: space.archivedAt,
   };
 }
 
@@ -77,7 +82,7 @@ export class KnowledgeSpaceRepository {
     const [row] = await this.db
       .select()
       .from(knowledgeSpaces)
-      .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
+      .where(currentOwnerCondition(ownerUserId))
       .orderBy(
         asc(knowledgeSpaces.createdAt),
         asc(knowledgeSpaces.knowledgeSpaceId),
@@ -93,7 +98,7 @@ export class KnowledgeSpaceRepository {
     const [row] = await this.db
       .select()
       .from(knowledgeSpaces)
-      .where(eq(knowledgeSpaces.ownerUserId, ownerUserId))
+      .where(currentOwnerCondition(ownerUserId))
       .orderBy(
         asc(knowledgeSpaces.createdAt),
         asc(knowledgeSpaces.knowledgeSpaceId),
@@ -163,6 +168,26 @@ export class KnowledgeSpaceRepository {
     return row;
   }
 
+  /** Locks the owner row so a rename cannot pass an archive that commits first. */
+  async findByIdForOwnerForUpdate(
+    knowledgeSpaceId: string,
+    ownerUserId: string,
+  ): Promise<KnowledgeSpace | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(knowledgeSpaces)
+      .where(
+        and(
+          eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
+          eq(knowledgeSpaces.ownerUserId, ownerUserId),
+        ),
+      )
+      .for('update')
+      .limit(1);
+
+    return row;
+  }
+
   /**
    * Returns at most `limit + 1` rows. The extra row lets the service produce a
    * next cursor without counting or materializing an uncapped inventory.
@@ -171,8 +196,12 @@ export class KnowledgeSpaceRepository {
     ownerUserId: string,
     limit: number,
     after?: KnowledgeSpaceCursor,
+    scope: KnowledgeSpaceArchiveScope = 'active',
   ): Promise<Array<KnowledgeSpace>> {
     const conditions = [eq(knowledgeSpaces.ownerUserId, ownerUserId)];
+    const scopeCondition = archiveScopeCondition(scope);
+
+    if (scopeCondition !== undefined) conditions.push(scopeCondition);
 
     if (after !== undefined) {
       conditions.push(
@@ -226,10 +255,49 @@ export class KnowledgeSpaceRepository {
         and(
           eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
           eq(knowledgeSpaces.ownerUserId, ownerUserId),
+          isNull(knowledgeSpaces.archivedAt),
         ),
       )
       .returning();
 
     return updated;
   }
+
+  async setArchived(
+    knowledgeSpaceId: string,
+    ownerUserId: string,
+    archived: boolean,
+  ): Promise<KnowledgeSpace | undefined> {
+    const [updated] = await this.db
+      .update(knowledgeSpaces)
+      .set({
+        archivedAt: archived ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(knowledgeSpaces.knowledgeSpaceId, knowledgeSpaceId),
+          eq(knowledgeSpaces.ownerUserId, ownerUserId),
+        ),
+      )
+      .returning();
+
+    return updated;
+  }
+}
+
+/** Active Spaces only. Archive removes a Space from current binding and search. */
+function currentOwnerCondition(ownerUserId: string) {
+  return and(
+    eq(knowledgeSpaces.ownerUserId, ownerUserId),
+    isNull(knowledgeSpaces.archivedAt),
+  );
+}
+
+function archiveScopeCondition(scope: KnowledgeSpaceArchiveScope) {
+  if (scope === 'only') return isNotNull(knowledgeSpaces.archivedAt);
+
+  if (scope === 'with') return undefined;
+
+  return isNull(knowledgeSpaces.archivedAt);
 }

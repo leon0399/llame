@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import {
   CreateKnowledgeSpaceDto,
+  ListKnowledgeSpacesQueryDto,
   UpdateKnowledgeSpaceDto,
 } from './knowledge-space.dto';
 
@@ -139,17 +140,41 @@ describe('Knowledge Space DTOs', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('requires a non-empty patch and rejects an explicit null', async () => {
+  it('accepts an empty patch and rejects a non-string name', async () => {
     await expect(
       pipe.transform(
         {},
         { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
       ),
-    ).rejects.toMatchObject({ status: 400 });
+    ).resolves.toEqual({});
     await expect(
       pipe.transform(
         { name: null },
         { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      pipe.transform(
+        { archived: false, name: {} },
+        { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('accepts an archive flag without a name', async () => {
+    const result: unknown = await pipe.transform(
+      { archived: true },
+      { type: 'body', metatype: UpdateKnowledgeSpaceDto, data: '' },
+    );
+
+    expect(result).toMatchObject({ archived: true });
+  });
+
+  it('rejects an unknown archive filter', async () => {
+    await expect(
+      pipe.transform(
+        { archived: 'none' },
+        { type: 'query', metatype: ListKnowledgeSpacesQueryDto, data: '' },
       ),
     ).rejects.toMatchObject({ status: 400 });
   });

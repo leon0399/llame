@@ -44,7 +44,8 @@ describe('Knowledge Space legacy-writer compatibility', () => {
         owner_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         name text NOT NULL DEFAULT 'Personal',
         created_at timestamptz NOT NULL DEFAULT now(),
-        updated_at timestamptz NOT NULL DEFAULT now()
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        archived_at timestamptz
       )`;
     tenantDb = new TenantDbService(drizzle({ client: compatSql }));
   });
