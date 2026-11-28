@@ -7,8 +7,8 @@ import { SoonChip } from "@/app/shell/soon-chip";
 
 import { MachinesSection } from "../components/machines-section";
 
-/** Shared Machines today; the owner's own Machines are a visible placeholder
- *  until owners can add them (and opt out of shared ones). */
+/** Shared Machines today; the owner's own Machines are a visible placeholder.
+ *  TODO(#1994): owners adding Machines only they can use. */
 export default function MachinesSettingsPage() {
   return (
     <SectionPage

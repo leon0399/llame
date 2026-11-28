@@ -26,10 +26,11 @@ import type { MachineResponse } from "@/lib/services/machines/queries";
  * Machines as one list, a row each: whether it answers and since when, what
  * it is, and what it needs (an older daemon). Details (roots, protocol
  * versions) open under the row. A row is the unit a nested Machine (a recipe
- * instance on this one, #1790) will indent under, which a card grid cannot
- * show. SSH destinations, jump hosts and identities never reach this shape
- * (see `GET /api/v1/machines`), so nothing here needs redacting. Shared by
- * the owner's settings and the administration area.
+ * instance on this one) will indent under, which a card grid cannot show.
+ * TODO(#1790): nest a Machine's recipe instances under its row. SSH
+ * destinations, jump hosts and identities never reach this shape (see
+ * `GET /api/v1/machines`), so nothing here needs redacting. Shared by the
+ * owner's settings and the administration area.
  */
 
 /** The daemon speaks an older protocol than the hub: it still connects, and
@@ -158,8 +159,8 @@ function MachineDetails({ machine }: { machine: MachineResponse }) {
 }
 
 /** Live load, as fractions of capacity (0–1).
- *  ponytail: the daemon reports totals only; nothing sends live usage yet, so
- *  every meter reads "—". Fill this from daemon telemetry when it exists. */
+ *  TODO(#1992): the daemon reports totals only and nothing sends live use
+ *  yet, so every meter reads "—"; pass the reading once Machines report it. */
 export type MachineLoad = { cpu: number; memory: number; disk: number };
 
 /** One resource: its name and use, a track that fills with it, and the
@@ -258,7 +259,9 @@ function DaemonVersion({ machine }: { machine: MachineResponse }) {
 
 /** The row's actions at its end: Update for an older daemon, then the use
  *  switch. Neither is built yet, so both are visible and disabled (apps/web
- *  AGENTS.md); the section above the list says they are coming. */
+ *  AGENTS.md); the section above the list says they are coming.
+ *  TODO(#1815): updating a daemon from llame. TODO(#1993): an owner turning
+ *  a shared Machine off for themselves. */
 function MachineActions({
   machine,
   choosable,
